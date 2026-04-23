@@ -1,10 +1,11 @@
 """
-One-time import of stats.xlsx into the database.
+Import stats-4-23.xlsx into the database, skipping entries that already exist.
 
 Usage:
-    python import_excel.py
+    python import_excel.py [path/to/file.xlsx]
 
-DATABASE_URL is read from the .env file or environment variable.
+Default path: 'Data files/stats-4-23.xlsx'
+DATABASE_URL is read from .env or the environment.
 """
 
 import os
@@ -18,7 +19,7 @@ import openpyxl
 from app import app, db
 from models import Category, Metric, Branch, Entry, EntryValue
 
-EXCEL_PATH = os.path.join('Data files', 'stats.xlsx')
+DEFAULT_EXCEL_PATH = os.path.join('Data files', 'stats-4-23.xlsx')
 
 # ── Column name mappings (Excel header → database metric name) ────────────────
 
@@ -78,38 +79,31 @@ BRANCH_STATS_MAP = {
 }
 
 ONLINE_STATS_MAP = {
-    'yclibrary.org - web sessions':      'yclibrary.org - Web Sessions',
-    'ychistory.org - views':             'ychistory.org - Views',
-    'patchworktales.org  - views':       'patchworktales.org - Views',
-    'Dial A Story - CALLS':              'Dial A Story - Calls',
-    'Dial A Story - VIEWS':              'Dial A Story - Views',
-    'DSpace - Views':                    'DSpace - Views',
-    'Beanstack - Sessions':              'Beanstack - Sessions',
-    'LibraryCalendar - Sessions':        'LibraryCalendar - Sessions',
-    'LibGuides - Sessions':              'LibGuides - Sessions',
-    'DigitalLearn.org - Sessions':       'DigitalLearn.org - Sessions',
-    'DigitalLearn.org - Completed Courses': 'DigitalLearn.org - Completed Courses',
-    'LOTE4Kids - Stories Watched':       'LOTE4Kids - Stories Watched',
-    'LOTE4Kids - Actvitities':           'LOTE4Kids - Activities',
-    'LOTE4Kids - Logins':                'LOTE4Kids - Logins',
-    'Youtube - Subscribers':             'YouTube - Subscribers',
-    'YouTube - Views':                   'YouTube - Views',
-    'YouTube - Hours Watched':           'YouTube - Hours Watched',
-    'YCL News - Subscriber':             'YCL News - Subscribers',
-    'Website Messages':                  'Website Messages',
-    'YCL - App - Users':                 'YCL App - Users',
-    'YCL - App - Sessions':              'YCL App - Sessions',
-    'Facebook Followers':                'Facebook Followers',
-    'Instragram - Subscribers':          'Instagram - Subscribers',
-    'YouTube Uploads':                   'YouTube Uploads',
-    'Dial A Story Uploads':              'Dial A Story Uploads',
-}
-
-ERESOURCES_MAP = {
-    'E-Book Circ':    'E-Book Circulation',
-    'E-Audio Circ':   'E-Audio Circulation',
-    'E-Video Circ':   'E-Video Circulation',
-    'E-Serials Circ': 'E-Serials Circulation',
+    'yclibrary.org - web sessions':        'yclibrary.org - Web Sessions',
+    'ychistory.org - views':               'ychistory.org - Views',
+    'patchworktales.org  - views':         'patchworktales.org - Views',
+    'Dial A Story - CALLS':                'Dial A Story - Calls',
+    'Dial A Story - VIEWS':                'Dial A Story - Views',
+    'DSpace - Views':                      'DSpace - Views',
+    'Beanstack - Sessions':                'Beanstack - Sessions',
+    'LibraryCalendar - Sessions':          'LibraryCalendar - Sessions',
+    'LibGuides - Sessions':                'LibGuides - Sessions',
+    'DigitalLearn.org - Sessions':         'DigitalLearn.org - Sessions',
+    'DigitalLearn.org - Completed Courses':'DigitalLearn.org - Completed Courses',
+    'LOTE4Kids - Stories Watched':         'LOTE4Kids - Stories Watched',
+    'LOTE4Kids - Actvitities':             'LOTE4Kids - Activities',
+    'LOTE4Kids - Logins':                  'LOTE4Kids - Logins',
+    'Youtube - Subscribers':               'YouTube - Subscribers',
+    'YouTube - Views':                     'YouTube - Views',
+    'YouTube - Hours Watched':             'YouTube - Hours Watched',
+    'YCL News - Subscriber':               'YCL News - Subscribers',
+    'Website Messages':                    'Website Messages',
+    'YCL - App - Users':                   'YCL App - Users',
+    'YCL - App - Sessions':                'YCL App - Sessions',
+    'Facebook Followers':                  'Facebook Followers',
+    'Instragram - Subscribers':            'Instagram - Subscribers',
+    'YouTube Uploads':                     'YouTube Uploads',
+    'Dial A Story Uploads':                'Dial A Story Uploads',
 }
 
 QRTLY_MAP = {
@@ -124,17 +118,18 @@ _MONTH_NAMES = {
 }
 
 def parse_month(val):
-    """Return 1-12 from a datetime (day==month in this dataset) or month name string."""
     if val is None:
         return None
     if isinstance(val, datetime):
         return val.month
+    if isinstance(val, (int, float)):
+        v = int(val)
+        return v if 1 <= v <= 12 else None
     if isinstance(val, str):
         return _MONTH_NAMES.get(val.strip().lower())
     return None
 
 def parse_quarter(val):
-    """Return 1-4 from strings like 'Quarter 2 - 10-October'."""
     if isinstance(val, str) and val.lower().startswith('quarter'):
         try:
             return int(val.split()[1])
@@ -143,35 +138,36 @@ def parse_quarter(val):
     return None
 
 def col_index(headers, name):
-    """Return column index for an exact header name, or None."""
     try:
         return list(headers).index(name)
     except ValueError:
         return None
 
 def build_metric_lookup(category_name):
-    """Return {metric_name: Metric} for a category."""
     cat = Category.query.filter_by(name=category_name).first()
     if not cat:
         return {}, None
     return {m.name: m for m in cat.metrics}, cat
 
 def build_branch_lookup():
-    """Return a dict that matches branch names case-insensitively plus known aliases."""
     branches = Branch.query.all()
     lookup = {}
     for b in branches:
-        lookup[b.name] = b
-        lookup[b.name.lower()] = b
-        lookup[b.name.upper()] = b
+        lookup[b.name.strip()]       = b
+        lookup[b.name.strip().lower()] = b
+        lookup[b.name.strip().upper()] = b
 
-    # Aliases for variations found in the Excel file
     _aliases = {
-        'OUTREACH / BOOKMOBILE': 'Bookmobile/Outreach',
-        'Outreach / Bookmobile': 'Bookmobile/Outreach',
-        'outreach / bookmobile': 'Bookmobile/Outreach',
-        'BOOKMOBILE/OUTREACH':   'Bookmobile/Outreach',
-        'YCL SYSTEM WIDE':       'YCL (System Wide)',
+        'OUTREACH / BOOKMOBILE':  'Bookmobile/Outreach',
+        'Outreach / Bookmobile':  'Bookmobile/Outreach',
+        'outreach / bookmobile':  'Bookmobile/Outreach',
+        'OUTREACH/BOOKMOBILE':    'Bookmobile/Outreach',
+        'outreach/bookmobile':    'Bookmobile/Outreach',
+        'BOOKMOBILE/OUTREACH':    'Bookmobile/Outreach',
+        'OUTREACH / BKM':         'Bookmobile/Outreach',
+        'Outreach / BKM':         'Bookmobile/Outreach',
+        'YCL SYSTEM WIDE':        'YCL (System Wide)',
+        'YCL (SYSTEM WIDE)':      'YCL (System Wide)',
     }
     for alias, canonical in _aliases.items():
         if canonical in lookup:
@@ -179,17 +175,34 @@ def build_branch_lookup():
 
     return lookup
 
+def entry_exists_monthly(cat_id, branch_id, year, month):
+    q = Entry.query.filter_by(category_id=cat_id, year=year, month=month)
+    if branch_id is None:
+        q = q.filter(Entry.branch_id.is_(None))
+    else:
+        q = q.filter_by(branch_id=branch_id)
+    return q.first() is not None
+
+def entry_exists_quarterly(cat_id, branch_id, year, quarter):
+    q = Entry.query.filter_by(category_id=cat_id, year=year, quarter=quarter)
+    if branch_id is None:
+        q = q.filter(Entry.branch_id.is_(None))
+    else:
+        q = q.filter_by(branch_id=branch_id)
+    return q.first() is not None
+
 # ── Sheet importers ───────────────────────────────────────────────────────────
 
 def import_branch_stats(ws, cat, metric_lookup, branch_lookup):
     rows = list(ws.iter_rows(values_only=True))
     headers = rows[0]
 
-    year_idx    = col_index(headers, 'Year')
-    month_idx   = col_index(headers, 'Month')
-    branch_idx  = col_index(headers, 'BRANCH')
+    year_idx   = col_index(headers, 'Year')
+    month_idx  = col_index(headers, 'Month Num')   # use numeric month column
+    if month_idx is None:
+        month_idx = col_index(headers, 'Month')    # fallback to name
+    branch_idx = col_index(headers, 'BRANCH')
 
-    # Map column index → Metric object
     col_metric = {}
     for i, h in enumerate(headers):
         if h and h in BRANCH_STATS_MAP:
@@ -197,8 +210,6 @@ def import_branch_stats(ws, cat, metric_lookup, branch_lookup):
             if m:
                 col_metric[i] = m
 
-    # Accumulate: (year, month, branch_id) → {metric_id: value}
-    # Multiple Excel rows for the same period/branch are merged.
     buckets = {}
     skipped_branches = set()
 
@@ -210,11 +221,14 @@ def import_branch_stats(ws, cat, metric_lookup, branch_lookup):
         month_raw   = row[month_idx]  if month_idx  is not None else None
         branch_name = row[branch_idx] if branch_idx is not None else None
 
+        if branch_name:
+            branch_name = str(branch_name).strip()
+
         month = parse_month(month_raw)
         if not year or not month or not branch_name:
             continue
 
-        branch = branch_lookup.get(branch_name)
+        branch = branch_lookup.get(branch_name) or branch_lookup.get(branch_name.upper())
         if branch is None:
             skipped_branches.add(branch_name)
             continue
@@ -230,9 +244,12 @@ def import_branch_stats(ws, cat, metric_lookup, branch_lookup):
     if skipped_branches:
         print(f"  Warning: unrecognised branches skipped: {skipped_branches}")
 
-    created = 0
+    created = skipped = 0
     for (year, month, branch_id), values in buckets.items():
         if not values:
+            continue
+        if entry_exists_monthly(cat.id, branch_id, year, month):
+            skipped += 1
             continue
         entry = Entry(category_id=cat.id, branch_id=branch_id,
                       year=year, month=month, submitted_by='Excel Import')
@@ -244,20 +261,22 @@ def import_branch_stats(ws, cat, metric_lookup, branch_lookup):
         created += 1
 
     db.session.commit()
-    print(f"  Branch Stats: {created} entries imported")
+    print(f"  Branch Stats: {created} new entries, {skipped} already existed (skipped)")
 
 
-def import_sheet_no_branch(ws, cat, metric_lookup, col_map, sheet_label):
+def import_online_stats(ws, cat, metric_lookup):
     rows = list(ws.iter_rows(values_only=True))
     headers = rows[0]
 
     year_idx  = col_index(headers, 'Year')
-    month_idx = col_index(headers, 'Month')
+    month_idx = col_index(headers, 'Month Num')
+    if month_idx is None:
+        month_idx = col_index(headers, 'Month')
 
     col_metric = {}
     for i, h in enumerate(headers):
-        if h and h in col_map:
-            m = metric_lookup.get(col_map[h])
+        if h and h in ONLINE_STATS_MAP:
+            m = metric_lookup.get(ONLINE_STATS_MAP[h])
             if m:
                 col_metric[i] = m
 
@@ -265,25 +284,24 @@ def import_sheet_no_branch(ws, cat, metric_lookup, col_map, sheet_label):
     for row in rows[1:]:
         if all(v is None for v in row):
             continue
-
         year      = row[year_idx]  if year_idx  is not None else None
         month_raw = row[month_idx] if month_idx is not None else None
         month     = parse_month(month_raw)
-
         if not year or not month:
             continue
-
         key = (int(year), month)
         if key not in buckets:
             buckets[key] = {}
-
         for i, val in enumerate(row):
             if i in col_metric and val is not None:
                 buckets[key][col_metric[i].id] = float(val)
 
-    created = 0
+    created = skipped = 0
     for (year, month), values in buckets.items():
         if not values:
+            continue
+        if entry_exists_monthly(cat.id, None, year, month):
+            skipped += 1
             continue
         entry = Entry(category_id=cat.id, year=year, month=month,
                       submitted_by='Excel Import')
@@ -295,7 +313,7 @@ def import_sheet_no_branch(ws, cat, metric_lookup, col_map, sheet_label):
         created += 1
 
     db.session.commit()
-    print(f"  {sheet_label}: {created} entries imported")
+    print(f"  Online Stats: {created} new entries, {skipped} already existed (skipped)")
 
 
 def import_quarterly_ref(ws, cat, metric_lookup, branch_lookup):
@@ -312,7 +330,8 @@ def import_quarterly_ref(ws, cat, metric_lookup, branch_lookup):
         print("  Quarterly Ref Stats: metric not found, skipping")
         return
 
-    created = 0
+    # Merge multiple rows for same (year, quarter, branch)
+    buckets = {}
     skipped_branches = set()
 
     for row in rows[1:]:
@@ -324,78 +343,85 @@ def import_quarterly_ref(ws, cat, metric_lookup, branch_lookup):
         branch_name = row[branch_idx]  if branch_idx  is not None else None
         val         = row[value_idx]   if value_idx   is not None else None
 
+        if branch_name:
+            branch_name = str(branch_name).strip()
+
         quarter = parse_quarter(quarter_raw)
         if not year or not quarter or not branch_name or val is None:
             continue
 
-        branch = branch_lookup.get(branch_name)
+        branch = branch_lookup.get(branch_name) or branch_lookup.get(branch_name.upper())
         if branch is None:
             skipped_branches.add(branch_name)
             continue
 
-        entry = Entry(category_id=cat.id, branch_id=branch.id,
+        key = (int(year), quarter, branch.id)
+        buckets[key] = buckets.get(key, 0) + float(val)
+
+    if skipped_branches:
+        print(f"  Warning: unrecognised branches skipped: {skipped_branches}")
+
+    created = skipped = 0
+    for (year, quarter, branch_id), total_val in buckets.items():
+        if entry_exists_quarterly(cat.id, branch_id, year, quarter):
+            skipped += 1
+            continue
+        entry = Entry(category_id=cat.id, branch_id=branch_id,
                       year=int(year), quarter=quarter, submitted_by='Excel Import')
         db.session.add(entry)
         db.session.flush()
         db.session.add(EntryValue(entry_id=entry.id, metric_id=metric.id,
-                                  value_number=float(val)))
+                                  value_number=total_val))
         created += 1
 
     db.session.commit()
     if skipped_branches:
         print(f"  Warning: unrecognised branches skipped: {skipped_branches}")
-    print(f"  Quarterly Ref Stats: {created} entries imported")
+    print(f"  Quarterly Ref Stats: {created} new entries, {skipped} already existed (skipped)")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def run():
-    if not os.path.exists(EXCEL_PATH):
-        print(f"ERROR: Cannot find {EXCEL_PATH}")
+def run(excel_path=None):
+    path = excel_path or DEFAULT_EXCEL_PATH
+    if not os.path.exists(path):
+        print(f"ERROR: Cannot find {path}")
         sys.exit(1)
 
-    print(f"Opening {EXCEL_PATH} ...")
-    wb = openpyxl.load_workbook(EXCEL_PATH, data_only=True)
+    print(f"Opening {path} ...")
+    wb = openpyxl.load_workbook(path, data_only=True)
 
     with app.app_context():
         branch_lookup = build_branch_lookup()
 
-        # Branch Stats
         print("\nImporting Branch Stats ...")
         metric_lookup, cat = build_metric_lookup('Branch Stats')
-        if cat:
+        if cat and 'Branch Stats' in wb.sheetnames:
             import_branch_stats(wb['Branch Stats'], cat, metric_lookup, branch_lookup)
         else:
-            print("  Category 'Branch Stats' not found in database — skipping")
+            print("  Skipped (category or sheet not found)")
 
-        # eResources
-        print("\nImporting eResources ...")
-        metric_lookup, cat = build_metric_lookup('eResources')
-        if cat:
-            import_sheet_no_branch(wb['eResources'], cat, metric_lookup,
-                                   ERESOURCES_MAP, 'eResources')
-        else:
-            print("  Category 'eResources' not found — skipping")
-
-        # Online Stats
         print("\nImporting Online Stats ...")
         metric_lookup, cat = build_metric_lookup('Online Stats')
-        if cat:
-            import_sheet_no_branch(wb['Online Stats'], cat, metric_lookup,
-                                   ONLINE_STATS_MAP, 'Online Stats')
+        if cat and 'Online Stats' in wb.sheetnames:
+            import_online_stats(wb['Online Stats'], cat, metric_lookup)
         else:
-            print("  Category 'Online Stats' not found — skipping")
+            print("  Skipped (category or sheet not found)")
 
-        # Quarterly Reference Stats
         print("\nImporting Quarterly Reference Stats ...")
         metric_lookup, cat = build_metric_lookup('Quarterly Reference Stats')
-        if cat:
+        if cat and 'Qrtly Ref Stats' in wb.sheetnames:
             import_quarterly_ref(wb['Qrtly Ref Stats'], cat, metric_lookup, branch_lookup)
         else:
-            print("  Category 'Quarterly Reference Stats' not found — skipping")
+            print("  Skipped (category or sheet not found)")
+
+        print("\nNOTE: eResources sheet skipped — its column structure (ABCmouse,")
+        print("  Biblioboard, hoopla, etc.) does not match the current eResources")
+        print("  metrics in the database. Update via Admin > Categories if needed.")
 
         print("\nDone!")
 
 
 if __name__ == '__main__':
-    run()
+    path = sys.argv[1] if len(sys.argv) > 1 else None
+    run(path)

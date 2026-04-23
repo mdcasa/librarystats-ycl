@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file
 from models import db, Category, Metric, Branch, Entry, EntryValue
 from datetime import datetime
 import os
@@ -480,121 +480,6 @@ def report_monthly():
                            category=category, table=table, branches=branches)
 
 
-@app.route('/reports/annual')
-def report_annual():
-    cat_id = request.args.get('category', type=int)
-    year   = request.args.get('year',     type=int)
-
-    categories = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
-    available_years = [r[0] for r in db.session.query(Entry.year).distinct()
-                                                .order_by(Entry.year.desc()).all()]
-    table = branches = category = None
-
-    if cat_id and year:
-        category = Category.query.get_or_404(cat_id)
-        metrics  = Metric.query.filter_by(category_id=cat_id, is_active=True).order_by(Metric.sort_order).all()
-        entries  = Entry.query.filter_by(category_id=cat_id, year=year).all()
-
-        if category.has_branch:
-            bid_set  = {e.branch_id for e in entries if e.branch_id}
-            branches = sorted(
-                [b for b in (Branch.query.get(bid) for bid in bid_set) if b],
-                key=lambda b: b.name
-            )
-        else:
-            branches = []
-
-        branch_list = branches if branches else [None]
-        totals = {}
-        for e in entries:
-            key = e.branch_id if category.has_branch else None
-            if key not in totals:
-                totals[key] = {}
-            for ev in e.values:
-                if ev.value_number is not None:
-                    totals[key][ev.metric_id] = totals[key].get(ev.metric_id, 0) + ev.value_number
-
-        table = report_data_table(metrics, branch_list, totals)
-
-    return render_template('reports/annual.html',
-                           categories=categories, available_years=available_years,
-                           sel_cat=cat_id, sel_year=year,
-                           category=category, table=table, branches=branches)
-
-
-@app.route('/reports/crosstab')
-def report_crosstab():
-    cat_id = request.args.get('category', type=int)
-    year   = request.args.get('year',     type=int)
-    period = request.args.get('period', 'annual')  # 'annual', '1'-'12', or 'Q1'-'Q4'
-
-    categories  = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
-    available_years = [r[0] for r in db.session.query(Entry.year).distinct()
-                                                .order_by(Entry.year.desc()).all()]
-
-    def _period_options(cat):
-        if cat.frequency == 'monthly':
-            return [('annual', 'Annual Total')] + [(str(i), MONTHS[i - 1]) for i in range(1, 13)]
-        if cat.frequency == 'quarterly':
-            return [('annual', 'Annual Total')] + [(f'Q{i}', f'Q{i}') for i in range(1, 5)]
-        return [('annual', 'Annual Total')]
-
-    cat_periods_json = {c.id: [{'val': v, 'label': l} for v, l in _period_options(c)]
-                        for c in categories}
-
-    table = branches = category = period_options = period_label = None
-
-    if cat_id:
-        category = Category.query.get_or_404(cat_id)
-        period_options = _period_options(category)
-
-    if cat_id and year:
-        metrics = Metric.query.filter_by(category_id=cat_id, is_active=True).order_by(Metric.sort_order).all()
-
-        q = Entry.query.filter_by(category_id=cat_id, year=year)
-        if period != 'annual':
-            if period.startswith('Q'):
-                q = q.filter_by(quarter=int(period[1]))
-                period_label = f'{period} {year}'
-            else:
-                mo = int(period)
-                q = q.filter_by(month=mo)
-                period_label = f'{MONTHS[mo - 1]} {year}'
-        else:
-            period_label = f'{year} Annual Total'
-
-        entries = q.all()
-
-        if category.has_branch:
-            bid_set  = {e.branch_id for e in entries if e.branch_id}
-            branches = sorted(
-                [b for b in (Branch.query.get(bid) for bid in bid_set) if b],
-                key=lambda b: b.name
-            )
-        else:
-            branches = []
-
-        branch_list = branches if branches else [None]
-        totals = {}
-        for e in entries:
-            key = e.branch_id if category.has_branch else None
-            if key not in totals:
-                totals[key] = {}
-            for ev in e.values:
-                if ev.value_number is not None:
-                    totals[key][ev.metric_id] = totals[key].get(ev.metric_id, 0) + ev.value_number
-
-        table = report_data_table(metrics, branch_list, totals)
-
-    return render_template('reports/crosstab.html',
-                           categories=categories, available_years=available_years,
-                           cat_periods_json=cat_periods_json,
-                           period_options=period_options or [],
-                           sel_cat=cat_id, sel_year=year, sel_period=period,
-                           period_label=period_label,
-                           category=category, table=table, branches=branches)
-
-
 @app.route('/reports/trend')
 def report_trend():
     cat_id     = request.args.get('category', type=int)
@@ -933,6 +818,129 @@ def report_fiscal():
                            sel_cat=cat_id, sel_fy=fy_year,
                            category=category, table=table, branches=branches,
                            fy_label=fy_label)
+
+
+@app.route('/admin/export')
+def admin_export():
+    import io
+    from export_excel import generate_export
+    buf = generate_export()
+    filename = f'library_stats_{datetime.now().strftime("%Y%m%d")}.xlsx'
+    return send_file(
+        buf,
+        download_name=filename,
+        as_attachment=True,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+
+
+@app.route('/reports/monthlystats')
+def report_monthly_stats():
+    month = request.args.get('month', type=int)
+    year  = request.args.get('year',  type=int)
+
+    available_years = sorted(
+        {r[0] for r in db.session.query(Entry.year).distinct().all()},
+        reverse=True
+    )
+
+    sections = prev_year = None
+
+    if month and year:
+        prev_year = year - 1
+
+        def get_sums(cat_name, y, m):
+            cat = Category.query.filter_by(name=cat_name).first()
+            if not cat:
+                return {}
+            entries = Entry.query.filter_by(category_id=cat.id, year=y, month=m).all()
+            id_to_name = {mx.id: mx.name for mx in cat.metrics}
+            totals = {}
+            for e in entries:
+                for ev in e.values:
+                    n = id_to_name.get(ev.metric_id)
+                    if n and ev.value_number is not None:
+                        totals[n] = totals.get(n, 0) + ev.value_number
+            return totals
+
+        bs_c = get_sums('Branch Stats', year,      month)
+        bs_p = get_sums('Branch Stats', prev_year, month)
+        os_c = get_sums('Online Stats', year,      month)
+        os_p = get_sums('Online Stats', prev_year, month)
+
+        AGE  = ['0-5', '6-11', '12-18', '19+', 'General Interest']
+        TYPE = ['ONSITE', 'OFFSITE', 'VIRTUAL']
+
+        def prog(sums, kind, age):
+            return sum(sums.get(f'{t} {kind} {age}', 0) for t in TYPE) or None
+
+        def pair(curr, prev, label):
+            return {'label': label, 'curr': curr, 'prev': prev}
+
+        sections = [
+            {
+                'title': 'Circulation & Door Count',
+                'color': '#1a5276',
+                'items': [
+                    pair(bs_c.get('Total Branch Circulation'), bs_p.get('Total Branch Circulation'), 'Monthly Circulation'),
+                    pair(bs_c.get('Gate Count'),               bs_p.get('Gate Count'),               'Monthly Gate Count'),
+                    pair(bs_c.get('Locker Circulation'),       bs_p.get('Locker Circulation'),       'Locker Checkouts'),
+                ],
+            },
+            {
+                'title': 'New Library Cards',
+                'color': '#1e8449',
+                'items': [
+                    pair(bs_c.get('New Library Card Registrations, Adult'), bs_p.get('New Library Card Registrations, Adult'), 'New Cards, Adult (incl. YA)'),
+                    pair(bs_c.get('New Library Card Registrations, Juvenile'), bs_p.get('New Library Card Registrations, Juvenile'), 'New Cards, Juvenile'),
+                ],
+            },
+            {
+                'title': 'Monthly Program Sessions',
+                'color': '#6c3483',
+                'items': [pair(prog(bs_c,'Sessions',a), prog(bs_p,'Sessions',a), f'Sessions {a}') for a in AGE],
+            },
+            {
+                'title': 'Monthly Program Attendance',
+                'color': '#784212',
+                'items': [pair(prog(bs_c,'Attendance',a), prog(bs_p,'Attendance',a), f'Attendance {a}') for a in AGE],
+            },
+            {
+                'title': 'Online Usage',
+                'color': '#117a65',
+                'items': [
+                    pair(os_c.get('yclibrary.org - Web Sessions'), os_p.get('yclibrary.org - Web Sessions'), 'Website Hits'),
+                    pair(os_c.get('Website Messages'),             os_p.get('Website Messages'),             'Contact Us'),
+                    pair(os_c.get('YCL App - Users'),              os_p.get('YCL App - Users'),              'YCL App Users'),
+                    pair(os_c.get('YCL App - Sessions'),           os_p.get('YCL App - Sessions'),           'YCL App Sessions'),
+                ],
+            },
+            {
+                'title': 'Social Media',
+                'color': '#1a5276',
+                'items': [
+                    pair(os_c.get('Instagram - Subscribers'), os_p.get('Instagram - Subscribers'), 'Instagram Subscriptions'),
+                    pair(os_c.get('Facebook Followers'),       os_p.get('Facebook Followers'),       'Facebook Followers'),
+                    pair(os_c.get('YouTube - Views'),          os_p.get('YouTube - Views'),          'YouTube Views'),
+                    pair(os_c.get('YouTube - Subscribers'),    os_p.get('YouTube - Subscribers'),    'YouTube Subscribers'),
+                ],
+            },
+            {
+                'title': 'Technology Use',
+                'color': '#922b21',
+                'items': [
+                    pair(bs_c.get('PC Reservations'),       bs_p.get('PC Reservations'),       'Monthly PC Reservations'),
+                    pair(bs_c.get('WiFi - Unique Sessions'), bs_p.get('WiFi - Unique Sessions'), 'WiFi – Unique Sessions'),
+                    pair(bs_c.get('Hotspots Circulation'),  bs_p.get('Hotspots Circulation'),  'Hotspots – Circulation'),
+                    pair(bs_c.get('Total Prints per Month'), bs_p.get('Total Prints per Month'), 'Monthly Total Prints'),
+                ],
+            },
+        ]
+
+    return render_template('reports/monthly_stats.html',
+                           months=MONTHS, available_years=available_years,
+                           sel_month=month, sel_year=year, prev_year=prev_year,
+                           sections=sections)
 
 
 if __name__ == '__main__':

@@ -1,6 +1,7 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, session
 from models import db, Category, Metric, Branch, Entry, EntryValue
 from datetime import datetime
+import hmac
 import os
 
 app = Flask(__name__)
@@ -46,6 +47,42 @@ with app.app_context():
 
 MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
           'July', 'August', 'September', 'October', 'November', 'December']
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+
+_PUBLIC_ENDPOINTS = {'login', 'logout', 'static'}
+
+
+@app.before_request
+def require_login():
+    if request.endpoint not in _PUBLIC_ENDPOINTS and not session.get('logged_in'):
+        return redirect(url_for('login', next=request.path))
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if session.get('logged_in'):
+        return redirect(url_for('index'))
+    error = None
+    if request.method == 'POST':
+        username = request.form.get('username', '')
+        password = request.form.get('password', '')
+        valid_user = os.environ.get('LOGIN_USERNAME', 'admin')
+        valid_pass = os.environ.get('LOGIN_PASSWORD', '')
+        if (hmac.compare_digest(username, valid_user) and
+                hmac.compare_digest(password, valid_pass) and valid_pass):
+            session.permanent = True
+            session['logged_in'] = True
+            next_url = request.args.get('next') or url_for('index')
+            return redirect(next_url)
+        error = 'Invalid username or password.'
+    return render_template('login.html', error=error)
+
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
 
 
 def group_metrics(metrics):

@@ -16,6 +16,13 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
 
+# Runs for both `python app.py` and gunicorn
+with app.app_context():
+    db.create_all()
+    if Category.query.count() == 0:
+        from seed_data import seed
+        seed(db)
+
 MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
           'July', 'August', 'September', 'October', 'November', 'December']
 
@@ -378,12 +385,5 @@ def admin_branch_delete(branch_id):
     return redirect(url_for('admin_branches'))
 
 
-# ── Startup ───────────────────────────────────────────────────────────────────
-
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-        if Category.query.count() == 0:
-            from seed_data import seed
-            seed(db)
     app.run(debug=True, host='0.0.0.0', port=5000)

@@ -1,0 +1,153 @@
+{% extends 'base.html' %}
+{% block title %}Edit {{ cat.name }} – Admin – Library Stats{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb small">
+    <li class="breadcrumb-item"><a href="{{ url_for('admin_categories') }}">Categories</a></li>
+    <li class="breadcrumb-item active">{{ cat.name }}</li>
+  </ol>
+</nav>
+
+<h1 class="h4 fw-bold mb-4"><i class="bi bi-tag me-2 text-primary"></i>{{ cat.name }}</h1>
+
+{# ── Edit category ── #}
+<div class="card mb-4">
+  <div class="card-header-custom fw-semibold">Category Settings</div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('admin_category_edit', cat_id=cat.id) }}"
+          class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label">Name <span class="text-danger">*</span></label>
+        <input type="text" name="name" class="form-control" value="{{ cat.name }}" required>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Description</label>
+        <input type="text" name="description" class="form-control" value="{{ cat.description or '' }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Frequency</label>
+        <select name="frequency" class="form-select">
+          <option value="monthly"   {% if cat.frequency == 'monthly'   %}selected{% endif %}>Monthly</option>
+          <option value="quarterly" {% if cat.frequency == 'quarterly' %}selected{% endif %}>Quarterly</option>
+          <option value="annual"    {% if cat.frequency == 'annual'    %}selected{% endif %}>Annual</option>
+        </select>
+      </div>
+      <div class="col-md-2 d-flex align-items-end">
+        <div class="form-check mb-2">
+          <input type="checkbox" name="has_branch" id="has_branch_edit" class="form-check-input"
+                 {{ 'checked' if cat.has_branch }}>
+          <label for="has_branch_edit" class="form-check-label">Per-branch</label>
+        </div>
+      </div>
+      <div class="col-12">
+        <button type="submit" class="btn btn-primary btn-sm">
+          <i class="bi bi-check-lg me-1"></i>Save
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ── Metrics list ── #}
+<div class="card mb-4">
+  <div class="card-header-custom d-flex justify-content-between align-items-center fw-semibold">
+    <span>Metrics ({{ metrics|length }})</span>
+    <span class="text-muted fw-normal small">Ordered by sort order</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table mb-0 align-middle">
+      <thead class="table-light">
+        <tr>
+          <th style="width:5%">#</th>
+          <th>Name</th>
+          <th>Group</th>
+          <th>Type</th>
+          <th>Status</th>
+          <th class="text-end">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in metrics %}
+        <tr class="{{ 'text-muted' if not m.is_active }}">
+          <td class="text-muted small">{{ m.sort_order }}</td>
+          <td>
+            {{ m.name }}
+            {% if m.description %}
+            <div class="text-muted small">{{ m.description }}</div>
+            {% endif %}
+          </td>
+          <td class="text-muted small">{{ m.group_name or '—' }}</td>
+          <td><span class="badge bg-light text-dark border">{{ m.data_type }}</span></td>
+          <td>
+            <span class="badge {{ 'bg-success' if m.is_active else 'bg-secondary' }}">
+              {{ 'Active' if m.is_active else 'Inactive' }}
+            </span>
+          </td>
+          <td class="text-end">
+            <a href="{{ url_for('admin_metric_edit', metric_id=m.id) }}"
+               class="btn btn-xs btn-outline-primary me-1">Edit</a>
+            <form method="post" action="{{ url_for('admin_metric_toggle', metric_id=m.id) }}"
+                  class="d-inline">
+              <button class="btn btn-xs btn-outline-secondary me-1">
+                {{ 'Deactivate' if m.is_active else 'Activate' }}
+              </button>
+            </form>
+            <form method="post" action="{{ url_for('admin_metric_delete', metric_id=m.id) }}"
+                  class="d-inline"
+                  onsubmit="return confirm('Delete metric \'{{ m.name }}\'?')">
+              <button class="btn btn-xs btn-outline-danger">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-muted py-3">No metrics yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ── Add metric ── #}
+<div class="card">
+  <div class="card-header-custom fw-semibold">Add Metric</div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('admin_metric_add', cat_id=cat.id) }}"
+          class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label">Name <span class="text-danger">*</span></label>
+        <input type="text" name="name" class="form-control" placeholder="e.g. Gate Count" required>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Group name</label>
+        <input type="text" name="group_name" class="form-control"
+               placeholder="e.g. Circulation"
+               list="existing-groups">
+        <datalist id="existing-groups">
+          {% set groups = metrics | map(attribute='group_name') | select | unique | list %}
+          {% for g in groups %}
+          <option value="{{ g }}">
+          {% endfor %}
+        </datalist>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Data type</label>
+        <select name="data_type" class="form-select">
+          <option value="integer">Integer</option>
+          <option value="decimal">Decimal</option>
+          <option value="text">Text</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Description <span class="text-muted">(optional)</span></label>
+        <input type="text" name="description" class="form-control" placeholder="Tooltip text">
+      </div>
+      <div class="col-12">
+        <button type="submit" class="btn btn-primary btn-sm">
+          <i class="bi bi-plus-lg me-1"></i>Add Metric
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

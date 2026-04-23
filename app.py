@@ -461,7 +461,12 @@ def report_monthly():
             if e.branch_id not in data:
                 data[e.branch_id] = {}
             for ev in e.values:
-                data[e.branch_id][ev.metric_id] = ev.display_value
+                # Store raw float so report_data_table can compute row totals;
+                # fall back to text for text-type metrics
+                if ev.metric.data_type == 'text':
+                    data[e.branch_id][ev.metric_id] = ev.value_text or ''
+                else:
+                    data[e.branch_id][ev.metric_id] = ev.value_number
 
         branches = sorted(
             [b for b in (Branch.query.get(bid) for bid in branch_set) if b],
@@ -862,6 +867,72 @@ def report_yoy():
                            sel_mode=mode, sel_years=years,
                            category=category, metric=metric,
                            col_headers=col_headers, table=table, chart_data=chart_data)
+
+
+@app.route('/reports/fiscal')
+def report_fiscal():
+    from sqlalchemy import or_, and_
+    cat_id  = request.args.get('category', type=int)
+    fy_year = request.args.get('fy_year',  type=int)  # FY2025 = Jul 2024 – Jun 2025
+
+    categories = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
+
+    # Derive available fiscal years from any entry that has a month or quarter
+    rows = db.session.query(Entry.year, Entry.month, Entry.quarter).filter(
+        or_(Entry.month.isnot(None), Entry.quarter.isnot(None))
+    ).distinct().all()
+    fy_set = set()
+    for yr, mo, q in rows:
+        if mo is not None:
+            fy_set.add(yr + 1 if mo >= 7 else yr)
+        if q is not None:
+            fy_set.add(yr + 1 if q in (3, 4) else yr)
+    available_fy = sorted(fy_set, reverse=True)
+
+    table = branches = category = fy_label = None
+
+    if cat_id and fy_year:
+        category = Category.query.get_or_404(cat_id)
+        metrics  = Metric.query.filter_by(category_id=cat_id, is_active=True).order_by(Metric.sort_order).all()
+        fy_label = f'FY{fy_year}  (Jul {fy_year - 1} – Jun {fy_year})'
+
+        # Monthly categories: months 7-12 of fy_year-1 and months 1-6 of fy_year
+        # Quarterly categories: Q3+Q4 of fy_year-1 and Q1+Q2 of fy_year
+        entries = Entry.query.filter_by(category_id=cat_id).filter(
+            or_(
+                and_(Entry.year == fy_year - 1,
+                     or_(Entry.month >= 7, Entry.quarter.in_([3, 4]))),
+                and_(Entry.year == fy_year,
+                     or_(Entry.month <= 6, Entry.quarter.in_([1, 2])))
+            )
+        ).all()
+
+        if category.has_branch:
+            bid_set  = {e.branch_id for e in entries if e.branch_id}
+            branches = sorted(
+                [b for b in (Branch.query.get(bid) for bid in bid_set) if b],
+                key=lambda b: b.name
+            )
+        else:
+            branches = []
+
+        branch_list = branches if branches else [None]
+        totals = {}
+        for e in entries:
+            key = e.branch_id if category.has_branch else None
+            if key not in totals:
+                totals[key] = {}
+            for ev in e.values:
+                if ev.value_number is not None:
+                    totals[key][ev.metric_id] = totals[key].get(ev.metric_id, 0) + ev.value_number
+
+        table = report_data_table(metrics, branch_list, totals)
+
+    return render_template('reports/fiscal.html',
+                           categories=categories, available_fy=available_fy,
+                           sel_cat=cat_id, sel_fy=fy_year,
+                           category=category, table=table, branches=branches,
+                           fy_label=fy_label)
 
 
 if __name__ == '__main__':

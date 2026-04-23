@@ -391,7 +391,8 @@ def report_data_table(metrics, branch_list, data):
     """
     Build grouped table rows for report templates.
     data: {branch_id_or_None: {metric_id: value}}  (value = float or string)
-    Returns list of groups: [{name, rows: [{metric, values: [str]}]}]
+    Returns list of groups: [{name, rows: [{metric, cells, row_total}]}]
+    row_total is summed across branches when values are numeric, else '—'.
     """
     def fmt(v):
         if v is None:
@@ -406,8 +407,17 @@ def report_data_table(metrics, branch_list, data):
         if key not in seen:
             seen[key] = {'name': key, 'rows': []}
             groups.append(seen[key])
-        cells = [fmt(data.get(b.id if b else None, {}).get(m.id)) for b in branch_list]
-        seen[key]['rows'].append({'metric': m, 'cells': cells})
+        row_sum = 0
+        has_numeric = False
+        cells = []
+        for b in branch_list:
+            v = data.get(b.id if b else None, {}).get(m.id)
+            if isinstance(v, (int, float)):
+                row_sum += v
+                has_numeric = True
+            cells.append(fmt(v))
+        row_total = fmt(row_sum) if has_numeric else '—'
+        seen[key]['rows'].append({'metric': m, 'cells': cells, 'row_total': row_total})
     return groups
 
 
@@ -444,15 +454,19 @@ def report_monthly():
         metrics  = Metric.query.filter_by(category_id=cat_id, is_active=True).order_by(Metric.sort_order).all()
         entries  = Entry.query.filter_by(category_id=cat_id, year=year, month=month).all()
 
-        branches, data = [], {}
+        branch_set, data = set(), {}
         for e in entries:
-            if e.branch not in branches:
-                branches.append(e.branch)
+            if e.branch_id not in branch_set:
+                branch_set.add(e.branch_id)
             if e.branch_id not in data:
                 data[e.branch_id] = {}
             for ev in e.values:
                 data[e.branch_id][ev.metric_id] = ev.display_value
 
+        branches = sorted(
+            [b for b in (Branch.query.get(bid) for bid in branch_set) if b],
+            key=lambda b: b.name
+        )
         table = report_data_table(metrics, branches if branches else [None], data)
 
     return render_template('reports/monthly.html',
@@ -478,7 +492,10 @@ def report_annual():
 
         if category.has_branch:
             bid_set  = {e.branch_id for e in entries if e.branch_id}
-            branches = [Branch.query.get(bid) for bid in sorted(bid_set)]
+            branches = sorted(
+                [b for b in (Branch.query.get(bid) for bid in bid_set) if b],
+                key=lambda b: b.name
+            )
         else:
             branches = []
 
@@ -502,84 +519,75 @@ def report_annual():
 
 @app.route('/reports/crosstab')
 def report_crosstab():
-    cat_id    = request.args.get('category', type=int)
-    metric_id = request.args.get('metric',   type=int)
-    year      = request.args.get('year',     type=int)
+    cat_id = request.args.get('category', type=int)
+    year   = request.args.get('year',     type=int)
+    period = request.args.get('period', 'annual')  # 'annual', '1'-'12', or 'Q1'-'Q4'
 
     categories  = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
     available_years = [r[0] for r in db.session.query(Entry.year).distinct()
                                                 .order_by(Entry.year.desc()).all()]
-    metrics_json = metrics_by_category_json()
-    table = branches = metric = category = None
 
-    if cat_id and metric_id and year:
+    def _period_options(cat):
+        if cat.frequency == 'monthly':
+            return [('annual', 'Annual Total')] + [(str(i), MONTHS[i - 1]) for i in range(1, 13)]
+        if cat.frequency == 'quarterly':
+            return [('annual', 'Annual Total')] + [(f'Q{i}', f'Q{i}') for i in range(1, 5)]
+        return [('annual', 'Annual Total')]
+
+    cat_periods_json = {c.id: [{'val': v, 'label': l} for v, l in _period_options(c)]
+                        for c in categories}
+
+    table = branches = category = period_options = period_label = None
+
+    if cat_id:
         category = Category.query.get_or_404(cat_id)
-        metric   = Metric.query.get_or_404(metric_id)
-        entries  = Entry.query.filter_by(category_id=cat_id, year=year).all()
+        period_options = _period_options(category)
+
+    if cat_id and year:
+        metrics = Metric.query.filter_by(category_id=cat_id, is_active=True).order_by(Metric.sort_order).all()
+
+        q = Entry.query.filter_by(category_id=cat_id, year=year)
+        if period != 'annual':
+            if period.startswith('Q'):
+                q = q.filter_by(quarter=int(period[1]))
+                period_label = f'{period} {year}'
+            else:
+                mo = int(period)
+                q = q.filter_by(month=mo)
+                period_label = f'{MONTHS[mo - 1]} {year}'
+        else:
+            period_label = f'{year} Annual Total'
+
+        entries = q.all()
 
         if category.has_branch:
             bid_set  = {e.branch_id for e in entries if e.branch_id}
-            branches = [Branch.query.get(bid) for bid in sorted(bid_set)]
+            branches = sorted(
+                [b for b in (Branch.query.get(bid) for bid in bid_set) if b],
+                key=lambda b: b.name
+            )
         else:
-            branches = [None]
+            branches = []
 
-        # pivot[period_key][branch_id] = display_value
-        pivot = {}
+        branch_list = branches if branches else [None]
+        totals = {}
         for e in entries:
-            pkey = e.month if category.frequency == 'monthly' else e.quarter
-            if pkey not in pivot:
-                pivot[pkey] = {}
+            key = e.branch_id if category.has_branch else None
+            if key not in totals:
+                totals[key] = {}
             for ev in e.values:
-                if ev.metric_id == metric_id:
-                    pivot[pkey][e.branch_id] = ev.display_value
+                if ev.value_number is not None:
+                    totals[key][ev.metric_id] = totals[key].get(ev.metric_id, 0) + ev.value_number
 
-        if category.frequency == 'monthly':
-            period_labels = [(i, MONTHS[i - 1]) for i in range(1, 13)]
-        else:
-            period_labels = [(i, f'Q{i}') for i in range(1, 5)]
-
-        table = []
-        row_totals = []
-        col_totals = {b.id if b else None: 0 for b in branches}
-        col_counts  = {b.id if b else None: 0 for b in branches}
-
-        for pkey, plabel in period_labels:
-            row_vals = []
-            row_sum  = 0
-            has_data = False
-            for b in branches:
-                bid = b.id if b else None
-                v   = pivot.get(pkey, {}).get(bid)
-                row_vals.append(v if v is not None else '—')
-                if v is not None:
-                    try:
-                        row_sum += float(v)
-                        col_totals[bid] = col_totals.get(bid, 0) + float(v)
-                        col_counts[bid]  = col_counts.get(bid, 0) + 1
-                        has_data = True
-                    except (ValueError, TypeError):
-                        pass
-            if has_data:
-                table.append({'label': plabel, 'values': row_vals,
-                              'total': str(int(row_sum)) if row_sum == int(row_sum) else f"{row_sum:.1f}"})
-
-        col_totals_fmt = [
-            str(int(col_totals[b.id if b else None]))
-            if col_totals.get(b.id if b else None, 0) == int(col_totals.get(b.id if b else None, 0))
-            else f"{col_totals.get(b.id if b else None, 0):.1f}"
-            for b in branches
-        ]
-        grand_total = sum(col_totals.values())
-        grand_total_fmt = str(int(grand_total)) if grand_total == int(grand_total) else f"{grand_total:.1f}"
+        table = report_data_table(metrics, branch_list, totals)
 
     return render_template('reports/crosstab.html',
                            categories=categories, available_years=available_years,
-                           months=MONTHS, metrics_json=metrics_json,
-                           sel_cat=cat_id, sel_metric=metric_id, sel_year=year,
-                           category=category, metric=metric,
-                           table=table, branches=branches,
-                           col_totals_fmt=col_totals_fmt if cat_id and metric_id and year else [],
-                           grand_total_fmt=grand_total_fmt if cat_id and metric_id and year else '—')
+                           cat_periods_json=cat_periods_json,
+                           period_options=period_options or [],
+                           sel_cat=cat_id, sel_year=year, sel_period=period,
+                           period_label=period_label,
+                           category=category, table=table, branches=branches)
 
 
 @app.route('/reports/trend')
@@ -733,6 +741,127 @@ def report_online():
                            sel_year=year, sel_month=month, stats=stats,
                            stats_by_id={s['metric'].id: s for s in stats} if stats else {},
                            groups=groups)
+
+
+@app.route('/reports/yearoveryear')
+def report_yoy():
+    cat_id    = request.args.get('category', type=int)
+    branch_id = request.args.get('branch',   type=int)
+    metric_id = request.args.get('metric',   type=int)
+    mode      = request.args.get('mode', 'annual')
+    years     = sorted(request.args.getlist('years', type=int))
+
+    categories      = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
+    available_years = [r[0] for r in db.session.query(Entry.year).distinct().order_by(Entry.year).all()]
+    metrics_json    = metrics_by_category_json()
+
+    all_branches = Branch.query.filter_by(is_active=True).order_by(Branch.sort_order).all()
+    table = col_headers = chart_data = category = metric = None
+
+    if cat_id and len(years) >= 2:
+        category = Category.query.get_or_404(cat_id)
+        metrics  = Metric.query.filter_by(category_id=cat_id, is_active=True).order_by(Metric.sort_order).all()
+        colors   = ['#2c6e8a','#e74c3c','#27ae60','#f39c12','#8e44ad','#16a085']
+
+        def _entries(year):
+            q = Entry.query.filter_by(category_id=cat_id, year=year)
+            if branch_id and category.has_branch:
+                q = q.filter_by(branch_id=branch_id)
+            return q.all()
+
+        def _fmt(v):
+            if not v:
+                return '—'
+            return str(int(v)) if v == int(v) else f"{v:.1f}"
+
+        def _pct(old, new):
+            if not old:
+                return None
+            p = round(((new - old) / old) * 100, 1)
+            return ('+' if p > 0 else '') + str(p) + '%'
+
+        if mode == 'annual':
+            # totals[metric_id][year] = sum
+            totals = {m.id: {} for m in metrics}
+            for year in years:
+                for e in _entries(year):
+                    for ev in e.values:
+                        if ev.value_number and ev.metric_id in totals:
+                            totals[ev.metric_id][year] = totals[ev.metric_id].get(year, 0) + ev.value_number
+
+            # Column headers: Year, [Δ year→year], Year, ...
+            col_headers = []
+            for j, y in enumerate(years):
+                col_headers.append({'label': str(y), 'is_change': False})
+                if j > 0:
+                    col_headers.append({'label': f'Δ {years[j-1]}→{y}', 'is_change': True})
+
+            # Build grouped table
+            groups, seen = [], {}
+            for m in metrics:
+                key = m.group_name or ''
+                if key not in seen:
+                    seen[key] = {'name': key, 'rows': []}
+                    groups.append(seen[key])
+                cells = []
+                for j, y in enumerate(years):
+                    val = totals[m.id].get(y, 0)
+                    cells.append({'val': _fmt(val), 'is_change': False})
+                    if j > 0:
+                        prev = totals[m.id].get(years[j - 1], 0)
+                        cells.append({'val': _pct(prev, val) or '—', 'is_change': True,
+                                      'up': val > prev if val and prev else None})
+                seen[key]['rows'].append({'metric': m, 'cells': cells})
+            table = groups
+
+        elif mode == 'monthly' and metric_id:
+            metric = Metric.query.get_or_404(metric_id)
+            # monthly_data[month][year] = value
+            monthly_data = {mo: {} for mo in range(1, 13)}
+            for year in years:
+                for e in _entries(year):
+                    if e.month:
+                        for ev in e.values:
+                            if ev.metric_id == metric_id and ev.value_number is not None:
+                                monthly_data[e.month][year] = ev.value_number
+
+            # Chart
+            labels   = [m[:3] for m in MONTHS]
+            datasets = []
+            for i, year in enumerate(years):
+                pts = [monthly_data[mo].get(year) for mo in range(1, 13)]
+                datasets.append({'label': str(year), 'data': pts, 'tension': 0.3,
+                                 'spanGaps': True, 'borderColor': colors[i % len(colors)],
+                                 'backgroundColor': colors[i % len(colors)] + '22'})
+            chart_data = {'labels': labels, 'datasets': datasets}
+
+            # Table: rows = months, cols = years + % change
+            col_headers = []
+            for j, y in enumerate(years):
+                col_headers.append({'label': str(y), 'is_change': False})
+                if j > 0:
+                    col_headers.append({'label': f'Δ {years[j-1]}→{y}', 'is_change': True})
+
+            table = []
+            for mo in range(1, 13):
+                cells = []
+                for j, y in enumerate(years):
+                    val  = monthly_data[mo].get(y)
+                    cells.append({'val': _fmt(val) if val is not None else '—', 'is_change': False})
+                    if j > 0:
+                        prev = monthly_data[mo].get(years[j - 1])
+                        cells.append({'val': _pct(prev, val) if (val and prev) else '—',
+                                      'is_change': True,
+                                      'up': val > prev if (val and prev) else None})
+                table.append({'label': MONTHS[mo - 1], 'cells': cells})
+
+    return render_template('reports/yearoveryear.html',
+                           categories=categories, available_years=available_years,
+                           metrics_json=metrics_json, all_branches=all_branches,
+                           sel_cat=cat_id, sel_branch=branch_id, sel_metric=metric_id,
+                           sel_mode=mode, sel_years=years,
+                           category=category, metric=metric,
+                           col_headers=col_headers, table=table, chart_data=chart_data)
 
 
 if __name__ == '__main__':

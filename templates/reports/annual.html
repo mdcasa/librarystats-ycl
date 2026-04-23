@@ -47,6 +47,9 @@
               {% for b in branches %}
               <th class="text-center">{{ b.name }}</th>
               {% endfor %}
+              {% if branches|length > 1 %}
+              <th class="text-center bg-secondary bg-opacity-25">Total</th>
+              {% endif %}
             {% else %}
               <th class="text-center">Total</th>
             {% endif %}
@@ -63,6 +66,9 @@
               {% for val in row.cells %}
               <td class="text-center {{ 'text-muted' if val == '—' }}">{{ val }}</td>
               {% endfor %}
+              {% if branches and branches|length > 1 %}
+              <td class="text-center fw-semibold {{ 'text-muted' if row.row_total == '—' }}">{{ row.row_total }}</td>
+              {% endif %}
             </tr>
             {% endfor %}
           {% endfor %}

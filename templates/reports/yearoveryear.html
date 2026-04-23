@@ -1,0 +1,222 @@
+{% extends 'base.html' %}
+{% block title %}Year-over-Year – Reports{% endblock %}
+{% block content %}
+<h1 class="h4 fw-bold mb-4"><i class="bi bi-arrow-left-right me-2 text-info"></i>Year-over-Year Comparison</h1>
+
+<div class="card mb-4">
+  <div class="card-body py-3">
+    <form method="get" class="row g-2 align-items-end" id="yoy-form">
+
+      <div class="col-sm-3">
+        <label class="sidebar-label mb-1">Category</label>
+        <select name="category" id="cat-select" class="form-select form-select-sm" required>
+          <option value="">— select —</option>
+          {% for cat in categories %}
+          <option value="{{ cat.id }}"
+            data-has-branch="{{ 'true' if cat.has_branch else 'false' }}"
+            {% if sel_cat == cat.id %}selected{% endif %}>{{ cat.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-sm-2" id="branch-col" style="display:none">
+        <label class="sidebar-label mb-1">Branch (optional)</label>
+        <select name="branch" id="branch-select" class="form-select form-select-sm">
+          <option value="">All branches</option>
+          {% for b in all_branches %}
+          <option value="{{ b.id }}" {% if sel_branch == b.id %}selected{% endif %}>{{ b.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-sm-2">
+        <label class="sidebar-label mb-1">Mode</label>
+        <select name="mode" id="mode-select" class="form-select form-select-sm">
+          <option value="annual" {% if sel_mode == 'annual' %}selected{% endif %}>Annual totals</option>
+          <option value="monthly" {% if sel_mode == 'monthly' %}selected{% endif %}>Monthly by year</option>
+        </select>
+      </div>
+
+      <div class="col-sm-3" id="metric-col" style="{{ '' if sel_mode == 'monthly' else 'display:none' }}">
+        <label class="sidebar-label mb-1">Metric</label>
+        <select name="metric" id="metric-select" class="form-select form-select-sm">
+          <option value="">— select metric —</option>
+          {% if sel_cat and metrics_json[sel_cat] %}
+            {% for m in metrics_json[sel_cat] %}
+            <option value="{{ m.id }}" {% if sel_metric == m.id %}selected{% endif %}>{{ m.name }}</option>
+            {% endfor %}
+          {% endif %}
+        </select>
+      </div>
+
+      <div class="col-12">
+        <label class="sidebar-label mb-1">Years to compare (select 2 or more)</label>
+        <div class="d-flex flex-wrap gap-2">
+          {% for y in available_years %}
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" name="years" value="{{ y }}" id="yr{{ y }}"
+              {% if y in sel_years %}checked{% endif %}>
+            <label class="form-check-label" for="yr{{ y }}">{{ y }}</label>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="col-12 mt-1">
+        <button class="btn btn-primary btn-sm">Run Report</button>
+      </div>
+
+    </form>
+  </div>
+</div>
+
+{% if table is not none %}
+  {% if table %}
+
+  {% if sel_mode == 'monthly' and chart_data %}
+  <div class="card mb-4">
+    <div class="card-body">
+      <h6 class="mb-3">{{ category.name }} — {{ metric.name }}</h6>
+      <canvas id="yoyChart" height="90"></canvas>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="mb-2">
+    {% if sel_mode == 'annual' %}
+    <h5 class="mb-0">{{ category.name }} — Annual Totals</h5>
+    {% else %}
+    <h5 class="mb-0">{{ category.name }} — {{ metric.name }} — Monthly by Year</h5>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="table-responsive">
+      <table class="table table-sm table-bordered mb-0 align-middle" style="font-size:.88rem">
+        <thead class="table-dark">
+          <tr>
+            <th style="min-width:220px">{% if sel_mode == 'annual' %}Metric{% else %}Month{% endif %}</th>
+            {% for h in col_headers %}
+            <th class="text-center {{ 'bg-secondary bg-opacity-25' if h.is_change }}">{{ h.label }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+
+          {% if sel_mode == 'annual' %}
+            {% for group in table %}
+              {% if group.name %}
+              <tr><td colspan="{{ col_headers|length + 1 }}" class="group-header">{{ group.name }}</td></tr>
+              {% endif %}
+              {% for row in group.rows %}
+              <tr>
+                <td>{{ row.metric.name }}</td>
+                {% for c in row.cells %}
+                <td class="text-center
+                  {% if c.is_change %}
+                    text-muted
+                    {% if c.up == true %}text-success fw-semibold{% elif c.up == false %}text-danger fw-semibold{% endif %}
+                  {% endif %}
+                  {{ 'bg-secondary bg-opacity-10' if c.is_change }}">
+                  {% if c.is_change and c.up == true %}<i class="bi bi-arrow-up-short"></i>{% endif %}
+                  {% if c.is_change and c.up == false %}<i class="bi bi-arrow-down-short"></i>{% endif %}
+                  {{ c.val }}
+                </td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            {% endfor %}
+
+          {% else %}
+            {% for row in table %}
+            <tr>
+              <td class="fw-semibold">{{ row.label }}</td>
+              {% for c in row.cells %}
+              <td class="text-center
+                {% if c.is_change %}
+                  {% if c.up == true %}text-success fw-semibold{% elif c.up == false %}text-danger fw-semibold{% endif %}
+                {% endif %}
+                {{ 'bg-secondary bg-opacity-10' if c.is_change }}">
+                {% if c.is_change and c.up == true %}<i class="bi bi-arrow-up-short"></i>{% endif %}
+                {% if c.is_change and c.up == false %}<i class="bi bi-arrow-down-short"></i>{% endif %}
+                {{ c.val }}
+              </td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          {% endif %}
+
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% else %}
+  <div class="alert alert-info">No data found for the selected combination.</div>
+  {% endif %}
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+const metricsByCat = {{ metrics_json | tojson }};
+const selMetric    = {{ sel_metric or 'null' }};
+const chartData    = {{ chart_data | tojson if chart_data else 'null' }};
+
+// Show/hide branch col based on selected category
+function updateBranchCol() {
+  const opt = document.querySelector('#cat-select option:checked');
+  const hasBranch = opt && opt.dataset.hasBranch === 'true';
+  document.getElementById('branch-col').style.display = hasBranch ? '' : 'none';
+}
+
+// Show/hide metric col based on mode
+function updateMetricCol() {
+  const mode = document.getElementById('mode-select').value;
+  document.getElementById('metric-col').style.display = mode === 'monthly' ? '' : 'none';
+}
+
+// Rebuild metric dropdown when category changes
+document.getElementById('cat-select').addEventListener('change', function () {
+  updateBranchCol();
+  const catId = parseInt(this.value);
+  const sel = document.getElementById('metric-select');
+  sel.innerHTML = '<option value="">— select metric —</option>';
+  (metricsByCat[catId] || []).forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = m.name;
+    if (m.id === selMetric) opt.selected = true;
+    sel.appendChild(opt);
+  });
+});
+
+document.getElementById('mode-select').addEventListener('change', updateMetricCol);
+
+// Init on page load
+updateBranchCol();
+updateMetricCol();
+
+// Chart
+if (chartData) {
+  const ctx = document.getElementById('yoyChart');
+  if (ctx) {
+    new Chart(ctx, {
+      type: 'line',
+      data: chartData,
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'top' }
+        },
+        scales: {
+          y: { beginAtZero: true }
+        }
+      }
+    });
+  }
+}
+</script>
+{% endblock %}

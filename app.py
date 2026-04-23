@@ -943,5 +943,172 @@ def report_monthly_stats():
                            sections=sections)
 
 
+@app.route('/director')
+def director_dashboard():
+    from sqlalchemy import or_, and_
+
+    rows = db.session.query(Entry.year, Entry.month, Entry.quarter).filter(
+        or_(Entry.month.isnot(None), Entry.quarter.isnot(None))
+    ).distinct().all()
+    fy_set = set()
+    for yr, mo, q in rows:
+        if mo is not None:
+            fy_set.add(yr + 1 if mo >= 7 else yr)
+        if q is not None:
+            fy_set.add(yr + 1 if q in (3, 4) else yr)
+    available_fy = sorted(fy_set, reverse=True)
+
+    fy_year = request.args.get('fy_year', type=int)
+    stats = None
+
+    if fy_year:
+        def fy_filter(cat_name):
+            cat = Category.query.filter_by(name=cat_name).first()
+            if not cat:
+                return {}
+            entries = Entry.query.filter_by(category_id=cat.id).filter(
+                or_(
+                    and_(Entry.year == fy_year - 1,
+                         or_(Entry.month >= 7, Entry.quarter.in_([3, 4]))),
+                    and_(Entry.year == fy_year,
+                         or_(Entry.month <= 6, Entry.quarter.in_([1, 2])))
+                )
+            ).all()
+            id_to_name = {m.id: m.name for m in cat.metrics}
+            totals = {}
+            for e in entries:
+                for ev in e.values:
+                    n = id_to_name.get(ev.metric_id)
+                    if n and ev.value_number is not None:
+                        totals[n] = totals.get(n, 0) + ev.value_number
+            return totals
+
+        bs = fy_filter('Branch Stats')
+        os = fy_filter('Online Stats')
+        qs = fy_filter('Quarterly Reference Stats')
+
+        AGE  = ['0-5', '6-11', '12-18', '19+', 'General Interest']
+        TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
+
+        def v(d, key):
+            val = d.get(key)
+            return int(val) if val is not None and val == int(val) else (round(val, 1) if val else None)
+
+        def prog_sum(kind, age_group):
+            return v(bs, f'ONSITE {kind} {age_group}') or 0 + \
+                   (v(bs, f'OFFSITE {kind} {age_group}') or 0) + \
+                   (v(bs, f'VIRTUAL {kind} {age_group}') or 0)
+
+        # Outreach branch vs bookmobile split
+        ob_branch = Branch.query.filter_by(name='Outreach/Bookmobile').first()
+        ob_id = ob_branch.id if ob_branch else None
+
+        def fy_filter_by_branch(cat_name, branch_id):
+            cat = Category.query.filter_by(name=cat_name).first()
+            if not cat:
+                return {}
+            q = Entry.query.filter_by(category_id=cat.id, branch_id=branch_id).filter(
+                or_(
+                    and_(Entry.year == fy_year - 1, Entry.month >= 7),
+                    and_(Entry.year == fy_year,     Entry.month <= 6)
+                )
+            ).all()
+            id_to_name = {m.id: m.name for m in cat.metrics}
+            totals = {}
+            for e in q:
+                for ev in e.values:
+                    n = id_to_name.get(ev.metric_id)
+                    if n and ev.value_number is not None:
+                        totals[n] = totals.get(n, 0) + ev.value_number
+            return totals
+
+        bs_bkm    = fy_filter_by_branch('Branch Stats', ob_id) if ob_id else {}
+        outreach_branches = int(bs.get('Number of Outreach Activities Conducted', 0) -
+                                bs_bkm.get('Number of Outreach Activities Conducted', 0))
+
+        def session_row(type_, age):
+            return v(bs, f'{type_} Sessions {age}')
+        def attend_row(type_, age):
+            return v(bs, f'{type_} Attendance {age}')
+
+        stats = {
+            'users': [
+                ('G1',  'Registered Users, Adult',            v(bs, 'New Library Card Registrations, Adult')),
+                ('G2',  'Registered Users, Juvenile',         v(bs, 'New Library Card Registrations, Juvenile')),
+                ('G4',  'Gate Count',                         v(bs, 'Gate Count')),
+                ('G6',  'Public Internet Computer Use',       v(bs, 'PC Reservations')),
+                ('G9',  'WiFi Sessions',                      v(bs, 'WiFi - Unique Sessions')),
+                ('G11', 'Website Visits',                     v(os, 'yclibrary.org - Web Sessions')),
+                ('G12', 'External Party Meeting Room Use',    v(bs, 'External Party Library Room Use')),
+            ],
+            'circulation': [
+                ('',    'Total Branch Circulation',           v(bs, 'Total Branch Circulation')),
+                ('H1',  'Annual Reference Transactions',      v(qs, 'Total Transactions for the Week')),
+                ('H3',  '1-on-1 Sessions',                    v(bs, '1-on-1 Total for Month')),
+                ('H4',  "Children's Print Circ",              None),
+                ('H5',  "Children's Non-Print Circ",          None),
+                ('H7',  'Adult Print Circ',                   None),
+                ('H8',  'Adult Non-Print Circ',               None),
+                ('H10', 'Circ of Other Physical Materials',   None),
+                ('H14', 'eBook Circ',                         None),
+                ('H15', 'eAudio Circ',                        None),
+                ('H16', 'eVideo Circ',                        None),
+                ('H17', 'eSerial Circ',                       None),
+                ('H20', 'ILLs Sent',                          v(bs, 'ILL - Sent (Main ONLY)')),
+                ('H21', 'ILLs Received',                      v(bs, 'ILL - Received (Main ONLY)')),
+                ('',    'Locker Circulation',                  v(bs, 'Locker Circulation')),
+                ('',    'Curbside',                            v(bs, 'Curbside')),
+                ('',    'Hotspots Circulation',                v(bs, 'Hotspots Circulation')),
+            ],
+            'sessions': {t: [(a, session_row(t, a)) for a in AGE] for t in TYPES},
+            'attendance': {t: [(a, attend_row(t, a)) for a in AGE] for t in TYPES},
+            'async_': [
+                ('Asynchronous Presentations – YouTube',      v(os, 'YouTube Uploads')),
+                ('Asynchronous Presentations – Dial-A-Story', v(os, 'Dial A Story Uploads')),
+                ('Asynchronous Views – YouTube',              v(os, 'YouTube - Views')),
+                ('Asynchronous Views – Dial-A-Story',         v(os, 'Dial A Story - Views')),
+            ],
+            'outreach': [
+                ('Outreach Activities – Branches',            outreach_branches if outreach_branches else None),
+                ('Outreach Activities – Bookmobile',          v(bs_bkm, 'Number of Outreach Activities Conducted')),
+                ('Outreach Attendance',                       v(bs, 'Outreach Attendance')),
+                ('Passive Programming Participants',          v(bs, 'Take & Makes / Other Passive Program Participants')),
+                ('Training – # of Staff Trained',             v(bs, 'Number of Staff Taking Training')),
+                ('Training – # of Hours',                     v(bs, 'Number of Hours Staff Attended Training')),
+            ],
+            'online': [
+                ('Website Hits',         v(os, 'yclibrary.org - Web Sessions')),
+                ('Contact Us',           v(os, 'Website Messages')),
+                ('YCL App Users',        v(os, 'YCL App - Users')),
+                ('YCL App Sessions',     v(os, 'YCL App - Sessions')),
+                ('Facebook Followers',   v(os, 'Facebook Followers')),
+                ('Instagram Subscribers',v(os, 'Instagram - Subscribers')),
+                ('YouTube Subscribers',  v(os, 'YouTube - Subscribers')),
+                ('YouTube Views',        v(os, 'YouTube - Views')),
+            ],
+            'totals': {
+                'circulation': v(bs, 'Total Branch Circulation'),
+                'gate':        v(bs, 'Gate Count'),
+                'programs':    sum(
+                    (v(bs, f'{t} Sessions {a}') or 0)
+                    for t in TYPES for a in AGE
+                ) or None,
+                'website':     v(os, 'yclibrary.org - Web Sessions'),
+                'cards':       (v(bs, 'New Library Card Registrations, Adult') or 0) +
+                               (v(bs, 'New Library Card Registrations, Juvenile') or 0) or None,
+                'attendance':  sum(
+                    (v(bs, f'{t} Attendance {a}') or 0)
+                    for t in TYPES for a in AGE
+                ) or None,
+            },
+        }
+
+    return render_template('director.html',
+                           available_fy=available_fy, sel_fy=fy_year,
+                           fy_label=f'FY{fy_year} (Jul {fy_year-1} – Jun {fy_year})' if fy_year else None,
+                           stats=stats, TYPES=['ONSITE', 'OFFSITE', 'VIRTUAL'],
+                           AGE=['0-5', '6-11', '12-18', '19+', 'General Interest'])
+
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

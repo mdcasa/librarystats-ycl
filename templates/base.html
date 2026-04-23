@@ -78,6 +78,7 @@
 <li><a class="dropdown-item" href="{{ url_for('report_trend') }}"><i class="bi bi-graph-up me-2 text-primary"></i>Trend Over Time</a></li>
             <li><a class="dropdown-item" href="{{ url_for('report_programming') }}"><i class="bi bi-people me-2 text-primary"></i>Programming Summary</a></li>
             <li><a class="dropdown-item" href="{{ url_for('report_online') }}"><i class="bi bi-globe me-2 text-primary"></i>Online Stats</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('report_quarterly_ref') }}"><i class="bi bi-clipboard2-data me-2 text-primary"></i>Quarterly Reference Stats</a></li>
             <li><hr class="dropdown-divider"></li>
             <li><a class="dropdown-item" href="{{ url_for('report_yoy') }}"><i class="bi bi-arrow-left-right me-2 text-info"></i>Year-over-Year</a></li>
           </ul>
@@ -98,6 +99,11 @@
               </a>
             </li>
             <li><hr class="dropdown-divider"></li>
+            <li>
+              <a class="dropdown-item" href="{{ url_for('admin_import') }}">
+                <i class="bi bi-upload me-2 text-primary"></i>Import from Excel
+              </a>
+            </li>
             <li>
               <a class="dropdown-item" href="{{ url_for('admin_export') }}">
                 <i class="bi bi-download me-2 text-success"></i>Export to Excel

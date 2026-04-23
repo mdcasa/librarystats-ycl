@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+{% block title %}Import Data – Admin{% endblock %}
+
+{% block content %}
+<h1 class="h4 fw-bold mb-4"><i class="bi bi-upload me-2 text-primary"></i>Import Data from Excel</h1>
+
+<div class="row g-4">
+
+  {# ── Upload form ── #}
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header-custom fw-semibold">Upload Spreadsheet</div>
+      <div class="card-body">
+        <form method="post" enctype="multipart/form-data">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Excel file (.xlsx)</label>
+            <input type="file" name="file" class="form-control" accept=".xlsx" required>
+          </div>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-upload me-1"></i>Import
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  {# ── Sheet format reference ── #}
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header-custom fw-semibold">Expected Sheet Names &amp; Formats</div>
+      <div class="card-body small">
+
+        <p class="fw-semibold mb-1">Branch Stats <span class="text-muted fw-normal">(monthly)</span></p>
+        <p class="text-muted mb-2">Required columns: <code>Year</code>, <code>Month Num</code>, <code>BRANCH</code>, then any stat columns.</p>
+
+        <p class="fw-semibold mb-1">Online Stats <span class="text-muted fw-normal">(monthly)</span></p>
+        <p class="text-muted mb-2">Required columns: <code>Year</code>, <code>Month Num</code>, then any stat columns.</p>
+
+        <p class="fw-semibold mb-1">Qrtly Ref Stats <span class="text-muted fw-normal">(quarterly)</span></p>
+        <p class="text-muted mb-2">Required columns: <code>Year</code>, <code>Quarter</code>, <code>Branch or Location</code>, <code>Total # of Transactions for the Week</code>.<br>
+        Quarter can be: <code>Q1</code>, <code>1</code>, or <code>Quarter 1</code>.</p>
+
+        <hr class="my-2">
+        <p class="fw-semibold mb-1">Branch name aliases accepted:</p>
+        <ul class="text-muted mb-0">
+          <li>Rock Hill - Circ <em>or</em> Rock Hill - Circulation</li>
+          <li>Rock Hill - YA</li>
+          <li>Outreach / Bookmobile <em>or</em> Outreach/Bookmobile</li>
+        </ul>
+        <p class="text-muted mt-2 mb-0">Existing entries are never overwritten — duplicates are skipped.</p>
+      </div>
+    </div>
+  </div>
+
+  {# ── Results ── #}
+  {% if results %}
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header-custom fw-semibold">Import Results</div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Data Type</th>
+              <th class="text-center">New Entries</th>
+              <th class="text-center">Skipped (already exist)</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in results %}
+            <tr>
+              <td class="fw-semibold">{{ r.sheet }}</td>
+              <td class="text-center">
+                {% if r.created > 0 %}
+                <span class="badge bg-success">{{ r.created }}</span>
+                {% else %}
+                <span class="text-muted">0</span>
+                {% endif %}
+              </td>
+              <td class="text-center text-muted">{{ r.skipped }}</td>
+              <td>
+                {% for w in r.warnings %}
+                <div class="text-warning small"><i class="bi bi-exclamation-triangle me-1"></i>{{ w }}</div>
+                {% endfor %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

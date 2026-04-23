@@ -1,0 +1,166 @@
+{% extends 'base.html' %}
+{% block title %}Quarterly Reference Stats – Reports{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4 fw-bold mb-0">
+    <i class="bi bi-clipboard2-data me-2 text-primary"></i>Quarterly Reference Stats
+  </h1>
+  {% if annual_estimate %}
+  <button class="btn btn-outline-secondary btn-sm d-print-none" onclick="window.print()">
+    <i class="bi bi-printer me-1"></i>Print / Save as PDF
+  </button>
+  {% endif %}
+</div>
+
+{# ── Filters ── #}
+<div class="card mb-4 d-print-none">
+  <div class="card-body py-3">
+    <form method="get" class="row g-2 align-items-end">
+
+      <div class="col-sm-2">
+        <label class="sidebar-label mb-1">Year</label>
+        <select name="year" class="form-select form-select-sm" required>
+          <option value="">— select —</option>
+          {% for y in available_years %}
+          <option value="{{ y }}" {% if sel_year == y %}selected{% endif %}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-sm-2">
+        <label class="sidebar-label mb-1">Scheduled Holiday Days</label>
+        <input type="number" name="holidays" class="form-control form-control-sm"
+               min="0" max="50" value="{{ holidays }}" placeholder="0">
+      </div>
+
+      <div class="col-sm-2">
+        <label class="sidebar-label mb-1">Unexpected Closure Days</label>
+        <input type="number" name="unexpected" class="form-control form-control-sm"
+               min="0" max="50" value="{{ unexpected }}" placeholder="0">
+      </div>
+
+      <div class="col-sm-2">
+        <button class="btn btn-primary btn-sm">Calculate</button>
+      </div>
+
+    </form>
+    <p class="text-muted small mt-2 mb-0">
+      Library is assumed open <strong>Mon–Sat (6 days/week × 52 weeks = 312 days/year)</strong>
+      minus the closure days entered above.
+    </p>
+  </div>
+</div>
+
+{% if table %}
+
+{# ── Quarterly sample table ── #}
+<div class="card mb-4">
+  <div class="card-header fw-semibold">{{ sel_year }} — Weekly Sample Counts by Quarter</div>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Branch / Desk</th>
+          <th class="text-center">Q1</th>
+          <th class="text-center">Q2</th>
+          <th class="text-center">Q3</th>
+          <th class="text-center">Q4</th>
+          <th class="text-center">Avg / Week</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in table %}
+        <tr {% if row.branch.is_desk %}class="table-light"{% endif %}>
+          <td>
+            {% if row.branch.is_desk %}
+            <span class="ms-2 text-muted small">↳</span>
+            {% endif %}
+            {{ row.branch.name }}
+          </td>
+          {% for val in row.quarters %}
+          <td class="text-center">{{ val if val is not none else '—' }}</td>
+          {% endfor %}
+          <td class="text-center fw-semibold">{{ row.avg if row.avg is not none else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="table-secondary fw-bold">
+        <tr>
+          <td>System Total</td>
+          {% for q in range(1, 5) %}
+          <td class="text-center">
+            {% if quarterly_totals and q in quarterly_totals %}
+              {{ quarterly_totals[q] | int }}
+            {% else %}—{% endif %}
+          </td>
+          {% endfor %}
+          <td class="text-center">
+            {% if avg_weekly %}{{ "%.1f"|format(avg_weekly) }}{% else %}—{% endif %}
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+{# ── Annual estimate calculation ── #}
+<div class="card mb-4">
+  <div class="card-header fw-semibold">Annual Reference Transactions Estimate</div>
+  <div class="card-body">
+    <div class="row g-3 align-items-start">
+
+      <div class="col-md-6">
+        <table class="table table-sm mb-0">
+          <tbody>
+            <tr>
+              <td class="text-muted">Total possible open days (52 × 6)</td>
+              <td class="text-end fw-semibold">312</td>
+            </tr>
+            <tr>
+              <td class="text-muted">Scheduled holiday days</td>
+              <td class="text-end text-danger">− {{ holidays }}</td>
+            </tr>
+            <tr>
+              <td class="text-muted">Unexpected closure days</td>
+              <td class="text-end text-danger">− {{ unexpected }}</td>
+            </tr>
+            <tr class="table-light fw-semibold">
+              <td>Actual open days</td>
+              <td class="text-end">{{ open_days }}</td>
+            </tr>
+            <tr>
+              <td class="text-muted">Open weeks (÷ 6)</td>
+              <td class="text-end">{{ open_weeks }}</td>
+            </tr>
+            <tr>
+              <td class="text-muted">Avg weekly transactions ({{ quarterly_totals|length }} quarters)</td>
+              <td class="text-end">{% if avg_weekly %}{{ "%.1f"|format(avg_weekly) }}{% endif %}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="col-md-6 d-flex align-items-center justify-content-center">
+        <div class="text-center p-4 border rounded bg-light">
+          <div class="text-muted small mb-1">Estimated Annual Reference Transactions</div>
+          <div class="display-5 fw-bold text-primary">
+            {{ "{:,}".format(annual_estimate) if annual_estimate else '—' }}
+          </div>
+          {% if avg_weekly and open_weeks %}
+          <div class="text-muted small mt-1">
+            {{ "%.1f"|format(avg_weekly) }} avg/week × {{ open_weeks }} open weeks
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+{% elif sel_year %}
+<div class="alert alert-info">No quarterly reference data found for {{ sel_year }}. Use the entry form to add quarterly samples.</div>
+{% endif %}
+
+{% endblock %}

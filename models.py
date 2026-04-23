@@ -53,6 +53,7 @@ class Branch(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), unique=True, nullable=False)
     is_active = db.Column(db.Boolean, default=True)
+    is_desk = db.Column(db.Boolean, default=False)  # desk-level branch (e.g. Rock Hill - Circ); excluded from Branch Stats
     sort_order = db.Column(db.Integer, default=0)
 
     entries = db.relationship('Entry', back_populates='branch')

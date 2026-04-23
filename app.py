@@ -19,6 +19,27 @@ db.init_app(app)
 # Runs for both `python app.py` and gunicorn
 with app.app_context():
     db.create_all()
+
+    # Migrate: add is_desk column if it doesn't exist yet
+    try:
+        db.session.execute(db.text(
+            'ALTER TABLE branches ADD COLUMN is_desk BOOLEAN NOT NULL DEFAULT FALSE'
+        ))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    # Mark Rock Hill desk branches (only Circ and YA report quarterly reference stats)
+    for _desk_name in ['Rock Hill - Circulation', 'Rock Hill - YA']:
+        _b = Branch.query.filter_by(name=_desk_name).first()
+        if _b and not _b.is_desk:
+            _b.is_desk = True
+    # Rock Hill - Reference is not used; deactivate so it disappears from all lists
+    _rhr = Branch.query.filter_by(name='Rock Hill - Reference').first()
+    if _rhr and _rhr.is_active:
+        _rhr.is_active = False
+    db.session.commit()
+
     if Category.query.count() == 0:
         from seed_data import seed
         seed(db)
@@ -90,10 +111,21 @@ def entries_list():
 
 # ── Create entry ─────────────────────────────────────────────────────────────
 
+def _branches_for_category(category):
+    """Return the branch list appropriate for a given category."""
+    if category.name == 'Quarterly Reference Stats':
+        # Show desks (Circ, YA) but not the parent Rock Hill branch or system-wide
+        return (Branch.query.filter_by(is_active=True)
+                .filter(~Branch.name.in_(['Rock Hill', 'YCL (System Wide)']))
+                .order_by(Branch.is_desk.desc(), Branch.sort_order).all())
+    # All other categories: exclude desk-level branches
+    return Branch.query.filter_by(is_active=True, is_desk=False).order_by(Branch.sort_order).all()
+
+
 @app.route('/entries/new/<int:category_id>', methods=['GET', 'POST'])
 def entry_create(category_id):
     category = Category.query.get_or_404(category_id)
-    branches = Branch.query.filter_by(is_active=True).order_by(Branch.sort_order).all()
+    branches = _branches_for_category(category)
     metrics = Metric.query.filter_by(category_id=category_id, is_active=True).order_by(Metric.sort_order).all()
     year_range = range(datetime.now().year - 5, datetime.now().year + 2)
 
@@ -160,7 +192,7 @@ def entry_view(entry_id):
 def entry_edit(entry_id):
     entry = Entry.query.get_or_404(entry_id)
     category = entry.category
-    branches = Branch.query.filter_by(is_active=True).order_by(Branch.sort_order).all()
+    branches = _branches_for_category(category)
     metrics = Metric.query.filter_by(category_id=category.id, is_active=True).order_by(Metric.sort_order).all()
     values = {ev.metric_id: ev for ev in entry.values}
     year_range = range(datetime.now().year - 5, datetime.now().year + 2)
@@ -820,6 +852,33 @@ def report_fiscal():
                            fy_label=fy_label)
 
 
+@app.route('/admin/import', methods=['GET', 'POST'])
+def admin_import():
+    results = None
+    if request.method == 'POST':
+        f = request.files.get('file')
+        if not f or not f.filename:
+            flash('Please select a file to upload.', 'warning')
+        else:
+            import tempfile, openpyxl
+            from import_excel import do_import
+            tmp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
+                    f.save(tmp.name)
+                    tmp_path = tmp.name
+                wb = openpyxl.load_workbook(tmp_path, data_only=True)
+                results = do_import(wb)
+                total_created = sum(r['created'] for r in results)
+                flash(f'Import complete — {total_created} new entries added.', 'success')
+            except Exception as e:
+                flash(f'Import failed: {e}', 'danger')
+            finally:
+                if tmp_path and os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+    return render_template('admin/import.html', results=results)
+
+
 @app.route('/admin/export')
 def admin_export():
     import io
@@ -1108,6 +1167,75 @@ def director_dashboard():
                            fy_label=f'FY{fy_year} (Jul {fy_year-1} – Jun {fy_year})' if fy_year else None,
                            stats=stats, TYPES=['ONSITE', 'OFFSITE', 'VIRTUAL'],
                            AGE=['0-5', '6-11', '12-18', '19+', 'General Interest'])
+
+
+@app.route('/reports/quarterly_ref')
+def report_quarterly_ref():
+    year       = request.args.get('year',       type=int)
+    holidays   = request.args.get('holidays',   type=int, default=0)
+    unexpected = request.args.get('unexpected', type=int, default=0)
+
+    available_years = sorted(
+        {r[0] for r in db.session.query(Entry.year).distinct().all()},
+        reverse=True
+    )
+
+    table = branches = quarterly_totals = None
+    open_days = open_weeks = avg_weekly = annual_estimate = None
+
+    if year:
+        cat = Category.query.filter_by(name='Quarterly Reference Stats').first()
+        if cat:
+            metric = next((m for m in cat.metrics if m.name == 'Total Transactions for the Week'), None)
+            branches = _branches_for_category(cat)
+
+            # {branch_id: {quarter: value}}
+            branch_data = {b.id: {} for b in branches}
+            for e in Entry.query.filter_by(category_id=cat.id, year=year).all():
+                if e.branch_id in branch_data and e.quarter and metric:
+                    for ev in e.values:
+                        if ev.metric_id == metric.id and ev.value_number is not None:
+                            branch_data[e.branch_id][e.quarter] = int(ev.value_number)
+
+            # System-wide total per quarter (only quarters with at least one entry)
+            quarterly_totals = {}
+            for q in range(1, 5):
+                total = sum(branch_data[b.id].get(q, 0) for b in branches)
+                if any(branch_data[b.id].get(q) is not None for b in branches):
+                    quarterly_totals[q] = total
+
+            # Annual calculation
+            total_possible_days = 52 * 6          # Mon–Sat × 52 weeks
+            closed_days  = (holidays or 0) + (unexpected or 0)
+            open_days    = total_possible_days - closed_days
+            open_weeks   = round(open_days / 6, 2)
+
+            if quarterly_totals:
+                avg_weekly     = sum(quarterly_totals.values()) / len(quarterly_totals)
+                annual_estimate = round(avg_weekly * open_weeks)
+
+            table = [
+                {
+                    'branch':  b,
+                    'quarters': [branch_data[b.id].get(q) for q in range(1, 5)],
+                    'avg':     round(sum(v for v in branch_data[b.id].values()) /
+                                     len(branch_data[b.id]), 1) if branch_data[b.id] else None,
+                }
+                for b in branches
+            ]
+
+    return render_template('reports/quarterly_ref.html',
+                           available_years=available_years,
+                           sel_year=year,
+                           holidays=holidays or 0,
+                           unexpected=unexpected or 0,
+                           branches=branches,
+                           table=table,
+                           quarterly_totals=quarterly_totals,
+                           open_days=open_days,
+                           open_weeks=open_weeks,
+                           avg_weekly=avg_weekly,
+                           annual_estimate=annual_estimate)
 
 
 if __name__ == '__main__':

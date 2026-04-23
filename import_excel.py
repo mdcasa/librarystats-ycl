@@ -1,11 +1,15 @@
 """
-Import stats-4-23.xlsx into the database, skipping entries that already exist.
+Import stats from an Excel workbook into the database.
 
-Usage:
+Handles three sheets:
+  Branch Stats      – monthly per-branch statistics
+  Online Stats      – monthly system-wide online/social metrics
+  Qrtly Ref Stats   – quarterly reference transaction samples per branch/desk
+
+Usage (CLI):
     python import_excel.py [path/to/file.xlsx]
 
-Default path: 'Data files/stats-4-23.xlsx'
-DATABASE_URL is read from .env or the environment.
+Can also be called from the web admin via do_import(workbook).
 """
 
 import os
@@ -19,9 +23,9 @@ import openpyxl
 from app import app, db
 from models import Category, Metric, Branch, Entry, EntryValue
 
-DEFAULT_EXCEL_PATH = os.path.join('Data files', 'stats-4-23.xlsx')
+DEFAULT_EXCEL_PATH = os.path.join('Data files', 'statsonly423.xlsx')
 
-# ── Column name mappings (Excel header → database metric name) ────────────────
+# ── Column name mappings ──────────────────────────────────────────────────────
 
 BRANCH_STATS_MAP = {
     'New Library Card Registrations, Adult (includes YA)': 'New Library Card Registrations, Adult',
@@ -129,13 +133,40 @@ def parse_month(val):
         return _MONTH_NAMES.get(val.strip().lower())
     return None
 
+
 def parse_quarter(val):
-    if isinstance(val, str) and val.lower().startswith('quarter'):
+    """Accept Q1, Quarter 1, q1, 1, '1', 1.0 etc."""
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        v = int(val)
+        return v if 1 <= v <= 4 else None
+    if isinstance(val, str):
+        s = val.strip().lower()
+        # "quarter 1" or "quarter1"
+        if s.startswith('quarter'):
+            rest = s[7:].strip()
+            try:
+                v = int(rest)
+                return v if 1 <= v <= 4 else None
+            except ValueError:
+                return None
+        # "q1" or "q 1"
+        if s.startswith('q'):
+            rest = s[1:].strip()
+            try:
+                v = int(rest)
+                return v if 1 <= v <= 4 else None
+            except ValueError:
+                return None
+        # bare number
         try:
-            return int(val.split()[1])
-        except (IndexError, ValueError):
-            pass
+            v = int(s)
+            return v if 1 <= v <= 4 else None
+        except ValueError:
+            return None
     return None
+
 
 def col_index(headers, name):
     try:
@@ -143,37 +174,56 @@ def col_index(headers, name):
     except ValueError:
         return None
 
+
 def build_metric_lookup(category_name):
     cat = Category.query.filter_by(name=category_name).first()
     if not cat:
         return {}, None
     return {m.name: m for m in cat.metrics}, cat
 
-def build_branch_lookup():
-    branches = Branch.query.all()
-    lookup = {}
-    for b in branches:
-        lookup[b.name.strip()]       = b
-        lookup[b.name.strip().lower()] = b
-        lookup[b.name.strip().upper()] = b
 
-    _aliases = {
-        'OUTREACH / BOOKMOBILE':  'Bookmobile/Outreach',
-        'Outreach / Bookmobile':  'Bookmobile/Outreach',
-        'outreach / bookmobile':  'Bookmobile/Outreach',
-        'OUTREACH/BOOKMOBILE':    'Bookmobile/Outreach',
-        'outreach/bookmobile':    'Bookmobile/Outreach',
-        'BOOKMOBILE/OUTREACH':    'Bookmobile/Outreach',
-        'OUTREACH / BKM':         'Bookmobile/Outreach',
-        'Outreach / BKM':         'Bookmobile/Outreach',
+def build_branch_lookup():
+    """Return a dict mapping every reasonable name variant → Branch object."""
+    lookup = {}
+    for b in Branch.query.all():
+        for variant in [b.name.strip(), b.name.strip().lower(), b.name.strip().upper()]:
+            lookup[variant] = b
+
+    aliases = {
+        # Outreach/Bookmobile variants
+        'OUTREACH / BOOKMOBILE':  'Outreach/Bookmobile',
+        'Outreach / Bookmobile':  'Outreach/Bookmobile',
+        'outreach / bookmobile':  'Outreach/Bookmobile',
+        'OUTREACH/BOOKMOBILE':    'Outreach/Bookmobile',
+        'outreach/bookmobile':    'Outreach/Bookmobile',
+        'BOOKMOBILE/OUTREACH':    'Outreach/Bookmobile',
+        'OUTREACH / BKM':         'Outreach/Bookmobile',
+        'Outreach / BKM':         'Outreach/Bookmobile',
+        # System-wide variants
         'YCL SYSTEM WIDE':        'YCL (System Wide)',
         'YCL (SYSTEM WIDE)':      'YCL (System Wide)',
+        # Rock Hill desk short-forms
+        'ROCK HILL - CIRC':           'Rock Hill - Circulation',
+        'Rock Hill - Circ':           'Rock Hill - Circulation',
+        'rock hill - circ':           'Rock Hill - Circulation',
+        'ROCK HILL CIRCULATION':      'Rock Hill - Circulation',
+        'Rock Hill Circulation':      'Rock Hill - Circulation',
+        'RH - CIRC':                  'Rock Hill - Circulation',
+        'RH Circ':                    'Rock Hill - Circulation',
+        'ROCK HILL - YA':             'Rock Hill - YA',
+        'Rock Hill YA':               'Rock Hill - YA',
+        'ROCK HILL YA':               'Rock Hill - YA',
+        'RH - YA':                    'Rock Hill - YA',
+        'RH YA':                      'Rock Hill - YA',
     }
-    for alias, canonical in _aliases.items():
-        if canonical in lookup:
-            lookup[alias] = lookup[canonical]
+    for alias, canonical in aliases.items():
+        target = lookup.get(canonical) or lookup.get(canonical.lower())
+        if target:
+            lookup[alias] = target
+            lookup[alias.lower()] = target
 
     return lookup
+
 
 def entry_exists_monthly(cat_id, branch_id, year, month):
     q = Entry.query.filter_by(category_id=cat_id, year=year, month=month)
@@ -183,6 +233,7 @@ def entry_exists_monthly(cat_id, branch_id, year, month):
         q = q.filter_by(branch_id=branch_id)
     return q.first() is not None
 
+
 def entry_exists_quarterly(cat_id, branch_id, year, quarter):
     q = Entry.query.filter_by(category_id=cat_id, year=year, quarter=quarter)
     if branch_id is None:
@@ -191,16 +242,15 @@ def entry_exists_quarterly(cat_id, branch_id, year, quarter):
         q = q.filter_by(branch_id=branch_id)
     return q.first() is not None
 
-# ── Sheet importers ───────────────────────────────────────────────────────────
+
+# ── Sheet importers (return created, skipped, warnings) ───────────────────────
 
 def import_branch_stats(ws, cat, metric_lookup, branch_lookup):
     rows = list(ws.iter_rows(values_only=True))
     headers = rows[0]
 
     year_idx   = col_index(headers, 'Year')
-    month_idx  = col_index(headers, 'Month Num')   # use numeric month column
-    if month_idx is None:
-        month_idx = col_index(headers, 'Month')    # fallback to name
+    month_idx  = col_index(headers, 'Month Num') or col_index(headers, 'Month')
     branch_idx = col_index(headers, 'BRANCH')
 
     col_metric = {}
@@ -216,7 +266,6 @@ def import_branch_stats(ws, cat, metric_lookup, branch_lookup):
     for row in rows[1:]:
         if all(v is None for v in row):
             continue
-
         year        = row[year_idx]   if year_idx   is not None else None
         month_raw   = row[month_idx]  if month_idx  is not None else None
         branch_name = row[branch_idx] if branch_idx is not None else None
@@ -233,17 +282,18 @@ def import_branch_stats(ws, cat, metric_lookup, branch_lookup):
             skipped_branches.add(branch_name)
             continue
 
+        # Skip desk branches — they don't go into Branch Stats
+        if getattr(branch, 'is_desk', False):
+            continue
+
         key = (int(year), month, branch.id)
         if key not in buckets:
             buckets[key] = {}
-
         for i, val in enumerate(row):
             if i in col_metric and val is not None:
                 buckets[key][col_metric[i].id] = float(val)
 
-    if skipped_branches:
-        print(f"  Warning: unrecognised branches skipped: {skipped_branches}")
-
+    warnings = [f'Unrecognised branch skipped: {b}' for b in sorted(skipped_branches)]
     created = skipped = 0
     for (year, month, branch_id), values in buckets.items():
         if not values:
@@ -256,12 +306,11 @@ def import_branch_stats(ws, cat, metric_lookup, branch_lookup):
         db.session.add(entry)
         db.session.flush()
         for metric_id, val in values.items():
-            db.session.add(EntryValue(entry_id=entry.id, metric_id=metric_id,
-                                      value_number=val))
+            db.session.add(EntryValue(entry_id=entry.id, metric_id=metric_id, value_number=val))
         created += 1
 
     db.session.commit()
-    print(f"  Branch Stats: {created} new entries, {skipped} already existed (skipped)")
+    return created, skipped, warnings
 
 
 def import_online_stats(ws, cat, metric_lookup):
@@ -269,9 +318,7 @@ def import_online_stats(ws, cat, metric_lookup):
     headers = rows[0]
 
     year_idx  = col_index(headers, 'Year')
-    month_idx = col_index(headers, 'Month Num')
-    if month_idx is None:
-        month_idx = col_index(headers, 'Month')
+    month_idx = col_index(headers, 'Month Num') or col_index(headers, 'Month')
 
     col_metric = {}
     for i, h in enumerate(headers):
@@ -308,12 +355,11 @@ def import_online_stats(ws, cat, metric_lookup):
         db.session.add(entry)
         db.session.flush()
         for metric_id, val in values.items():
-            db.session.add(EntryValue(entry_id=entry.id, metric_id=metric_id,
-                                      value_number=val))
+            db.session.add(EntryValue(entry_id=entry.id, metric_id=metric_id, value_number=val))
         created += 1
 
     db.session.commit()
-    print(f"  Online Stats: {created} new entries, {skipped} already existed (skipped)")
+    return created, skipped, []
 
 
 def import_quarterly_ref(ws, cat, metric_lookup, branch_lookup):
@@ -322,15 +368,13 @@ def import_quarterly_ref(ws, cat, metric_lookup, branch_lookup):
 
     year_idx    = col_index(headers, 'Year')
     quarter_idx = col_index(headers, 'Quarter')
-    branch_idx  = col_index(headers, 'Branch or Location')
+    branch_idx  = col_index(headers, 'Branch or Location') or col_index(headers, 'Branch') or col_index(headers, 'BRANCH')
     value_idx   = col_index(headers, 'Total # of Transactions for the Week')
 
     metric = metric_lookup.get('Total Transactions for the Week')
     if not metric:
-        print("  Quarterly Ref Stats: metric not found, skipping")
-        return
+        return 0, 0, ['Metric "Total Transactions for the Week" not found — skipped']
 
-    # Merge multiple rows for same (year, quarter, branch)
     buckets = {}
     skipped_branches = set()
 
@@ -356,11 +400,10 @@ def import_quarterly_ref(ws, cat, metric_lookup, branch_lookup):
             continue
 
         key = (int(year), quarter, branch.id)
+        # Sum multiple rows for the same period (e.g. daily tallies)
         buckets[key] = buckets.get(key, 0) + float(val)
 
-    if skipped_branches:
-        print(f"  Warning: unrecognised branches skipped: {skipped_branches}")
-
+    warnings = [f'Unrecognised branch skipped: {b}' for b in sorted(skipped_branches)]
     created = skipped = 0
     for (year, quarter, branch_id), total_val in buckets.items():
         if entry_exists_quarterly(cat.id, branch_id, year, quarter):
@@ -375,51 +418,67 @@ def import_quarterly_ref(ws, cat, metric_lookup, branch_lookup):
         created += 1
 
     db.session.commit()
-    if skipped_branches:
-        print(f"  Warning: unrecognised branches skipped: {skipped_branches}")
-    print(f"  Quarterly Ref Stats: {created} new entries, {skipped} already existed (skipped)")
+    return created, skipped, warnings
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# ── Main orchestrator ─────────────────────────────────────────────────────────
+
+def do_import(wb):
+    """
+    Import all recognised sheets from an open openpyxl workbook.
+    Must be called within an active Flask app context.
+    Returns a list of result dicts for display.
+    """
+    branch_lookup = build_branch_lookup()
+    results = []
+
+    # Branch Stats
+    metric_lookup, cat = build_metric_lookup('Branch Stats')
+    if cat and 'Branch Stats' in wb.sheetnames:
+        c, s, w = import_branch_stats(wb['Branch Stats'], cat, metric_lookup, branch_lookup)
+        results.append({'sheet': 'Branch Stats', 'created': c, 'skipped': s, 'warnings': w})
+    elif 'Branch Stats' not in wb.sheetnames:
+        results.append({'sheet': 'Branch Stats', 'created': 0, 'skipped': 0,
+                        'warnings': ['Sheet "Branch Stats" not found in workbook']})
+
+    # Online Stats
+    metric_lookup, cat = build_metric_lookup('Online Stats')
+    if cat and 'Online Stats' in wb.sheetnames:
+        c, s, w = import_online_stats(wb['Online Stats'], cat, metric_lookup)
+        results.append({'sheet': 'Online Stats', 'created': c, 'skipped': s, 'warnings': w})
+    elif 'Online Stats' not in wb.sheetnames:
+        results.append({'sheet': 'Online Stats', 'created': 0, 'skipped': 0,
+                        'warnings': ['Sheet "Online Stats" not found in workbook']})
+
+    # Quarterly Reference Stats
+    metric_lookup, cat = build_metric_lookup('Quarterly Reference Stats')
+    if cat and 'Qrtly Ref Stats' in wb.sheetnames:
+        c, s, w = import_quarterly_ref(wb['Qrtly Ref Stats'], cat, metric_lookup, branch_lookup)
+        results.append({'sheet': 'Quarterly Reference Stats', 'created': c, 'skipped': s, 'warnings': w})
+    elif 'Qrtly Ref Stats' not in wb.sheetnames:
+        results.append({'sheet': 'Quarterly Reference Stats', 'created': 0, 'skipped': 0,
+                        'warnings': ['Sheet "Qrtly Ref Stats" not found — add this sheet to import quarterly data']})
+
+    return results
+
 
 def run(excel_path=None):
     path = excel_path or DEFAULT_EXCEL_PATH
     if not os.path.exists(path):
-        print(f"ERROR: Cannot find {path}")
+        print(f'ERROR: Cannot find {path}')
         sys.exit(1)
 
-    print(f"Opening {path} ...")
+    print(f'Opening {path} ...')
     wb = openpyxl.load_workbook(path, data_only=True)
 
     with app.app_context():
-        branch_lookup = build_branch_lookup()
+        results = do_import(wb)
 
-        print("\nImporting Branch Stats ...")
-        metric_lookup, cat = build_metric_lookup('Branch Stats')
-        if cat and 'Branch Stats' in wb.sheetnames:
-            import_branch_stats(wb['Branch Stats'], cat, metric_lookup, branch_lookup)
-        else:
-            print("  Skipped (category or sheet not found)")
-
-        print("\nImporting Online Stats ...")
-        metric_lookup, cat = build_metric_lookup('Online Stats')
-        if cat and 'Online Stats' in wb.sheetnames:
-            import_online_stats(wb['Online Stats'], cat, metric_lookup)
-        else:
-            print("  Skipped (category or sheet not found)")
-
-        print("\nImporting Quarterly Reference Stats ...")
-        metric_lookup, cat = build_metric_lookup('Quarterly Reference Stats')
-        if cat and 'Qrtly Ref Stats' in wb.sheetnames:
-            import_quarterly_ref(wb['Qrtly Ref Stats'], cat, metric_lookup, branch_lookup)
-        else:
-            print("  Skipped (category or sheet not found)")
-
-        print("\nNOTE: eResources sheet skipped — its column structure (ABCmouse,")
-        print("  Biblioboard, hoopla, etc.) does not match the current eResources")
-        print("  metrics in the database. Update via Admin > Categories if needed.")
-
-        print("\nDone!")
+    for r in results:
+        print(f"\n{r['sheet']}: {r['created']} created, {r['skipped']} skipped")
+        for w in r.get('warnings', []):
+            print(f'  Warning: {w}')
+    print('\nDone!')
 
 
 if __name__ == '__main__':

@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from models import db, Category, Metric, Branch, Entry, EntryValue
 from datetime import datetime
 import os
@@ -383,6 +383,356 @@ def admin_branch_delete(branch_id):
         db.session.commit()
         flash('Branch deleted.', 'info')
     return redirect(url_for('admin_branches'))
+
+
+# ── Reports ───────────────────────────────────────────────────────────────────
+
+def report_data_table(metrics, branch_list, data):
+    """
+    Build grouped table rows for report templates.
+    data: {branch_id_or_None: {metric_id: value}}  (value = float or string)
+    Returns list of groups: [{name, rows: [{metric, values: [str]}]}]
+    """
+    def fmt(v):
+        if v is None:
+            return '—'
+        if isinstance(v, float):
+            return str(int(v)) if v == int(v) else f"{v:.2f}".rstrip('0').rstrip('.')
+        return str(v) if v != '' else '—'
+
+    groups, seen = [], {}
+    for m in metrics:
+        key = m.group_name or ''
+        if key not in seen:
+            seen[key] = {'name': key, 'rows': []}
+            groups.append(seen[key])
+        cells = [fmt(data.get(b.id if b else None, {}).get(m.id)) for b in branch_list]
+        seen[key]['rows'].append({'metric': m, 'cells': cells})
+    return groups
+
+
+def metrics_by_category_json():
+    """Return {cat_id: [{id, name}]} for use in JS cascading dropdowns."""
+    result = {}
+    for cat in Category.query.filter_by(is_active=True).all():
+        result[cat.id] = [
+            {'id': m.id, 'name': m.name}
+            for m in Metric.query.filter_by(category_id=cat.id, is_active=True)
+                                 .order_by(Metric.sort_order).all()
+        ]
+    return result
+
+
+@app.route('/reports')
+def reports_index():
+    return render_template('reports/index.html')
+
+
+@app.route('/reports/monthly')
+def report_monthly():
+    cat_id = request.args.get('category', type=int)
+    year   = request.args.get('year',     type=int)
+    month  = request.args.get('month',    type=int)
+
+    categories = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
+    available_years = [r[0] for r in db.session.query(Entry.year).distinct()
+                                                .order_by(Entry.year.desc()).all()]
+    table = branches = category = None
+
+    if cat_id and year and month:
+        category = Category.query.get_or_404(cat_id)
+        metrics  = Metric.query.filter_by(category_id=cat_id, is_active=True).order_by(Metric.sort_order).all()
+        entries  = Entry.query.filter_by(category_id=cat_id, year=year, month=month).all()
+
+        branches, data = [], {}
+        for e in entries:
+            if e.branch not in branches:
+                branches.append(e.branch)
+            if e.branch_id not in data:
+                data[e.branch_id] = {}
+            for ev in e.values:
+                data[e.branch_id][ev.metric_id] = ev.display_value
+
+        table = report_data_table(metrics, branches if branches else [None], data)
+
+    return render_template('reports/monthly.html',
+                           categories=categories, available_years=available_years,
+                           months=MONTHS, sel_cat=cat_id, sel_year=year, sel_month=month,
+                           category=category, table=table, branches=branches)
+
+
+@app.route('/reports/annual')
+def report_annual():
+    cat_id = request.args.get('category', type=int)
+    year   = request.args.get('year',     type=int)
+
+    categories = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
+    available_years = [r[0] for r in db.session.query(Entry.year).distinct()
+                                                .order_by(Entry.year.desc()).all()]
+    table = branches = category = None
+
+    if cat_id and year:
+        category = Category.query.get_or_404(cat_id)
+        metrics  = Metric.query.filter_by(category_id=cat_id, is_active=True).order_by(Metric.sort_order).all()
+        entries  = Entry.query.filter_by(category_id=cat_id, year=year).all()
+
+        if category.has_branch:
+            bid_set  = {e.branch_id for e in entries if e.branch_id}
+            branches = [Branch.query.get(bid) for bid in sorted(bid_set)]
+        else:
+            branches = []
+
+        branch_list = branches if branches else [None]
+        totals = {}
+        for e in entries:
+            key = e.branch_id if category.has_branch else None
+            if key not in totals:
+                totals[key] = {}
+            for ev in e.values:
+                if ev.value_number is not None:
+                    totals[key][ev.metric_id] = totals[key].get(ev.metric_id, 0) + ev.value_number
+
+        table = report_data_table(metrics, branch_list, totals)
+
+    return render_template('reports/annual.html',
+                           categories=categories, available_years=available_years,
+                           sel_cat=cat_id, sel_year=year,
+                           category=category, table=table, branches=branches)
+
+
+@app.route('/reports/crosstab')
+def report_crosstab():
+    cat_id    = request.args.get('category', type=int)
+    metric_id = request.args.get('metric',   type=int)
+    year      = request.args.get('year',     type=int)
+
+    categories  = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
+    available_years = [r[0] for r in db.session.query(Entry.year).distinct()
+                                                .order_by(Entry.year.desc()).all()]
+    metrics_json = metrics_by_category_json()
+    table = branches = metric = category = None
+
+    if cat_id and metric_id and year:
+        category = Category.query.get_or_404(cat_id)
+        metric   = Metric.query.get_or_404(metric_id)
+        entries  = Entry.query.filter_by(category_id=cat_id, year=year).all()
+
+        if category.has_branch:
+            bid_set  = {e.branch_id for e in entries if e.branch_id}
+            branches = [Branch.query.get(bid) for bid in sorted(bid_set)]
+        else:
+            branches = [None]
+
+        # pivot[period_key][branch_id] = display_value
+        pivot = {}
+        for e in entries:
+            pkey = e.month if category.frequency == 'monthly' else e.quarter
+            if pkey not in pivot:
+                pivot[pkey] = {}
+            for ev in e.values:
+                if ev.metric_id == metric_id:
+                    pivot[pkey][e.branch_id] = ev.display_value
+
+        if category.frequency == 'monthly':
+            period_labels = [(i, MONTHS[i - 1]) for i in range(1, 13)]
+        else:
+            period_labels = [(i, f'Q{i}') for i in range(1, 5)]
+
+        table = []
+        row_totals = []
+        col_totals = {b.id if b else None: 0 for b in branches}
+        col_counts  = {b.id if b else None: 0 for b in branches}
+
+        for pkey, plabel in period_labels:
+            row_vals = []
+            row_sum  = 0
+            has_data = False
+            for b in branches:
+                bid = b.id if b else None
+                v   = pivot.get(pkey, {}).get(bid)
+                row_vals.append(v if v is not None else '—')
+                if v is not None:
+                    try:
+                        row_sum += float(v)
+                        col_totals[bid] = col_totals.get(bid, 0) + float(v)
+                        col_counts[bid]  = col_counts.get(bid, 0) + 1
+                        has_data = True
+                    except (ValueError, TypeError):
+                        pass
+            if has_data:
+                table.append({'label': plabel, 'values': row_vals,
+                              'total': str(int(row_sum)) if row_sum == int(row_sum) else f"{row_sum:.1f}"})
+
+        col_totals_fmt = [
+            str(int(col_totals[b.id if b else None]))
+            if col_totals.get(b.id if b else None, 0) == int(col_totals.get(b.id if b else None, 0))
+            else f"{col_totals.get(b.id if b else None, 0):.1f}"
+            for b in branches
+        ]
+        grand_total = sum(col_totals.values())
+        grand_total_fmt = str(int(grand_total)) if grand_total == int(grand_total) else f"{grand_total:.1f}"
+
+    return render_template('reports/crosstab.html',
+                           categories=categories, available_years=available_years,
+                           months=MONTHS, metrics_json=metrics_json,
+                           sel_cat=cat_id, sel_metric=metric_id, sel_year=year,
+                           category=category, metric=metric,
+                           table=table, branches=branches,
+                           col_totals_fmt=col_totals_fmt if cat_id and metric_id and year else [],
+                           grand_total_fmt=grand_total_fmt if cat_id and metric_id and year else '—')
+
+
+@app.route('/reports/trend')
+def report_trend():
+    cat_id     = request.args.get('category', type=int)
+    metric_id  = request.args.get('metric',   type=int)
+    year       = request.args.get('year',     type=int)
+    branch_ids = request.args.getlist('branches', type=int)
+
+    categories  = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
+    available_years = [r[0] for r in db.session.query(Entry.year).distinct()
+                                                .order_by(Entry.year.asc()).all()]
+    metrics_json = metrics_by_category_json()
+    chart_data   = None
+    metric = category = None
+
+    if cat_id and metric_id and year:
+        category = Category.query.get_or_404(cat_id)
+        metric   = Metric.query.get_or_404(metric_id)
+        labels   = [m[:3] for m in MONTHS]
+        datasets = []
+        colors   = ['#2c6e8a','#e74c3c','#27ae60','#f39c12','#8e44ad',
+                    '#16a085','#d35400','#2980b9','#c0392b','#1abc9c']
+
+        if category.has_branch:
+            all_branches = Branch.query.filter_by(is_active=True).order_by(Branch.sort_order).all()
+            selected = [b for b in all_branches if b.id in branch_ids] if branch_ids else all_branches
+            for i, b in enumerate(selected):
+                pts = []
+                for mo in range(1, 13):
+                    e = Entry.query.filter_by(category_id=cat_id, branch_id=b.id,
+                                              year=year, month=mo).first()
+                    ev = EntryValue.query.filter_by(entry_id=e.id, metric_id=metric_id).first() if e else None
+                    pts.append(ev.value_number if ev else None)
+                datasets.append({'label': b.name, 'data': pts, 'tension': 0.3,
+                                 'spanGaps': True, 'borderColor': colors[i % len(colors)],
+                                 'backgroundColor': colors[i % len(colors)] + '22'})
+        else:
+            pts = []
+            for mo in range(1, 13):
+                e = Entry.query.filter_by(category_id=cat_id, year=year, month=mo).first()
+                ev = EntryValue.query.filter_by(entry_id=e.id, metric_id=metric_id).first() if e else None
+                pts.append(ev.value_number if ev else None)
+            datasets.append({'label': metric.name, 'data': pts, 'tension': 0.3,
+                             'spanGaps': True, 'borderColor': colors[0],
+                             'backgroundColor': colors[0] + '22'})
+
+        chart_data = {'labels': labels, 'datasets': datasets}
+
+    all_branches = Branch.query.filter_by(is_active=True).order_by(Branch.sort_order).all()
+    return render_template('reports/trend.html',
+                           categories=categories, available_years=available_years,
+                           all_branches=all_branches, metrics_json=metrics_json,
+                           sel_cat=cat_id, sel_metric=metric_id,
+                           sel_year=year, sel_branches=branch_ids,
+                           category=category, metric=metric, chart_data=chart_data)
+
+
+@app.route('/reports/programming')
+def report_programming():
+    year      = request.args.get('year',   type=int)
+    month     = request.args.get('month',  type=int)
+    branch_id = request.args.get('branch', type=int)
+
+    available_years = [r[0] for r in db.session.query(Entry.year).distinct()
+                                                .order_by(Entry.year.desc()).all()]
+    branches = Branch.query.filter_by(is_active=True).order_by(Branch.sort_order).all()
+    TYPES      = ['ONSITE', 'OFFSITE', 'VIRTUAL']
+    AGE_GROUPS = ['0-5', '6-11', '12-18', '19+', 'General Interest']
+    summary = outreach = None
+
+    if year:
+        cat = Category.query.filter_by(name='Branch Stats').first()
+        if cat:
+            all_metrics = {m.name: m for m in cat.metrics}
+            q = Entry.query.filter_by(category_id=cat.id, year=year)
+            if month:
+                q = q.filter_by(month=month)
+            if branch_id:
+                q = q.filter_by(branch_id=branch_id)
+            entries = q.all()
+
+            ev_map = {}
+            for e in entries:
+                ev_map[e.id] = {ev.metric_id: (ev.value_number or 0) for ev in e.values}
+
+            summary = {}
+            for ptype in TYPES:
+                summary[ptype] = {}
+                for age in AGE_GROUPS:
+                    sm = all_metrics.get(f'{ptype} Sessions {age}')
+                    am = all_metrics.get(f'{ptype} Attendance {age}')
+                    sess = sum(ev_map.get(e.id, {}).get(sm.id, 0) for e in entries) if sm else 0
+                    att  = sum(ev_map.get(e.id, {}).get(am.id, 0) for e in entries) if am else 0
+                    summary[ptype][age] = {'sessions': int(sess), 'attendance': int(att)}
+
+            # Outreach totals
+            def _sum(name):
+                m = all_metrics.get(name)
+                return int(sum(ev_map.get(e.id, {}).get(m.id, 0) for e in entries)) if m else 0
+
+            outreach = {
+                'activities':  _sum('Number of Outreach Activities Conducted'),
+                'attendance':  _sum('Outreach Attendance'),
+                'passive':     _sum('Take & Makes / Other Passive Program Participants'),
+            }
+
+    return render_template('reports/programming.html',
+                           available_years=available_years, branches=branches,
+                           months=MONTHS, sel_year=year, sel_month=month,
+                           sel_branch=branch_id, summary=summary, outreach=outreach,
+                           prog_types=TYPES, age_groups=AGE_GROUPS)
+
+
+@app.route('/reports/online')
+def report_online():
+    year  = request.args.get('year',  type=int)
+    month = request.args.get('month', type=int)
+
+    available_years = [r[0] for r in db.session.query(Entry.year).distinct()
+                                                .order_by(Entry.year.desc()).all()]
+    stats = groups = None
+
+    if year and month:
+        cat = Category.query.filter_by(name='Online Stats').first()
+        if cat:
+            metrics = Metric.query.filter_by(category_id=cat.id, is_active=True).order_by(Metric.sort_order).all()
+            curr_entry = Entry.query.filter_by(category_id=cat.id, year=year, month=month).first()
+            prev_month = month - 1 or 12
+            prev_year  = year if month > 1 else year - 1
+            prev_entry = Entry.query.filter_by(category_id=cat.id, year=prev_year, month=prev_month).first()
+
+            curr_vals = {ev.metric_id: ev.value_number for ev in curr_entry.values} if curr_entry else {}
+            prev_vals = {ev.metric_id: ev.value_number for ev in prev_entry.values} if prev_entry else {}
+
+            stats = []
+            for m in metrics:
+                cv = curr_vals.get(m.id)
+                pv = prev_vals.get(m.id)
+                if cv is None:
+                    continue
+                delta = (cv - pv) if pv is not None else None
+                delta_pct = round((delta / pv) * 100, 1) if (delta is not None and pv) else None
+                stats.append({'metric': m, 'value': cv, 'prev': pv,
+                              'delta': delta, 'delta_pct': delta_pct})
+
+            groups = group_metrics(metrics)
+
+    return render_template('reports/online.html',
+                           available_years=available_years, months=MONTHS,
+                           sel_year=year, sel_month=month, stats=stats,
+                           stats_by_id={s['metric'].id: s for s in stats} if stats else {},
+                           groups=groups)
 
 
 if __name__ == '__main__':

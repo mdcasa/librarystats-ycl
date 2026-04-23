@@ -1,0 +1,115 @@
+{% extends 'base.html' %}
+{% block title %}Trend Over Time – Reports{% endblock %}
+{% block content %}
+<h1 class="h4 fw-bold mb-4"><i class="bi bi-graph-up me-2 text-info"></i>Trend Over Time</h1>
+
+<div class="card mb-4">
+  <div class="card-body py-3">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-sm-3">
+        <label class="sidebar-label mb-1">Category</label>
+        <select name="category" id="cat-select" class="form-select form-select-sm" required>
+          <option value="">— select —</option>
+          {% for cat in categories %}
+          <option value="{{ cat.id }}" {% if sel_cat == cat.id %}selected{% endif %}>{{ cat.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-4">
+        <label class="sidebar-label mb-1">Metric</label>
+        <select name="metric" id="metric-select" class="form-select form-select-sm" required>
+          <option value="">— select category first —</option>
+          {% if sel_cat and metrics_json[sel_cat] %}
+            {% for m in metrics_json[sel_cat] %}
+            <option value="{{ m.id }}" {% if sel_metric == m.id %}selected{% endif %}>{{ m.name }}</option>
+            {% endfor %}
+          {% endif %}
+        </select>
+      </div>
+      <div class="col-sm-2">
+        <label class="sidebar-label mb-1">Year</label>
+        <select name="year" class="form-select form-select-sm" required>
+          <option value="">— select —</option>
+          {% for y in available_years %}
+          <option value="{{ y }}" {% if sel_year == y %}selected{% endif %}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-3">
+        <button class="btn btn-primary btn-sm w-100">Run Report</button>
+      </div>
+      {% if category and category.has_branch %}
+      <div class="col-12">
+        <label class="sidebar-label mb-1">Branches (leave blank for all)</label>
+        <div class="d-flex flex-wrap gap-2">
+          {% for b in all_branches %}
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" name="branches"
+                   value="{{ b.id }}" id="b{{ b.id }}"
+                   {% if b.id in sel_branches %}checked{% endif %}>
+            <label class="form-check-label small" for="b{{ b.id }}">{{ b.name }}</label>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </form>
+  </div>
+</div>
+
+{% if chart_data %}
+<div class="card">
+  <div class="card-header-custom fw-semibold">
+    {{ metric.name }} — {{ sel_year }}
+  </div>
+  <div class="card-body">
+    <canvas id="trendChart" style="max-height:420px"></canvas>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+const metricsByCat = {{ metrics_json | tojson }};
+const selMetric    = {{ sel_metric or 'null' }};
+
+document.getElementById('cat-select').addEventListener('change', function () {
+  const catId = parseInt(this.value);
+  const sel   = document.getElementById('metric-select');
+  sel.innerHTML = '<option value="">— select metric —</option>';
+  (metricsByCat[catId] || []).forEach(m => {
+    const opt = document.createElement('option');
+    opt.value       = m.id;
+    opt.textContent = m.name;
+    if (m.id === selMetric) opt.selected = true;
+    sel.appendChild(opt);
+  });
+});
+
+{% if chart_data %}
+const chartData = {{ chart_data | tojson }};
+new Chart(document.getElementById('trendChart'), {
+  type: 'line',
+  data: chartData,
+  options: {
+    responsive: true,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { position: 'bottom' },
+      tooltip: { callbacks: {
+        label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y !== null ? ctx.parsed.y.toLocaleString() : '—'}`
+      }}
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        ticks: { callback: v => v.toLocaleString() }
+      }
+    }
+  }
+});
+{% endif %}
+</script>
+{% endblock %}

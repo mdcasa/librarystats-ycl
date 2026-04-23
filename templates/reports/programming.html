@@ -1,0 +1,118 @@
+{% extends 'base.html' %}
+{% block title %}Programming Summary – Reports{% endblock %}
+{% block content %}
+<h1 class="h4 fw-bold mb-4"><i class="bi bi-people me-2 text-danger"></i>Programming Summary</h1>
+
+<div class="card mb-4">
+  <div class="card-body py-3">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-sm-2">
+        <label class="sidebar-label mb-1">Year</label>
+        <select name="year" class="form-select form-select-sm" required>
+          <option value="">— select —</option>
+          {% for y in available_years %}
+          <option value="{{ y }}" {% if sel_year == y %}selected{% endif %}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-3">
+        <label class="sidebar-label mb-1">Month <span class="text-muted">(blank = full year)</span></label>
+        <select name="month" class="form-select form-select-sm">
+          <option value="">All months</option>
+          {% for m in months %}
+          <option value="{{ loop.index }}" {% if sel_month == loop.index %}selected{% endif %}>{{ m }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-4">
+        <label class="sidebar-label mb-1">Branch <span class="text-muted">(blank = all)</span></label>
+        <select name="branch" class="form-select form-select-sm">
+          <option value="">All branches</option>
+          {% for b in branches %}
+          <option value="{{ b.id }}" {% if sel_branch == b.id %}selected{% endif %}>{{ b.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-3">
+        <button class="btn btn-primary btn-sm">Run Report</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if summary %}
+<div class="row g-4">
+  {% for ptype in prog_types %}
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header-custom fw-semibold">{{ ptype }} Programming</div>
+      <div class="table-responsive">
+        <table class="table table-sm table-bordered mb-0 align-middle" style="font-size:.88rem">
+          <thead class="table-light">
+            <tr>
+              <th>Age Group</th>
+              <th class="text-center">Sessions</th>
+              <th class="text-center">Attendance</th>
+              <th class="text-center">Avg Attendance / Session</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% set type_sess_total = namespace(val=0) %}
+            {% set type_att_total  = namespace(val=0) %}
+            {% for age in age_groups %}
+            {% set d = summary[ptype][age] %}
+            {% set avg = (d.attendance / d.sessions)|round(1) if d.sessions > 0 else '—' %}
+            <tr>
+              <td>{{ age }}</td>
+              <td class="text-center">{{ d.sessions if d.sessions else '—' }}</td>
+              <td class="text-center">{{ d.attendance if d.attendance else '—' }}</td>
+              <td class="text-center text-muted">{{ avg }}</td>
+            </tr>
+            {% set type_sess_total.val = type_sess_total.val + d.sessions %}
+            {% set type_att_total.val  = type_att_total.val  + d.attendance %}
+            {% endfor %}
+          </tbody>
+          <tfoot class="table-secondary">
+            <tr>
+              <td class="fw-bold">Total</td>
+              <td class="text-center fw-bold">{{ type_sess_total.val }}</td>
+              <td class="text-center fw-bold">{{ type_att_total.val }}</td>
+              <td class="text-center fw-bold text-muted">
+                {{ (type_att_total.val / type_sess_total.val)|round(1) if type_sess_total.val > 0 else '—' }}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+
+  {% if outreach %}
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header-custom fw-semibold">Outreach &amp; Passive Programs</div>
+      <div class="card-body">
+        <div class="row g-3 text-center">
+          <div class="col-md-4">
+            <div class="display-6 fw-bold text-primary">{{ outreach.activities }}</div>
+            <div class="text-muted small">Outreach Activities</div>
+          </div>
+          <div class="col-md-4">
+            <div class="display-6 fw-bold text-success">{{ outreach.attendance }}</div>
+            <div class="text-muted small">Outreach Attendance</div>
+          </div>
+          <div class="col-md-4">
+            <div class="display-6 fw-bold text-warning">{{ outreach.passive }}</div>
+            <div class="text-muted small">Take &amp; Make / Passive Participants</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% elif sel_year %}
+<div class="alert alert-info">No programming data found for this selection.</div>
+{% endif %}
+{% endblock %}

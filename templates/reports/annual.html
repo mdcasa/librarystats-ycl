@@ -1,0 +1,84 @@
+{% extends 'base.html' %}
+{% block title %}Branch Scorecard – Library Stats{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="h4 fw-bold mb-0">
+      <i class="bi bi-trophy me-2 text-warning"></i>Branch Scorecard
+    </h1>
+    <div class="text-muted small mt-1">Key metrics for every branch, side-by-side</div>
+  </div>
+</div>
+
+{# ── Filter ── #}
+<div class="card mb-4">
+  <div class="card-body">
+    <form method="get" class="row g-3 align-items-end">
+      <div class="col-sm-5">
+        <label class="form-label sidebar-label">Fiscal Year</label>
+        <select name="fy_year" class="form-select form-select-sm">
+          <option value="">— Select Fiscal Year —</option>
+          {% for fy in available_fy %}
+          <option value="{{ fy }}" {{ 'selected' if fy == sel_fy }}>
+            FY{{ fy }} (Jul {{ fy - 1 }} – Jun {{ fy }})
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-3">
+        <button type="submit" class="btn btn-primary btn-sm w-100">Run Report</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if scorecard %}
+<div class="card">
+  <div class="card-header-custom d-flex justify-content-between align-items-center">
+    <span class="fw-semibold">{{ fy_label }}</span>
+    <small class="text-muted">Shading shows relative rank within each column</small>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-bordered table-hover mb-0 align-middle" style="font-size:.87rem">
+      <thead class="table-light">
+        <tr>
+          <th class="fw-semibold" style="min-width:130px">Branch</th>
+          {% for label, _ in cols %}
+          <th class="text-center fw-semibold" style="min-width:90px;white-space:nowrap">{{ label }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in scorecard %}
+        <tr>
+          <td class="fw-semibold">{{ row.branch.name }}</td>
+          {% for val in row.cells %}
+          {% set ci = loop.index0 %}
+          {% set shade = (val / col_maxes[ci] * 0.45)|round(3) if (val and col_maxes[ci]) else 0 %}
+          <td class="text-end"
+              style="background-color: rgba(44,110,138,{{ shade }}); {{ 'color:#fff;font-weight:600' if shade > 0.3 else '' }}">
+            {% if val %}{{ val | commas }}{% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+      {% if sys_totals %}
+      <tfoot>
+        <tr class="table-secondary fw-bold">
+          <td>System Total</td>
+          {% for val in sys_totals %}
+          <td class="text-end">{% if val %}{{ val | commas }}{% else %}—{% endif %}</td>
+          {% endfor %}
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+</div>
+
+{% elif sel_fy %}
+<div class="alert alert-info">No Branch Stats data found for {{ fy_label }}.</div>
+{% endif %}
+{% endblock %}

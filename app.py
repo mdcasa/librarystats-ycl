@@ -987,6 +987,265 @@ def report_fiscal():
                            fy_label=fy_label)
 
 
+# ── Fiscal-year helper ────────────────────────────────────────────────────────
+
+def _available_fy():
+    """Sorted list of fiscal years (descending) derived from monthly entry data."""
+    rows = db.session.query(Entry.year, Entry.month).filter(Entry.month.isnot(None)).distinct().all()
+    fy_set = set()
+    for yr, mo in rows:
+        fy_set.add(yr + 1 if mo >= 7 else yr)
+    return sorted(fy_set, reverse=True)
+
+
+def _fy_label(fy_year):
+    return f'FY{fy_year}  (Jul {fy_year - 1} – Jun {fy_year})'
+
+
+# ── Branch Scorecard ─────────────────────────────────────────────────────────
+
+@app.route('/reports/annual')
+def report_annual():
+    from sqlalchemy import or_, and_
+    fy_year = request.args.get('fy_year', type=int)
+
+    branches = Branch.query.filter_by(is_active=True, is_desk=False).order_by(Branch.sort_order).all()
+
+    TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
+    AGES  = ['0-5', '6-11', '12-18', '19+', 'General Interest']
+
+    COLS = [
+        ('Circulation',         'Total Branch Circulation'),
+        ('Gate Count',          'Gate Count'),
+        ('Cards (Adult)',       'New Library Card Registrations, Adult'),
+        ('Cards (Juv.)',        'New Library Card Registrations, Juvenile'),
+        ('PC Reservations',     'PC Reservations'),
+        ('WiFi Sessions',       'WiFi - Unique Sessions'),
+        ('Prog. Sessions',      '_prog_sessions'),
+        ('Prog. Attendance',    '_prog_attendance'),
+        ('Outreach Activities', 'Number of Outreach Activities Conducted'),
+        ('1-on-1 Sessions',     '1-on-1 Total for Month'),
+    ]
+
+    scorecard = sys_totals = col_maxes = None
+
+    if fy_year:
+        bs_cat = Category.query.filter_by(name='Branch Stats').first()
+        if bs_cat:
+            id_to_name = {m.id: m.name for m in bs_cat.metrics}
+
+            entries = Entry.query.filter_by(category_id=bs_cat.id).filter(
+                or_(
+                    and_(Entry.year == fy_year - 1, Entry.month >= 7),
+                    and_(Entry.year == fy_year,     Entry.month <= 6)
+                )
+            ).all()
+
+            branch_sums = {b.id: {} for b in branches}
+            for e in entries:
+                if e.branch_id not in branch_sums:
+                    continue
+                for ev in e.values:
+                    n = id_to_name.get(ev.metric_id)
+                    if n and ev.value_number is not None:
+                        branch_sums[e.branch_id][n] = branch_sums[e.branch_id].get(n, 0) + ev.value_number
+
+            sess_keys = [f'{t} Sessions {a}' for t in TYPES for a in AGES]
+            att_keys  = [f'{t} Attendance {a}' for t in TYPES for a in AGES]
+
+            scorecard = []
+            raw_totals = {}
+            for b in branches:
+                sums = branch_sums[b.id]
+                sums['_prog_sessions']   = sum(sums.get(k, 0) for k in sess_keys) or None
+                sums['_prog_attendance'] = sum(sums.get(k, 0) for k in att_keys)  or None
+
+                row_vals = []
+                for _, key in COLS:
+                    v = sums.get(key)
+                    val = int(v) if v and v == int(v) else (round(v, 1) if v else None)
+                    row_vals.append(val)
+                    if val:
+                        raw_totals[key] = raw_totals.get(key, 0) + val
+                scorecard.append({'branch': b, 'cells': row_vals})
+
+            sys_totals = [raw_totals.get(key) for _, key in COLS]
+            col_maxes  = []
+            for i in range(len(COLS)):
+                vals = [r['cells'][i] for r in scorecard if r['cells'][i]]
+                col_maxes.append(max(vals) if vals else 1)
+
+    return render_template('reports/annual.html',
+                           available_fy=_available_fy(),
+                           cols=COLS,
+                           branches=branches,
+                           sel_fy=fy_year,
+                           fy_label=_fy_label(fy_year) if fy_year else None,
+                           scorecard=scorecard,
+                           sys_totals=sys_totals,
+                           col_maxes=col_maxes)
+
+
+# ── Cross-tab Heat Map ────────────────────────────────────────────────────────
+
+@app.route('/reports/crosstab')
+def report_crosstab():
+    from sqlalchemy import or_, and_
+    cat_id    = request.args.get('category', type=int)
+    metric_id = request.args.get('metric',   type=int)
+    fy_year   = request.args.get('fy_year',  type=int)
+
+    categories   = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
+    metrics_json = metrics_by_category_json()
+    branches     = Branch.query.filter_by(is_active=True, is_desk=False).order_by(Branch.sort_order).all()
+
+    # Fiscal year month order: Jul → Jun
+    FY_MONTHS = list(range(7, 13)) + list(range(1, 7))
+
+    table = metric = category = col_max = col_totals = None
+
+    if cat_id and metric_id and fy_year:
+        category = Category.query.get_or_404(cat_id)
+        metric   = Metric.query.get_or_404(metric_id)
+
+        cols = branches if category.has_branch else [None]
+
+        data = {}  # (cal_year, month, branch_id_or_None) -> value
+        for e in Entry.query.filter_by(category_id=cat_id).filter(
+            or_(
+                and_(Entry.year == fy_year - 1, Entry.month >= 7),
+                and_(Entry.year == fy_year,     Entry.month <= 6)
+            )
+        ).filter(Entry.month.isnot(None)).all():
+            bid = e.branch_id if category.has_branch else None
+            for ev in e.values:
+                if ev.metric_id == metric_id and ev.value_number is not None:
+                    key = (e.year, e.month, bid)
+                    data[key] = data.get(key, 0) + ev.value_number
+
+        col_max = max(data.values(), default=1) or 1
+
+        col_totals = []
+        for col in cols:
+            bid = col.id if col else None
+            t = sum(
+                data.get((fy_year - 1 if mo >= 7 else fy_year, mo, bid), 0)
+                for mo in FY_MONTHS
+            )
+            col_totals.append(int(t) if t == int(t) else round(t, 1) if t else None)
+
+        table = []
+        for mo in FY_MONTHS:
+            cal_year = fy_year - 1 if mo >= 7 else fy_year
+            cells, row_sum = [], 0
+            for col in cols:
+                bid = col.id if col else None
+                v = data.get((cal_year, mo, bid))
+                cells.append(int(v) if v and v == int(v) else (round(v, 1) if v else None))
+                if v:
+                    row_sum += v
+            table.append({
+                'month_short': f"{MONTHS[mo - 1][:3]} '{str(cal_year)[2:]}",
+                'cells': cells,
+                'total': int(row_sum) if row_sum == int(row_sum) else round(row_sum, 1) if row_sum else None,
+            })
+
+    return render_template('reports/crosstab.html',
+                           categories=categories,
+                           available_fy=_available_fy(),
+                           metrics_json=metrics_json,
+                           branches=branches,
+                           sel_cat=cat_id,
+                           sel_metric=metric_id,
+                           sel_fy=fy_year,
+                           fy_label=_fy_label(fy_year) if fy_year else None,
+                           category=category,
+                           metric=metric,
+                           table=table,
+                           col_max=col_max,
+                           col_totals=col_totals,
+                           has_branch=category.has_branch if category else False)
+
+
+# ── Programming Age / Delivery-Type Cross-tab ─────────────────────────────────
+
+@app.route('/reports/programming_age')
+def report_programming_age():
+    from sqlalchemy import or_, and_
+    fy_year = request.args.get('fy_year', type=int)
+    month   = request.args.get('month',  type=int)
+    mode    = request.args.get('mode', 'age')   # 'age' | 'type'
+
+    branches = Branch.query.filter_by(is_active=True, is_desk=False).order_by(Branch.sort_order).all()
+    TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
+    AGES  = ['0-5', '6-11', '12-18', '19+', 'General Interest']
+    tables = period_label = None
+
+    if fy_year:
+        bs_cat = Category.query.filter_by(name='Branch Stats').first()
+        if bs_cat:
+            id_to_name = {m.id: m.name for m in bs_cat.metrics}
+
+            if month:
+                # Single month within the fiscal year
+                cal_year = fy_year - 1 if month >= 7 else fy_year
+                q = Entry.query.filter_by(category_id=bs_cat.id, year=cal_year, month=month)
+                period_label = f'{MONTHS[month - 1]} {cal_year}'
+            else:
+                # Full fiscal year
+                q = Entry.query.filter_by(category_id=bs_cat.id).filter(
+                    or_(
+                        and_(Entry.year == fy_year - 1, Entry.month >= 7),
+                        and_(Entry.year == fy_year,     Entry.month <= 6)
+                    )
+                )
+                period_label = _fy_label(fy_year)
+
+            branch_sums = {b.id: {} for b in branches}
+            for e in q.all():
+                if e.branch_id not in branch_sums:
+                    continue
+                for ev in e.values:
+                    n = id_to_name.get(ev.metric_id)
+                    if n and ev.value_number is not None:
+                        branch_sums[e.branch_id][n] = branch_sums[e.branch_id].get(n, 0) + ev.value_number
+
+            cols = AGES if mode == 'age' else TYPES
+
+            def _build(kind):
+                rows, col_totals = [], {c: 0 for c in cols}
+                for b in branches:
+                    sums = branch_sums[b.id]
+                    cells, row_total = {}, 0
+                    for c in cols:
+                        if mode == 'age':
+                            v = sum(sums.get(f'{t} {kind} {c}', 0) for t in TYPES)
+                        else:
+                            v = sum(sums.get(f'{c} {kind} {a}', 0) for a in AGES)
+                        cells[c] = int(v) if v else None
+                        row_total += v
+                        col_totals[c] += v
+                    rows.append({'branch': b, 'cells': cells, 'total': int(row_total) or None})
+                return {
+                    'kind': kind,
+                    'cols': cols,
+                    'rows': rows,
+                    'col_totals': {c: int(col_totals[c]) or None for c in cols},
+                    'grand_total': int(sum(col_totals.values())) or None,
+                }
+
+            tables = [_build('Sessions'), _build('Attendance')]
+
+    return render_template('reports/programming_age.html',
+                           available_fy=_available_fy(),
+                           months=MONTHS,
+                           sel_fy=fy_year,
+                           sel_month=month,
+                           sel_mode=mode,
+                           period_label=period_label,
+                           tables=tables)
+
+
 @app.route('/admin/import', methods=['GET', 'POST'])
 def admin_import():
     results = None

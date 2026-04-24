@@ -75,12 +75,16 @@
             <li><a class="dropdown-item" href="{{ url_for('report_monthly_stats') }}"><i class="bi bi-bar-chart-fill me-2 text-primary"></i>Monthly Board Report</a></li>
             <li><a class="dropdown-item" href="{{ url_for('report_monthly') }}"><i class="bi bi-calendar3 me-2 text-primary"></i>Monthly Summary</a></li>
             <li><a class="dropdown-item" href="{{ url_for('report_fiscal') }}"><i class="bi bi-calendar2-check me-2 text-warning"></i>Fiscal Year Totals</a></li>
-<li><a class="dropdown-item" href="{{ url_for('report_trend') }}"><i class="bi bi-graph-up me-2 text-primary"></i>Trend Over Time</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('report_programming') }}"><i class="bi bi-people me-2 text-primary"></i>Programming Summary</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('report_online') }}"><i class="bi bi-globe me-2 text-primary"></i>Online Stats</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('report_trend') }}"><i class="bi bi-graph-up me-2 text-primary"></i>Trend Over Time</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('report_yoy') }}"><i class="bi bi-arrow-left-right me-2 text-info"></i>Year-over-Year</a></li>
             <li><a class="dropdown-item" href="{{ url_for('report_quarterly_ref') }}"><i class="bi bi-clipboard2-data me-2 text-primary"></i>Quarterly Reference Stats</a></li>
             <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item" href="{{ url_for('report_yoy') }}"><i class="bi bi-arrow-left-right me-2 text-info"></i>Year-over-Year</a></li>
+            <li><span class="dropdown-item text-muted sidebar-label ps-3" style="pointer-events:none">Cross-tab &amp; Analysis</span></li>
+            <li><a class="dropdown-item" href="{{ url_for('report_annual') }}"><i class="bi bi-trophy me-2 text-warning"></i>Branch Scorecard</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('report_crosstab') }}"><i class="bi bi-grid-3x3-gap me-2 text-primary"></i>Cross-tab Heat Map</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('report_programming_age') }}"><i class="bi bi-people-fill me-2" style="color:#6c3483"></i>Programming Cross-tab</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('report_programming') }}"><i class="bi bi-people me-2 text-danger"></i>Programming Summary</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('report_online') }}"><i class="bi bi-globe me-2" style="color:#117a65"></i>Online Stats</a></li>
           </ul>
         </li>
         <li class="nav-item dropdown">

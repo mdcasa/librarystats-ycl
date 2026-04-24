@@ -471,6 +471,100 @@ DOOR_COUNT_BRANCH_MAP = {
 }
 
 
+# Princh location string → Branch.name (substring match, lowercased)
+PRINCH_BRANCH_MAP = {
+    'lake wylie': 'Lake Wylie',
+    'clover':     'Clover',
+    'york':       'York',
+    'fort mill':  'Fort Mill',
+    'rock hill':  'Rock Hill',
+}
+
+# Page-count columns in the Princh export
+PRINCH_PAGE_COLS = [
+    'Letter color pages', 'Letter monochrome pages',
+    'Legal color pages',  'Legal monochrome pages',
+    'Ledger color pages', 'Ledger monochrome pages',
+]
+
+
+def import_princh(ws, branch_lookup):
+    """
+    Parse a Princh print-management export.
+    Sums all page-type columns per branch per month → Total Prints per Month.
+    """
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return 0, ['Empty sheet']
+
+    headers = list(rows[0])
+
+    def ci(name):
+        try: return headers.index(name)
+        except ValueError: return None
+
+    loc_idx  = ci('Location')
+    from_idx = ci('From')
+    page_idxs = [ci(c) for c in PRINCH_PAGE_COLS if ci(c) is not None]
+
+    if loc_idx is None or from_idx is None or not page_idxs:
+        return 0, ['Unrecognised Princh format — expected Location, From, and page columns']
+
+    metric_lookup, cat = build_metric_lookup('Branch Stats')
+    prints_metric = metric_lookup.get('Total Prints per Month')
+    if not cat or not prints_metric:
+        return 0, ['Branch Stats or "Total Prints per Month" metric not found']
+
+    from collections import defaultdict
+    # (year, month, branch_id) → total pages
+    totals = defaultdict(int)
+    unrecognised = set()
+
+    for r in rows[1:]:
+        if all(v is None for v in r):
+            continue
+        loc      = r[loc_idx]
+        from_val = r[from_idx]
+        if not loc or not from_val:
+            continue
+
+        # Parse year/month from From date (string '2026-03-01' or datetime)
+        if hasattr(from_val, 'year'):
+            year, month = from_val.year, from_val.month
+        else:
+            try:
+                parts = str(from_val).split('-')
+                year, month = int(parts[0]), int(parts[1])
+            except (IndexError, ValueError):
+                continue
+
+        # Match location to branch
+        loc_lower = str(loc).strip().lower()
+        branch_name = next(
+            (name for key, name in PRINCH_BRANCH_MAP.items() if key in loc_lower),
+            None
+        )
+        if not branch_name:
+            unrecognised.add(str(loc).strip())
+            continue
+        branch = branch_lookup.get(branch_name)
+        if not branch:
+            unrecognised.add(branch_name)
+            continue
+
+        pages = sum(int(r[i]) for i in page_idxs if isinstance(r[i], (int, float)))
+        totals[(year, month, branch.id)] += pages
+
+    warnings = [f'Unrecognised locations skipped: {sorted(unrecognised)}'] if unrecognised else []
+    updated = 0
+    for (year, month, branch_id), total in totals.items():
+        _upsert_branch_stat(cat.id, branch_id, year, month, prints_metric.id, total)
+        updated += 1
+
+    db.session.commit()
+    return updated, warnings
+
+
 def _detect_sirsi_report_type(rows):
     """Return ('checkouts_by_location', year, month) or None if not recognised."""
     for r in rows[:15]:
@@ -800,6 +894,12 @@ def detect_and_import(wb):
             else:
                 results.append({'sheet': sheet_name, 'created': 0, 'skipped': 0,
                                  'warnings': ['Could not determine year/month from report']})
+
+        elif any(v is not None and 'Letter color pages' in str(v)
+                 for r in rows[:3] for v in r):
+            updated, w = import_princh(ws, branch_lookup)
+            results.append({'sheet': 'Total Prints per Month (Princh)',
+                             'created': updated, 'skipped': 0, 'warnings': w})
 
         elif any(v is not None and 'Location Name' in str(v)
                  for r in rows[:3] for v in r):

@@ -779,6 +779,8 @@ def import_sirsi_user_profile(ws, branch_lookup):
             continue
 
         ils = str(ils).strip()
+        if ils == 'YCL':
+            continue  # system-wide summary row, not a branch
         branch = ils_to_branch.get(ils)
         if branch is None:
             unrecognised.add(ils)

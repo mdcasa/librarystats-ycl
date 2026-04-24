@@ -1308,6 +1308,7 @@ def upload_data():
 _UPLOAD_SOURCED_METRICS = {
     'New Library Card Registrations, Adult',
     'New Library Card Registrations, Juvenile',
+    'New Library Card Registrations, Total',
     'Gate Count',
 }
 
@@ -1368,6 +1369,32 @@ def manual_entry():
                     db.session.add(EntryValue(entry_id=entry.id,
                                               metric_id=metric_id,
                                               value_number=val))
+
+        # ── Auto-compute Total New Library Cards ──────────────────────────
+        total_metric = next((m for m in (branch_cat.active_metrics if branch_cat else [])
+                             if m.name == 'New Library Card Registrations, Total'), None)
+        adult_metric = next((m for m in (branch_cat.active_metrics if branch_cat else [])
+                             if m.name == 'New Library Card Registrations, Adult'), None)
+        juv_metric   = next((m for m in (branch_cat.active_metrics if branch_cat else [])
+                             if m.name == 'New Library Card Registrations, Juvenile'), None)
+        if total_metric and adult_metric and juv_metric:
+            for branch in branches:
+                entry = Entry.query.filter_by(category_id=branch_cat.id,
+                                              branch_id=branch.id,
+                                              year=year, month=month).first()
+                if not entry:
+                    continue
+                adult_ev = EntryValue.query.filter_by(entry_id=entry.id, metric_id=adult_metric.id).first()
+                juv_ev   = EntryValue.query.filter_by(entry_id=entry.id, metric_id=juv_metric.id).first()
+                adult_val = adult_ev.value_number if adult_ev else 0
+                juv_val   = juv_ev.value_number   if juv_ev   else 0
+                if adult_val or juv_val:
+                    total_ev = EntryValue.query.filter_by(entry_id=entry.id, metric_id=total_metric.id).first()
+                    if total_ev:
+                        total_ev.value_number = (adult_val or 0) + (juv_val or 0)
+                    else:
+                        db.session.add(EntryValue(entry_id=entry.id, metric_id=total_metric.id,
+                                                  value_number=(adult_val or 0) + (juv_val or 0)))
 
         # ── Online Stats ──────────────────────────────────────────────────
         online_vals = {}

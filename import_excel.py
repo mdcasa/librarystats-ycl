@@ -841,6 +841,7 @@ def import_new_library_users(ws, year, month, branch_lookup):
     metric_lookup, cat = build_metric_lookup('Branch Stats')
     adult_metric    = metric_lookup.get('New Library Card Registrations, Adult')
     juvenile_metric = metric_lookup.get('New Library Card Registrations, Juvenile')
+    total_metric    = metric_lookup.get('New Library Card Registrations, Total')
     if not cat or not adult_metric or not juvenile_metric:
         return 0, ['Branch Stats or registration metrics not found']
 
@@ -887,6 +888,10 @@ def import_new_library_users(ws, year, month, branch_lookup):
                 r = _upsert_branch_stat(cat.id, branch_id, year, month, metric.id, val)
                 if r == 'created': created += 1
                 else: updated += 1
+        if total_metric and (adult or juvenile):
+            r = _upsert_branch_stat(cat.id, branch_id, year, month, total_metric.id, adult + juvenile)
+            if r == 'created': created += 1
+            else: updated += 1
 
     db.session.commit()
     return created, updated, warnings

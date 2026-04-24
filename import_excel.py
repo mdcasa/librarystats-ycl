@@ -729,6 +729,82 @@ def import_sirsi_checkouts(ws, year, month, branch_lookup):
     return len(detail), circ_entries, warnings
 
 
+def import_sirsi_user_profile(ws, branch_lookup):
+    """
+    Parse 'Checkouts by Branch and User Profile' SIRSI report.
+    Stores adult/juvenile checkout totals per branch in sirsi_checkouts
+    (patron_type set, shelving_location=None).
+    Existing rows for the same period with patron_type data are replaced.
+    """
+    rows = list(ws.iter_rows(values_only=True))
+
+    year = month = None
+    for r in rows[:15]:
+        if r[0] and 'Trans Stat Year:' in str(r[0]):
+            try: year = int(str(r[0]).split(':')[1].strip())
+            except: pass
+        if r[0] and 'Trans Stat Month:' in str(r[0]):
+            try: month = int(str(r[0]).split(':')[1].strip())
+            except: pass
+
+    if not year or not month:
+        return 0, 0, ['Could not determine year/month from report']
+
+    ils_to_branch = {}
+    for code, name in ILS_BRANCH_MAP.items():
+        b = branch_lookup.get(name) or branch_lookup.get(name.lower())
+        if b:
+            ils_to_branch[code] = b
+
+    # Delete existing patron-type rows for this period (shelving_location IS NULL)
+    (SirsiCheckout.query
+     .filter_by(year=year, month=month)
+     .filter(SirsiCheckout.shelving_location == None)  # noqa: E711
+     .delete())
+
+    from collections import defaultdict
+    # branch_id → {'adult': n, 'juvenile': n}
+    counts = defaultdict(lambda: {'adult': 0, 'juvenile': 0})
+    unrecognised = set()
+
+    for r in rows:
+        ils = r[0]
+        profile = r[1]
+        count = r[2]
+        if not isinstance(count, (int, float)):
+            continue
+        if profile in (None, 'Total', 'Trans Stat User Profile Name'):
+            continue
+        if ils in (None, 'Trans Stat Station Library'):
+            continue
+
+        ils = str(ils).strip()
+        branch = ils_to_branch.get(ils)
+        if branch is None:
+            unrecognised.add(ils)
+            continue
+
+        p = str(profile).strip()
+        if p in _ADULT_PROFILES:
+            counts[branch.id]['adult'] += int(count)
+        elif p in _JUVENILE_PROFILES:
+            counts[branch.id]['juvenile'] += int(count)
+
+    detail = []
+    for branch_id, c in counts.items():
+        for ptype, val in [('adult', c['adult']), ('juvenile', c['juvenile'])]:
+            if val:
+                row = SirsiCheckout(year=year, month=month, branch_id=branch_id,
+                                    patron_type=ptype, shelving_location=None,
+                                    checkouts=val, renewals=0)
+                db.session.add(row)
+                detail.append(row)
+
+    warnings = [f'Unrecognised ILS codes skipped: {sorted(unrecognised)}'] if unrecognised else []
+    db.session.commit()
+    return len(detail), year, month, warnings
+
+
 def _upsert_branch_stat(cat_id, branch_id, year, month, metric_id, value):
     """
     Create or update a single EntryValue for a Branch Stats entry.
@@ -874,7 +950,13 @@ def detect_and_import(wb):
         # Find first non-blank cell to identify report type
         title = next((str(r[0]) for r in rows if r[0] is not None), '')
 
-        if 'Checkouts by Branch and Shelving Location' in title:
+        if 'Checkouts by Branch and User Profile' in title:
+            det, year, month, w = import_sirsi_user_profile(ws, branch_lookup)
+            results.append({'sheet': 'SIRSI Checkouts (by User Profile)',
+                             'created': det, 'updated': 0, 'skipped': 0, 'warnings': w,
+                             'note': f'{det} adult/juvenile rows stored for {month}/{year}' if year else ''})
+
+        elif 'Checkouts by Branch and Shelving Location' in title:
             report_type, year, month = _detect_sirsi_report_type(rows)
             if year and month:
                 det, circ, w = import_sirsi_checkouts(ws, year, month, branch_lookup)

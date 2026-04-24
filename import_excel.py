@@ -556,13 +556,14 @@ def import_princh(ws, branch_lookup):
         totals[(year, month, branch.id)] += pages
 
     warnings = [f'Unrecognised locations skipped: {sorted(unrecognised)}'] if unrecognised else []
-    updated = 0
+    created = updated = 0
     for (year, month, branch_id), total in totals.items():
-        _upsert_branch_stat(cat.id, branch_id, year, month, prints_metric.id, total)
-        updated += 1
+        r = _upsert_branch_stat(cat.id, branch_id, year, month, prints_metric.id, total)
+        if r == 'created': created += 1
+        else: updated += 1
 
     db.session.commit()
-    return updated, warnings
+    return created, updated, warnings
 
 
 def _detect_sirsi_report_type(rows):
@@ -729,7 +730,10 @@ def import_sirsi_checkouts(ws, year, month, branch_lookup):
 
 
 def _upsert_branch_stat(cat_id, branch_id, year, month, metric_id, value):
-    """Create or update a single EntryValue for a Branch Stats entry."""
+    """
+    Create or update a single EntryValue for a Branch Stats entry.
+    Returns 'created' or 'updated'.
+    """
     entry = Entry.query.filter_by(category_id=cat_id, branch_id=branch_id,
                                   year=year, month=month).first()
     if not entry:
@@ -740,9 +744,11 @@ def _upsert_branch_stat(cat_id, branch_id, year, month, metric_id, value):
     ev = EntryValue.query.filter_by(entry_id=entry.id, metric_id=metric_id).first()
     if ev:
         ev.value_number = value
+        return 'updated'
     else:
         db.session.add(EntryValue(entry_id=entry.id, metric_id=metric_id,
                                   value_number=value))
+        return 'created'
 
 
 def import_new_library_users(ws, year, month, branch_lookup):
@@ -794,16 +800,16 @@ def import_new_library_users(ws, year, month, branch_lookup):
             counts[branch.id][1] += int(count)
 
     warnings = [f'Unrecognised ILS codes skipped: {sorted(unrecognised)}'] if unrecognised else []
-    updated = 0
+    created = updated = 0
     for branch_id, (adult, juvenile) in counts.items():
-        if adult:
-            _upsert_branch_stat(cat.id, branch_id, year, month, adult_metric.id, adult)
-        if juvenile:
-            _upsert_branch_stat(cat.id, branch_id, year, month, juvenile_metric.id, juvenile)
-        updated += 1
+        for val, metric in [(adult, adult_metric), (juvenile, juvenile_metric)]:
+            if val:
+                r = _upsert_branch_stat(cat.id, branch_id, year, month, metric.id, val)
+                if r == 'created': created += 1
+                else: updated += 1
 
     db.session.commit()
-    return updated, warnings
+    return created, updated, warnings
 
 
 def import_door_count(ws, branch_lookup):
@@ -841,14 +847,15 @@ def import_door_count(ws, branch_lookup):
 
         monthly_ins[(date.year, date.month)][branch.id] += int(ins)
 
-    updated = 0
+    created = updated = 0
     for (year, month), branch_totals in monthly_ins.items():
         for branch_id, total in branch_totals.items():
-            _upsert_branch_stat(cat.id, branch_id, year, month, gate_metric.id, total)
-            updated += 1
+            r = _upsert_branch_stat(cat.id, branch_id, year, month, gate_metric.id, total)
+            if r == 'created': created += 1
+            else: updated += 1
 
     db.session.commit()
-    return updated, []
+    return created, updated, []
 
 
 def detect_and_import(wb):
@@ -897,24 +904,24 @@ def detect_and_import(wb):
                             month = m
                             break
             if year and month:
-                updated, w = import_new_library_users(ws, year, month, branch_lookup)
+                created, updated, w = import_new_library_users(ws, year, month, branch_lookup)
                 results.append({'sheet': 'New Library Card Registrations',
-                                 'created': updated, 'skipped': 0, 'warnings': w})
+                                 'created': created, 'updated': updated, 'skipped': 0, 'warnings': w})
             else:
-                results.append({'sheet': sheet_name, 'created': 0, 'skipped': 0,
+                results.append({'sheet': sheet_name, 'created': 0, 'updated': 0, 'skipped': 0,
                                  'warnings': ['Could not determine year/month from report']})
 
         elif any(v is not None and 'Letter color pages' in str(v)
                  for r in rows[:3] for v in r):
-            updated, w = import_princh(ws, branch_lookup)
+            created, updated, w = import_princh(ws, branch_lookup)
             results.append({'sheet': 'Total Prints per Month (Princh)',
-                             'created': updated, 'skipped': 0, 'warnings': w})
+                             'created': created, 'updated': updated, 'skipped': 0, 'warnings': w})
 
         elif any(v is not None and 'Location Name' in str(v)
                  for r in rows[:3] for v in r):
-            updated, w = import_door_count(ws, branch_lookup)
+            created, updated, w = import_door_count(ws, branch_lookup)
             results.append({'sheet': 'Gate Count (Door Counter)',
-                             'created': updated, 'skipped': 0, 'warnings': w})
+                             'created': created, 'updated': updated, 'skipped': 0, 'warnings': w})
 
         elif sheet_name in ('Branch Stats', 'Online Stats', 'Qrtly Ref Stats') or \
              any(sheet_name in wb.sheetnames for sheet_name in ('Branch Stats', 'Online Stats')):

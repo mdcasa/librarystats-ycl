@@ -72,7 +72,8 @@
           <thead class="table-light">
             <tr>
               <th>Data Type</th>
-              <th class="text-center">Records</th>
+              <th class="text-center">Created</th>
+              <th class="text-center">Updated</th>
               <th>Notes</th>
             </tr>
           </thead>
@@ -83,6 +84,13 @@
               <td class="text-center">
                 {% if r.created > 0 %}
                 <span class="badge bg-success">{{ r.created }}</span>
+                {% else %}
+                <span class="text-muted">0</span>
+                {% endif %}
+              </td>
+              <td class="text-center">
+                {% if r.get('updated', 0) > 0 %}
+                <span class="badge bg-warning text-dark">{{ r.updated }}</span>
                 {% else %}
                 <span class="text-muted">0</span>
                 {% endif %}

@@ -48,6 +48,13 @@ with app.app_context():
 MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
           'July', 'August', 'September', 'October', 'November', 'December']
 
+
+@app.template_filter('commas')
+def commas_filter(value):
+    if value is None:
+        return '—'
+    return f"{int(value):,}"
+
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
 _PUBLIC_ENDPOINTS = {'login', 'logout', 'static'}
@@ -110,12 +117,103 @@ def inject_nav():
 
 @app.route('/')
 def index():
-    recent = Entry.query.order_by(Entry.submitted_at.desc()).limit(10).all()
+    def _sum_month(cat_name, y, m):
+        cat = Category.query.filter_by(name=cat_name).first()
+        if not cat:
+            return {}
+        entries = Entry.query.filter_by(category_id=cat.id, year=y, month=m).all()
+        id_to_name = {mx.id: mx.name for mx in cat.metrics}
+        totals = {}
+        for e in entries:
+            for ev in e.values:
+                n = id_to_name.get(ev.metric_id)
+                if n and ev.value_number is not None:
+                    totals[n] = totals.get(n, 0) + ev.value_number
+        return totals
+
+    def _v(d, k):
+        v = d.get(k)
+        if v is None:
+            return None
+        return int(v) if v == int(v) else round(v, 1)
+
+    TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
+    AGE   = ['0-5', '6-11', '12-18', '19+', 'General Interest']
+
+    bs_cat = Category.query.filter_by(name='Branch Stats').first()
+    latest_year = latest_month = None
+    kpi = kpi_prev = {}
+    circ_trend_labels = circ_trend_data = gate_trend_data = []
+
+    if bs_cat:
+        latest = (Entry.query
+                  .filter_by(category_id=bs_cat.id)
+                  .filter(Entry.month.isnot(None))
+                  .order_by(Entry.year.desc(), Entry.month.desc())
+                  .first())
+        if latest:
+            latest_year, latest_month = latest.year, latest.month
+            prev_m = latest_month - 1 or 12
+            prev_y = latest_year if latest_month > 1 else latest_year - 1
+
+            bs_c = _sum_month('Branch Stats', latest_year, latest_month)
+            os_c = _sum_month('Online Stats',  latest_year, latest_month)
+            bs_p = _sum_month('Branch Stats', prev_y, prev_m)
+            os_p = _sum_month('Online Stats',  prev_y, prev_m)
+
+            def _cards(d):
+                a = _v(d, 'New Library Card Registrations, Adult') or 0
+                j = _v(d, 'New Library Card Registrations, Juvenile') or 0
+                return a + j or None
+
+            def _att(d):
+                return sum((_v(d, f'{t} Attendance {a}') or 0) for t in TYPES for a in AGE) or None
+
+            kpi = {
+                'circulation': _v(bs_c, 'Total Branch Circulation'),
+                'gate':        _v(bs_c, 'Gate Count'),
+                'attendance':  _att(bs_c),
+                'cards':       _cards(bs_c),
+                'website':     _v(os_c, 'yclibrary.org - Web Sessions'),
+                'pc':          _v(bs_c, 'PC Reservations'),
+            }
+            kpi_prev = {
+                'circulation': _v(bs_p, 'Total Branch Circulation'),
+                'gate':        _v(bs_p, 'Gate Count'),
+                'attendance':  _att(bs_p),
+                'cards':       _cards(bs_p),
+                'website':     _v(os_p, 'yclibrary.org - Web Sessions'),
+                'pc':          _v(bs_p, 'PC Reservations'),
+            }
+
+            circ_trend_labels = [m[:3] for m in MONTHS]
+            circ_trend_data, gate_trend_data = [], []
+            for mo in range(1, 13):
+                s = _sum_month('Branch Stats', latest_year, mo)
+                circ_trend_data.append(_v(s, 'Total Branch Circulation'))
+                gate_trend_data.append(_v(s, 'Gate Count'))
+
+    # Per-category: most recent entry period
+    coverage = []
+    for cat in Category.query.filter_by(is_active=True).order_by(Category.sort_order).all():
+        last = (Entry.query.filter_by(category_id=cat.id)
+                .order_by(Entry.year.desc(), Entry.month.desc(), Entry.quarter.desc())
+                .first())
+        coverage.append({'category': cat, 'last_entry': last})
+
     return render_template('index.html',
-                           recent_entries=recent,
                            total_entries=Entry.query.count(),
                            total_categories=Category.query.filter_by(is_active=True).count(),
-                           total_branches=Branch.query.filter_by(is_active=True).count())
+                           total_branches=Branch.query.filter_by(is_active=True, is_desk=False).count(),
+                           latest_year=latest_year,
+                           latest_month=latest_month,
+                           kpi=kpi,
+                           kpi_prev=kpi_prev,
+                           circ_trend_labels=circ_trend_labels,
+                           circ_trend_data=circ_trend_data,
+                           gate_trend_data=gate_trend_data,
+                           coverage=coverage,
+                           months=MONTHS)
 
 
 # ── Browse entries ───────────────────────────────────────────────────────────

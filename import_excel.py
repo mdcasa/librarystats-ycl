@@ -143,11 +143,13 @@ def parse_quarter(val):
         return v if 1 <= v <= 4 else None
     if isinstance(val, str):
         s = val.strip().lower()
-        # "quarter 1" or "quarter1"
+        # "quarter 1", "quarter1", "quarter 1 - june", etc.
         if s.startswith('quarter'):
             rest = s[7:].strip()
+            # grab just the leading number (handles "1 - June" style labels)
+            token = rest.split()[0].rstrip('-').strip() if rest else ''
             try:
-                v = int(rest)
+                v = int(token)
                 return v if 1 <= v <= 4 else None
             except ValueError:
                 return None
@@ -234,8 +236,10 @@ def entry_exists_monthly(cat_id, branch_id, year, month):
     return q.first() is not None
 
 
-def entry_exists_quarterly(cat_id, branch_id, year, quarter):
+def entry_exists_quarterly(cat_id, branch_id, year, quarter, month=None):
     q = Entry.query.filter_by(category_id=cat_id, year=year, quarter=quarter)
+    if month is not None:
+        q = q.filter_by(month=month)
     if branch_id is None:
         q = q.filter(Entry.branch_id.is_(None))
     else:
@@ -364,10 +368,14 @@ def import_online_stats(ws, cat, metric_lookup):
 
 def import_quarterly_ref(ws, cat, metric_lookup, branch_lookup):
     rows = list(ws.iter_rows(values_only=True))
-    headers = rows[0]
+    # Skip leading blank rows to find the actual header row
+    header_idx = next((i for i, r in enumerate(rows) if any(v is not None for v in r)), 0)
+    headers = rows[header_idx]
+    rows = rows[header_idx:]  # re-slice so rows[0] is headers, rows[1:] is data
 
     year_idx    = col_index(headers, 'Year')
     quarter_idx = col_index(headers, 'Quarter')
+    month_idx   = col_index(headers, 'Month')
     branch_idx  = col_index(headers, 'Branch or Location') or col_index(headers, 'Branch') or col_index(headers, 'BRANCH')
     value_idx   = col_index(headers, 'Total # of Transactions for the Week')
 
@@ -384,6 +392,7 @@ def import_quarterly_ref(ws, cat, metric_lookup, branch_lookup):
 
         year        = row[year_idx]    if year_idx    is not None else None
         quarter_raw = row[quarter_idx] if quarter_idx is not None else None
+        month_raw   = row[month_idx]   if month_idx   is not None else None
         branch_name = row[branch_idx]  if branch_idx  is not None else None
         val         = row[value_idx]   if value_idx   is not None else None
 
@@ -391,6 +400,7 @@ def import_quarterly_ref(ws, cat, metric_lookup, branch_lookup):
             branch_name = str(branch_name).strip()
 
         quarter = parse_quarter(quarter_raw)
+        month   = parse_month(month_raw)
         if not year or not quarter or not branch_name or val is None:
             continue
 
@@ -399,18 +409,19 @@ def import_quarterly_ref(ws, cat, metric_lookup, branch_lookup):
             skipped_branches.add(branch_name)
             continue
 
-        key = (int(year), quarter, branch.id)
+        key = (int(year), quarter, month, branch.id)
         # Sum multiple rows for the same period (e.g. daily tallies)
         buckets[key] = buckets.get(key, 0) + float(val)
 
     warnings = [f'Unrecognised branch skipped: {b}' for b in sorted(skipped_branches)]
     created = skipped = 0
-    for (year, quarter, branch_id), total_val in buckets.items():
-        if entry_exists_quarterly(cat.id, branch_id, year, quarter):
+    for (year, quarter, month, branch_id), total_val in buckets.items():
+        if entry_exists_quarterly(cat.id, branch_id, year, quarter, month):
             skipped += 1
             continue
         entry = Entry(category_id=cat.id, branch_id=branch_id,
-                      year=int(year), quarter=quarter, submitted_by='Excel Import')
+                      year=int(year), quarter=quarter, month=month,
+                      submitted_by='Excel Import')
         db.session.add(entry)
         db.session.flush()
         db.session.add(EntryValue(entry_id=entry.id, metric_id=metric.id,
@@ -450,12 +461,15 @@ def do_import(wb):
         results.append({'sheet': 'Online Stats', 'created': 0, 'skipped': 0,
                         'warnings': ['Sheet "Online Stats" not found in workbook']})
 
-    # Quarterly Reference Stats
+    # Quarterly Reference Stats — accept 'Qrtly Ref Stats' or bare 'Sheet1' fallback
     metric_lookup, cat = build_metric_lookup('Quarterly Reference Stats')
-    if cat and 'Qrtly Ref Stats' in wb.sheetnames:
-        c, s, w = import_quarterly_ref(wb['Qrtly Ref Stats'], cat, metric_lookup, branch_lookup)
+    qrtly_sheet = next(
+        (n for n in ('Qrtly Ref Stats', 'Sheet1') if n in wb.sheetnames), None
+    )
+    if cat and qrtly_sheet:
+        c, s, w = import_quarterly_ref(wb[qrtly_sheet], cat, metric_lookup, branch_lookup)
         results.append({'sheet': 'Quarterly Reference Stats', 'created': c, 'skipped': s, 'warnings': w})
-    elif 'Qrtly Ref Stats' not in wb.sheetnames:
+    elif not qrtly_sheet:
         results.append({'sheet': 'Quarterly Reference Stats', 'created': 0, 'skipped': 0,
                         'warnings': ['Sheet "Qrtly Ref Stats" not found — add this sheet to import quarterly data']})
 

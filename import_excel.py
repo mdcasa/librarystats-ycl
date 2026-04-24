@@ -457,6 +457,19 @@ ILS_BRANCH_MAP = {
 INTERNAL_PROFILES = {'DAMAGED', 'DISCARD', 'MISSING', 'REPAIR', 'PRGMNG',
                      'STAFF-PERS', 'YCLCIRC', 'ILL', 'LOSTCARD'}
 
+# New Library Users — patron type classification
+_ADULT_PROFILES   = {'ADULT', 'A-NONRES', 'INST-TEACH', 'TEEN', 'COLLEGE', 'HOMEBOUND'}
+_JUVENILE_PROFILES = {'JUVENILE', 'J-INTERNET', 'J-RESTRICT', 'JR-NONRES'}
+
+# Door count location name → Branch.name
+DOOR_COUNT_BRANCH_MAP = {
+    'Clover Library':           'Clover',
+    'Fort Mill Library':        'Fort Mill',
+    'Lake Wylie Library':       'Lake Wylie',
+    'Main - Rock Hill Library': 'Rock Hill',
+    'York Library':             'York',
+}
+
 
 def _detect_sirsi_report_type(rows):
     """Return ('checkouts_by_location', year, month) or None if not recognised."""
@@ -619,6 +632,202 @@ def import_sirsi_checkouts(ws, year, month, branch_lookup):
 
     db.session.commit()
     return len(detail), circ_entries, warnings
+
+
+def _upsert_branch_stat(cat_id, branch_id, year, month, metric_id, value):
+    """Create or update a single EntryValue for a Branch Stats entry."""
+    entry = Entry.query.filter_by(category_id=cat_id, branch_id=branch_id,
+                                  year=year, month=month).first()
+    if not entry:
+        entry = Entry(category_id=cat_id, branch_id=branch_id,
+                      year=year, month=month, submitted_by='File Import')
+        db.session.add(entry)
+        db.session.flush()
+    ev = EntryValue.query.filter_by(entry_id=entry.id, metric_id=metric_id).first()
+    if ev:
+        ev.value_number = value
+    else:
+        db.session.add(EntryValue(entry_id=entry.id, metric_id=metric_id,
+                                  value_number=value))
+
+
+def import_new_library_users(ws, year, month, branch_lookup):
+    """
+    Parse 'Number of New Library Users by Branch and Patron Type' SIRSI report.
+    Updates New Library Card Registrations (Adult / Juvenile) in Branch Stats.
+    """
+    rows = list(ws.iter_rows(values_only=True))
+
+    metric_lookup, cat = build_metric_lookup('Branch Stats')
+    adult_metric    = metric_lookup.get('New Library Card Registrations, Adult')
+    juvenile_metric = metric_lookup.get('New Library Card Registrations, Juvenile')
+    if not cat or not adult_metric or not juvenile_metric:
+        return 0, ['Branch Stats or registration metrics not found']
+
+    # Build ILS code → Branch lookup
+    ils_to_branch = {}
+    for code, name in ILS_BRANCH_MAP.items():
+        b = branch_lookup.get(name) or branch_lookup.get(name.lower())
+        if b:
+            ils_to_branch[code] = b
+
+    # Aggregate counts: branch_id → {adult, juvenile}
+    from collections import defaultdict
+    counts = defaultdict(lambda: [0, 0])  # [adult, juvenile]
+    unrecognised = set()
+
+    for r in rows:
+        user_lib = r[1]
+        profile  = r[2]
+        count    = r[3]
+        if not isinstance(count, (int, float)):
+            continue
+        if profile in (None, 'Total', 'Trans Stat User Profile Name'):
+            continue
+        if user_lib in (None, 'Total', 'Trans Stat User Library'):
+            continue
+
+        ils = str(user_lib).strip()
+        branch = ils_to_branch.get(ils)
+        if branch is None:
+            unrecognised.add(ils)
+            continue
+
+        p = str(profile).strip()
+        if p in _ADULT_PROFILES:
+            counts[branch.id][0] += int(count)
+        elif p in _JUVENILE_PROFILES:
+            counts[branch.id][1] += int(count)
+
+    warnings = [f'Unrecognised ILS codes skipped: {sorted(unrecognised)}'] if unrecognised else []
+    updated = 0
+    for branch_id, (adult, juvenile) in counts.items():
+        if adult:
+            _upsert_branch_stat(cat.id, branch_id, year, month, adult_metric.id, adult)
+        if juvenile:
+            _upsert_branch_stat(cat.id, branch_id, year, month, juvenile_metric.id, juvenile)
+        updated += 1
+
+    db.session.commit()
+    return updated, warnings
+
+
+def import_door_count(ws, branch_lookup):
+    """
+    Parse a daily door count sheet (hourly ins/outs per branch).
+    Sums 'Ins' per branch per month and updates Gate Count in Branch Stats.
+    """
+    rows = list(ws.iter_rows(values_only=True))
+
+    metric_lookup, cat = build_metric_lookup('Branch Stats')
+    gate_metric = metric_lookup.get('Gate Count')
+    if not cat or not gate_metric:
+        return 0, ['Branch Stats or Gate Count metric not found']
+
+    from collections import defaultdict
+    monthly_ins = defaultdict(lambda: defaultdict(int))  # (year,month) → branch_id → total
+
+    for r in rows:
+        loc_name = r[1]
+        date     = r[2]
+        ins      = r[3]
+        if not isinstance(ins, (int, float)) or ins == 0:
+            continue
+        if not loc_name or loc_name == 'Location Name':
+            continue
+        if not hasattr(date, 'year'):
+            continue
+
+        branch_name = DOOR_COUNT_BRANCH_MAP.get(str(loc_name).strip())
+        if not branch_name:
+            continue
+        branch = branch_lookup.get(branch_name)
+        if not branch:
+            continue
+
+        monthly_ins[(date.year, date.month)][branch.id] += int(ins)
+
+    updated = 0
+    for (year, month), branch_totals in monthly_ins.items():
+        for branch_id, total in branch_totals.items():
+            _upsert_branch_stat(cat.id, branch_id, year, month, gate_metric.id, total)
+            updated += 1
+
+    db.session.commit()
+    return updated, []
+
+
+def detect_and_import(wb):
+    """
+    Auto-detect the report type from a workbook and route to the correct importer.
+    Returns a list of result dicts for display.
+    Must be called within an active Flask app context.
+    """
+    branch_lookup = build_branch_lookup()
+    results = []
+
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        rows = list(ws.iter_rows(values_only=True))
+
+        # Find first non-blank cell to identify report type
+        title = next((str(r[0]) for r in rows if r[0] is not None), '')
+
+        if 'Checkouts by Branch and Shelving Location' in title:
+            report_type, year, month = _detect_sirsi_report_type(rows)
+            if year and month:
+                det, circ, w = import_sirsi_checkouts(ws, year, month, branch_lookup)
+                results.append({'sheet': 'SIRSI Checkouts (by Shelving Location)',
+                                 'created': det, 'skipped': 0, 'warnings': w,
+                                 'note': f'{circ} Circulation total entries written'})
+            else:
+                results.append({'sheet': sheet_name, 'created': 0, 'skipped': 0,
+                                 'warnings': ['Could not determine year/month from report']})
+
+        elif 'Number of New Library Users' in title:
+            year = month = None
+            for r in rows[:15]:
+                if r[0] and 'Trans Stat Year:' in str(r[0]):
+                    try: year = int(str(r[0]).split(':')[1].strip())
+                    except: pass
+                if r[0] and 'Trans Stat Month:' in str(r[0]):
+                    try: month = int(str(r[0]).split(':')[1].strip())
+                    except: pass
+            if year and month:
+                updated, w = import_new_library_users(ws, year, month, branch_lookup)
+                results.append({'sheet': 'New Library Card Registrations',
+                                 'created': updated, 'skipped': 0, 'warnings': w})
+            else:
+                results.append({'sheet': sheet_name, 'created': 0, 'skipped': 0,
+                                 'warnings': ['Could not determine year/month from report']})
+
+        elif any(v is not None and 'Location Name' in str(v)
+                 for r in rows[:3] for v in r):
+            updated, w = import_door_count(ws, branch_lookup)
+            results.append({'sheet': 'Gate Count (Door Counter)',
+                             'created': updated, 'skipped': 0, 'warnings': w})
+
+        elif sheet_name in ('Branch Stats', 'Online Stats', 'Qrtly Ref Stats') or \
+             any(sheet_name in wb.sheetnames for sheet_name in ('Branch Stats', 'Online Stats')):
+            # Standard stats workbook — use do_import
+            results.extend(do_import(wb))
+            break  # do_import handles all sheets at once
+
+        elif sheet_name == 'Sheet1':
+            # Could be QRS
+            qrs_metrics, qrs_cat = build_metric_lookup('Quarterly Reference Stats')
+            if qrs_cat:
+                c, s, w = import_quarterly_ref(ws, qrs_cat, qrs_metrics, branch_lookup)
+                results.append({'sheet': 'Quarterly Reference Stats',
+                                 'created': c, 'skipped': s, 'warnings': w})
+            else:
+                results.append({'sheet': sheet_name, 'created': 0, 'skipped': 0,
+                                 'warnings': ['Unrecognised file format']})
+        else:
+            results.append({'sheet': sheet_name, 'created': 0, 'skipped': 0,
+                             'warnings': ['Unrecognised file format — sheet not imported']})
+
+    return results
 
 
 def do_import_sirsi(wb):

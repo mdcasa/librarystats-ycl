@@ -239,7 +239,7 @@ def entries_list():
     return render_template('entries/list.html',
                            entries=entries,
                            all_categories=Category.query.filter_by(is_active=True).order_by(Category.sort_order).all(),
-                           all_branches=Branch.query.filter_by(is_active=True).order_by(Branch.sort_order).all(),
+                           all_branches=Branch.query.filter_by(is_active=True).order_by(Branch.name).all(),
                            available_years=years,
                            sel_cat=cat_id, sel_branch=branch_id, sel_year=year)
 
@@ -254,7 +254,7 @@ def _branches_for_category(category):
                 .filter(~Branch.name.in_(['Rock Hill', 'YCL (System Wide)']))
                 .order_by(Branch.is_desk.desc(), Branch.sort_order).all())
     # All other categories: exclude desk-level branches
-    return Branch.query.filter_by(is_active=True, is_desk=False).order_by(Branch.sort_order).all()
+    return Branch.query.filter_by(is_active=True, is_desk=False).order_by(Branch.name).all()
 
 
 @app.route('/entries/new/<int:category_id>', methods=['GET', 'POST'])
@@ -528,7 +528,7 @@ def admin_branches():
         return redirect(url_for('admin_branches'))
 
     return render_template('admin/branches.html',
-                           branches=Branch.query.order_by(Branch.sort_order).all())
+                           branches=Branch.query.order_by(Branch.name).all())
 
 
 @app.route('/admin/branches/<int:branch_id>/toggle', methods=['POST'])
@@ -670,7 +670,7 @@ def report_trend():
                     '#16a085','#d35400','#2980b9','#c0392b','#1abc9c']
 
         if category.has_branch:
-            all_branches = Branch.query.filter_by(is_active=True).order_by(Branch.sort_order).all()
+            all_branches = Branch.query.filter_by(is_active=True).order_by(Branch.name).all()
             selected = [b for b in all_branches if b.id in branch_ids] if branch_ids else all_branches
             for i, b in enumerate(selected):
                 pts = []
@@ -694,7 +694,7 @@ def report_trend():
 
         chart_data = {'labels': labels, 'datasets': datasets}
 
-    all_branches = Branch.query.filter_by(is_active=True).order_by(Branch.sort_order).all()
+    all_branches = Branch.query.filter_by(is_active=True).order_by(Branch.name).all()
     return render_template('reports/trend.html',
                            categories=categories, available_years=available_years,
                            all_branches=all_branches, metrics_json=metrics_json,
@@ -711,7 +711,7 @@ def report_programming():
 
     available_years = [r[0] for r in db.session.query(Entry.year).distinct()
                                                 .order_by(Entry.year.desc()).all()]
-    branches = Branch.query.filter_by(is_active=True).order_by(Branch.sort_order).all()
+    branches = Branch.query.filter_by(is_active=True).order_by(Branch.name).all()
     TYPES      = ['ONSITE', 'OFFSITE', 'VIRTUAL']
     AGE_GROUPS = ['0-5', '6-11', '12-18', '19+', 'General Interest']
     summary = outreach = None
@@ -812,7 +812,7 @@ def report_yoy():
     available_years = [r[0] for r in db.session.query(Entry.year).distinct().order_by(Entry.year).all()]
     metrics_json    = metrics_by_category_json()
 
-    all_branches = Branch.query.filter_by(is_active=True).order_by(Branch.sort_order).all()
+    all_branches = Branch.query.filter_by(is_active=True).order_by(Branch.name).all()
     table = col_headers = chart_data = category = metric = None
 
     if cat_id and len(years) >= 2:
@@ -1009,7 +1009,7 @@ def report_annual():
     from sqlalchemy import or_, and_
     fy_year = request.args.get('fy_year', type=int)
 
-    branches = Branch.query.filter_by(is_active=True, is_desk=False).order_by(Branch.sort_order).all()
+    branches = Branch.query.filter_by(is_active=True, is_desk=False).order_by(Branch.name).all()
 
     TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
     AGES  = ['0-5', '6-11', '12-18', '19+', 'General Interest']
@@ -1097,7 +1097,7 @@ def report_crosstab():
 
     categories   = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
     metrics_json = metrics_by_category_json()
-    branches     = Branch.query.filter_by(is_active=True, is_desk=False).order_by(Branch.sort_order).all()
+    branches     = Branch.query.filter_by(is_active=True, is_desk=False).order_by(Branch.name).all()
 
     # Fiscal year month order: Jul → Jun
     FY_MONTHS = list(range(7, 13)) + list(range(1, 7))
@@ -1176,7 +1176,7 @@ def report_programming_age():
     month   = request.args.get('month',  type=int)
     mode    = request.args.get('mode', 'age')   # 'age' | 'type'
 
-    branches = Branch.query.filter_by(is_active=True, is_desk=False).order_by(Branch.sort_order).all()
+    branches = Branch.query.filter_by(is_active=True, is_desk=False).order_by(Branch.name).all()
     TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
     AGES  = ['0-5', '6-11', '12-18', '19+', 'General Interest']
     tables = period_label = None
@@ -1326,7 +1326,7 @@ def manual_entry():
                 .filter_by(is_active=True, is_desk=False)
                 .filter(~Branch.name.contains('Lockers'),
                         Branch.name != 'YCL (System Wide)')
-                .order_by(Branch.sort_order)
+                .order_by(Branch.name)
                 .all())
 
     year  = request.args.get('year',  type=int) or datetime.now().year

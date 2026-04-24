@@ -569,8 +569,9 @@ def import_sirsi_checkouts(ws, year, month, branch_lookup):
 
     # Write Circulation category totals (per branch + system-wide)
     circ_metrics, circ_cat = build_metric_lookup('Circulation')
-    chk_metric = circ_metrics.get('Checkouts')
-    ren_metric  = circ_metrics.get('Renewals')
+    chk_metric      = circ_metrics.get('Checkouts')
+    ren_metric      = circ_metrics.get('Renewals')
+    hotspot_metric  = circ_metrics.get('Hotspots Checkouts')
     circ_entries = 0
 
     if circ_cat and chk_metric and ren_metric:
@@ -580,25 +581,30 @@ def import_sirsi_checkouts(ws, year, month, branch_lookup):
             EntryValue.query.filter_by(entry_id=e.id).delete()
             db.session.delete(e)
 
-        # Aggregate by branch
-        branch_totals = {}
-        for (branch_id, patron_type, _), (chk, ren) in detail.items():
+        # Aggregate checkouts/renewals and hotspot checkouts by branch
+        branch_totals   = {}  # branch_id → [checkouts, renewals, hotspots]
+        for (branch_id, patron_type, shelving_location), (chk, ren) in detail.items():
             if branch_id not in branch_totals:
-                branch_totals[branch_id] = [0, 0]
+                branch_totals[branch_id] = [0, 0, 0]
             branch_totals[branch_id][0] += chk
             branch_totals[branch_id][1] += ren
+            if shelving_location == 'A-HOTSPOT':
+                branch_totals[branch_id][2] += chk
 
-        system_chk = system_ren = 0
-        for branch_id, (chk, ren) in branch_totals.items():
+        system_chk = system_ren = system_hot = 0
+        for branch_id, (chk, ren, hot) in branch_totals.items():
             entry = Entry(category_id=circ_cat.id, branch_id=branch_id,
                           year=year, month=month, submitted_by='SIRSI Import')
             db.session.add(entry)
             db.session.flush()
             db.session.add(EntryValue(entry_id=entry.id, metric_id=chk_metric.id, value_number=chk))
             db.session.add(EntryValue(entry_id=entry.id, metric_id=ren_metric.id, value_number=ren))
+            if hotspot_metric and hot:
+                db.session.add(EntryValue(entry_id=entry.id, metric_id=hotspot_metric.id, value_number=hot))
             circ_entries += 1
             system_chk += chk
             system_ren  += ren
+            system_hot  += hot
 
         # System-wide row
         sys_entry = Entry(category_id=circ_cat.id, branch_id=None,
@@ -607,6 +613,8 @@ def import_sirsi_checkouts(ws, year, month, branch_lookup):
         db.session.flush()
         db.session.add(EntryValue(entry_id=sys_entry.id, metric_id=chk_metric.id, value_number=system_chk))
         db.session.add(EntryValue(entry_id=sys_entry.id, metric_id=ren_metric.id, value_number=system_ren))
+        if hotspot_metric and system_hot:
+            db.session.add(EntryValue(entry_id=sys_entry.id, metric_id=hotspot_metric.id, value_number=system_hot))
         circ_entries += 1
 
     db.session.commit()

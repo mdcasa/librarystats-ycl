@@ -48,7 +48,7 @@
             {% for cat in nav_categories %}
             <li>
               <a class="dropdown-item" href="{{ url_for('entry_create', category_id=cat.id) }}">
-                {{ cat.name }}
+                {{ cat.nav_label }}
                 <span class="badge bg-secondary badge-freq float-end">{{ cat.freq_label }}</span>
               </a>
             </li>
@@ -77,7 +77,7 @@
             <li><a class="dropdown-item" href="{{ url_for('report_fiscal') }}"><i class="bi bi-calendar2-check me-2 text-warning"></i>Fiscal Year Totals</a></li>
             <li><a class="dropdown-item" href="{{ url_for('report_trend') }}"><i class="bi bi-graph-up me-2 text-primary"></i>Trend Over Time</a></li>
             <li><a class="dropdown-item" href="{{ url_for('report_yoy') }}"><i class="bi bi-arrow-left-right me-2 text-info"></i>Year-over-Year</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('report_quarterly_ref') }}"><i class="bi bi-clipboard2-data me-2 text-primary"></i>Quarterly Reference Stats</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('report_quarterly_ref') }}"><i class="bi bi-clipboard2-data me-2 text-primary"></i>Quarterly Ref</a></li>
             <li><hr class="dropdown-divider"></li>
             <li><span class="dropdown-item text-muted sidebar-label ps-3" style="pointer-events:none">Cross-tab &amp; Analysis</span></li>
             <li><a class="dropdown-item" href="{{ url_for('report_annual') }}"><i class="bi bi-trophy me-2 text-warning"></i>Branch Scorecard</a></li>

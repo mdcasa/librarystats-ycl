@@ -30,6 +30,14 @@ class Category(db.Model):
     def active_metrics(self):
         return [m for m in self.metrics if m.is_active]
 
+    _NAV_LABELS = {
+        'Quarterly Reference Stats': 'Qrtly Ref Stats',
+    }
+
+    @property
+    def nav_label(self):
+        return self._NAV_LABELS.get(self.name, self.name)
+
 
 class Metric(db.Model):
     __tablename__ = 'metrics'

@@ -887,6 +887,15 @@ def detect_and_import(wb):
                 if r[0] and 'Trans Stat Month:' in str(r[0]):
                     try: month = int(str(r[0]).split(':')[1].strip())
                     except: pass
+            # Fallback: month is in the first data column (value like '1', '2', ...)
+            if year and not month:
+                for r in rows:
+                    val = r[0]
+                    if val is not None and str(val).isdigit():
+                        m = int(val)
+                        if 1 <= m <= 12:
+                            month = m
+                            break
             if year and month:
                 updated, w = import_new_library_users(ws, year, month, branch_lookup)
                 results.append({'sheet': 'New Library Card Registrations',

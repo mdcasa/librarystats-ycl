@@ -221,6 +221,7 @@ def build_branch_lookup():
         'YCL-CL-LOC':                 'Clover - Lockers',
         'YCL-FM-LOC':                 'Fort Mill - Lockers',
         'YCL-LW-LOC':                 'Lake Wylie - Lockers',
+        'YCL-RH-LOC':                 'Rock Hill - Lockers',
         'YCL-YK-LOC':                 'York - Lockers',
     }
     for alias, canonical in aliases.items():
@@ -449,6 +450,7 @@ ILS_BRANCH_MAP = {
     'YCL-LW':     'Lake Wylie',
     'YCL-LW-LOC': 'Lake Wylie - Lockers',
     'YCL-RH':     'Rock Hill',
+    'YCL-RH-LOC': 'Rock Hill - Lockers',
     'YCL-YK':     'York',
     'YCL-YK-LOC': 'York - Lockers',
 }

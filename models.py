@@ -92,6 +92,25 @@ class Entry(db.Model):
         return self.branch.name if self.branch else '(System-wide)'
 
 
+class SirsiCheckout(db.Model):
+    """Granular SIRSI ILS checkout data: one row per branch/patron-type/shelving-location/month."""
+    __tablename__ = 'sirsi_checkouts'
+    id                = db.Column(db.Integer, primary_key=True)
+    year              = db.Column(db.Integer, nullable=False)
+    month             = db.Column(db.Integer, nullable=False)   # 1–12
+    branch_id         = db.Column(db.Integer, db.ForeignKey('branches.id'), nullable=True)
+    patron_type       = db.Column(db.String(50), nullable=True)
+    shelving_location = db.Column(db.String(50), nullable=True)
+    checkouts         = db.Column(db.Integer, default=0)
+    renewals          = db.Column(db.Integer, default=0)
+
+    branch = db.relationship('Branch')
+
+    __table_args__ = (
+        db.Index('ix_sirsi_period_branch', 'year', 'month', 'branch_id'),
+    )
+
+
 class EntryValue(db.Model):
     __tablename__ = 'entry_values'
     id = db.Column(db.Integer, primary_key=True)

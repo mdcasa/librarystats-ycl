@@ -21,7 +21,7 @@ load_dotenv()
 
 import openpyxl
 from app import app, db
-from models import Category, Metric, Branch, Entry, EntryValue
+from models import Category, Metric, Branch, Entry, EntryValue, SirsiCheckout
 
 DEFAULT_EXCEL_PATH = os.path.join('Data files', 'statsonly423.xlsx')
 
@@ -217,6 +217,11 @@ def build_branch_lookup():
         'ROCK HILL YA':               'Rock Hill - YA',
         'RH - YA':                    'Rock Hill - YA',
         'RH YA':                      'Rock Hill - YA',
+        # Locker locations (ILS codes)
+        'YCL-CL-LOC':                 'Clover - Lockers',
+        'YCL-FM-LOC':                 'Fort Mill - Lockers',
+        'YCL-LW-LOC':                 'Lake Wylie - Lockers',
+        'YCL-YK-LOC':                 'York - Lockers',
     }
     for alias, canonical in aliases.items():
         target = lookup.get(canonical) or lookup.get(canonical.lower())
@@ -430,6 +435,216 @@ def import_quarterly_ref(ws, cat, metric_lookup, branch_lookup):
 
     db.session.commit()
     return created, skipped, warnings
+
+
+# ── SIRSI ILS report importer ─────────────────────────────────────────────────
+
+# ILS station-code → Branch.name
+ILS_BRANCH_MAP = {
+    'YCL-BK':     'Outreach/Bookmobile',
+    'YCL-CL':     'Clover',
+    'YCL-CL-LOC': 'Clover - Lockers',
+    'YCL-FM':     'Fort Mill',
+    'YCL-FM-LOC': 'Fort Mill - Lockers',
+    'YCL-LW':     'Lake Wylie',
+    'YCL-LW-LOC': 'Lake Wylie - Lockers',
+    'YCL-RH':     'Rock Hill',
+    'YCL-YK':     'York',
+    'YCL-YK-LOC': 'York - Lockers',
+}
+
+# Patron profiles that represent internal/non-patron transactions
+INTERNAL_PROFILES = {'DAMAGED', 'DISCARD', 'MISSING', 'REPAIR', 'PRGMNG',
+                     'STAFF-PERS', 'YCLCIRC', 'ILL', 'LOSTCARD'}
+
+
+def _detect_sirsi_report_type(rows):
+    """Return ('checkouts_by_location', year, month) or None if not recognised."""
+    for r in rows[:15]:
+        if r[0] and 'Checkouts by Branch and Shelving Location' in str(r[0]):
+            break
+    else:
+        return None, None, None
+
+    year = month = None
+    for r in rows[:15]:
+        if str(r[0]).startswith('Trans Stat Year:'):
+            try:
+                year = int(str(r[0]).split(':')[1].strip())
+            except ValueError:
+                pass
+        if str(r[0]).startswith('Trans Stat Month:'):
+            try:
+                month = int(str(r[0]).split(':')[1].strip())
+            except ValueError:
+                pass
+    return 'checkouts_by_location', year, month
+
+
+def import_sirsi_checkouts(ws, year, month, branch_lookup):
+    """
+    Parse a 'Checkouts by Branch and Shelving Location' SIRSI sheet.
+
+    The sheet contains two page sections separated by a second header block:
+      Section 1 — Trans Stat Command Desc: Charge Item Part B  (checkouts)
+      Section 2 — Trans Stat Command Desc: Renew Item          (renewals)
+
+    Existing rows for the same year/month are deleted and re-imported.
+    Returns (detail_rows_created, circulation_entries_created, warnings).
+    """
+    rows = list(ws.iter_rows(values_only=True))
+
+    # Delete existing SIRSI detail rows for this period
+    SirsiCheckout.query.filter_by(year=year, month=month).delete()
+
+    # Build branch id lookup from ILS codes
+    ils_to_branch = {}
+    for code, name in ILS_BRANCH_MAP.items():
+        b = branch_lookup.get(name) or branch_lookup.get(name.lower())
+        if b:
+            ils_to_branch[code] = b
+
+    # Parse: track which section we're in (checkouts vs renewals)
+    section = None   # 'checkouts' | 'renewals'
+    current_ils = None
+    warnings = []
+    unrecognised = set()
+
+    # accumulate: {(branch_id, patron_type, shelving_location): [checkouts, renewals]}
+    detail = {}
+
+    for r in rows:
+        cell0 = str(r[0]).strip() if r[0] is not None else ''
+
+        if 'Charge Item Part B' in cell0:
+            section = 'checkouts'
+            continue
+        if 'Renew Item' in cell0:
+            section = 'renewals'
+            continue
+        if section is None:
+            continue
+
+        branch_col, profile, location, count = r[0], r[1], r[2], r[3]
+
+        # Update current ILS branch when column is filled
+        if branch_col and str(branch_col).startswith('YCL'):
+            current_ils = str(branch_col).strip()
+
+        if not isinstance(count, (int, float)):
+            continue
+        if location in (None, 'Total', 'Number of Checkouts'):
+            continue
+        if profile == 'Total' or profile == 'Trans Stat User Profile Name':
+            continue
+        if current_ils is None:
+            continue
+
+        branch = ils_to_branch.get(current_ils)
+        if branch is None:
+            unrecognised.add(current_ils)
+            continue
+
+        key = (branch.id, str(profile) if profile else None, str(location))
+        if key not in detail:
+            detail[key] = [0, 0]
+        if section == 'checkouts':
+            detail[key][0] += int(count)
+        else:
+            detail[key][1] += int(count)
+
+    if unrecognised:
+        warnings.append(f"Unrecognised ILS codes skipped: {sorted(unrecognised)}")
+
+    # Write detail rows
+    for (branch_id, patron_type, shelving_location), (chk, ren) in detail.items():
+        db.session.add(SirsiCheckout(
+            year=year, month=month,
+            branch_id=branch_id,
+            patron_type=patron_type,
+            shelving_location=shelving_location,
+            checkouts=chk,
+            renewals=ren,
+        ))
+
+    # Write Circulation category totals (per branch + system-wide)
+    circ_metrics, circ_cat = build_metric_lookup('Circulation')
+    chk_metric = circ_metrics.get('Checkouts')
+    ren_metric  = circ_metrics.get('Renewals')
+    circ_entries = 0
+
+    if circ_cat and chk_metric and ren_metric:
+        # Remove existing Circulation entries for this period
+        old = Entry.query.filter_by(category_id=circ_cat.id, year=year, month=month).all()
+        for e in old:
+            EntryValue.query.filter_by(entry_id=e.id).delete()
+            db.session.delete(e)
+
+        # Aggregate by branch
+        branch_totals = {}
+        for (branch_id, patron_type, _), (chk, ren) in detail.items():
+            if branch_id not in branch_totals:
+                branch_totals[branch_id] = [0, 0]
+            branch_totals[branch_id][0] += chk
+            branch_totals[branch_id][1] += ren
+
+        system_chk = system_ren = 0
+        for branch_id, (chk, ren) in branch_totals.items():
+            entry = Entry(category_id=circ_cat.id, branch_id=branch_id,
+                          year=year, month=month, submitted_by='SIRSI Import')
+            db.session.add(entry)
+            db.session.flush()
+            db.session.add(EntryValue(entry_id=entry.id, metric_id=chk_metric.id, value_number=chk))
+            db.session.add(EntryValue(entry_id=entry.id, metric_id=ren_metric.id, value_number=ren))
+            circ_entries += 1
+            system_chk += chk
+            system_ren  += ren
+
+        # System-wide row
+        sys_entry = Entry(category_id=circ_cat.id, branch_id=None,
+                          year=year, month=month, submitted_by='SIRSI Import')
+        db.session.add(sys_entry)
+        db.session.flush()
+        db.session.add(EntryValue(entry_id=sys_entry.id, metric_id=chk_metric.id, value_number=system_chk))
+        db.session.add(EntryValue(entry_id=sys_entry.id, metric_id=ren_metric.id, value_number=system_ren))
+        circ_entries += 1
+
+    db.session.commit()
+    return len(detail), circ_entries, warnings
+
+
+def do_import_sirsi(wb):
+    """
+    Import a SIRSI ILS report workbook.
+    Must be called within an active Flask app context.
+    Returns a list of result dicts for display.
+    """
+    branch_lookup = build_branch_lookup()
+    results = []
+
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        rows = list(ws.iter_rows(values_only=True))
+        report_type, year, month = _detect_sirsi_report_type(rows)
+
+        if report_type == 'checkouts_by_location':
+            if not year or not month:
+                results.append({'sheet': sheet_name, 'created': 0, 'skipped': 0,
+                                 'warnings': ['Could not determine year/month from report header']})
+                continue
+            detail_ct, circ_ct, w = import_sirsi_checkouts(ws, year, month, branch_lookup)
+            results.append({
+                'sheet': sheet_name,
+                'created': detail_ct,
+                'skipped': 0,
+                'warnings': w,
+                'note': f'{circ_ct} Circulation total entries written',
+            })
+        else:
+            results.append({'sheet': sheet_name, 'created': 0, 'skipped': 0,
+                             'warnings': [f'Unrecognised SIRSI report type in sheet "{sheet_name}"']})
+
+    return results
 
 
 # ── Main orchestrator ─────────────────────────────────────────────────────────

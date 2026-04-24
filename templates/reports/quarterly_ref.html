@@ -54,34 +54,39 @@
 
 {% if table %}
 
-{# ── Quarterly sample table ── #}
+{# ── Per-branch sample + estimate table ── #}
 <div class="card mb-4">
-  <div class="card-header fw-semibold">{{ sel_year }} — Weekly Sample Counts by Quarter</div>
+  <div class="card-header-custom fw-semibold">
+    {{ sel_year }} — Weekly Sample Counts &amp; Annual Estimates by Branch
+  </div>
   <div class="table-responsive">
     <table class="table table-sm table-hover align-middle mb-0">
       <thead class="table-light">
         <tr>
-          <th>Branch / Desk</th>
+          <th>Branch / Location</th>
           <th class="text-center">Q1</th>
           <th class="text-center">Q2</th>
           <th class="text-center">Q3</th>
           <th class="text-center">Q4</th>
           <th class="text-center">Avg / Week</th>
+          <th class="text-center">Est. Annual Transactions</th>
         </tr>
       </thead>
       <tbody>
         {% for row in table %}
-        <tr {% if row.branch.is_desk %}class="table-light"{% endif %}>
-          <td>
-            {% if row.branch.is_desk %}
-            <span class="ms-2 text-muted small">↳</span>
-            {% endif %}
-            {{ row.branch.name }}
-          </td>
+        <tr {% if row.is_combined %}class="fw-semibold"{% endif %}>
+          <td>{{ row.label }}</td>
           {% for val in row.quarters %}
-          <td class="text-center">{{ val if val is not none else '—' }}</td>
+          <td class="text-center">
+            {% if val is not none %}{{ val | commas }}{% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
           {% endfor %}
-          <td class="text-center fw-semibold">{{ row.avg if row.avg is not none else '—' }}</td>
+          <td class="text-center">
+            {% if row.avg is not none %}{{ row.avg }}{% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td class="text-center fw-semibold text-primary">
+            {% if row.estimate %}{{ row.estimate | commas }}{% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -91,12 +96,13 @@
           {% for q in range(1, 5) %}
           <td class="text-center">
             {% if quarterly_totals and q in quarterly_totals %}
-              {{ quarterly_totals[q] | int }}
+              {{ quarterly_totals[q] | commas }}
             {% else %}—{% endif %}
           </td>
           {% endfor %}
-          <td class="text-center">
-            {% if avg_weekly %}{{ "%.1f"|format(avg_weekly) }}{% else %}—{% endif %}
+          <td class="text-center">—</td>
+          <td class="text-center text-primary">
+            {% if annual_estimate %}{{ annual_estimate | commas }}{% else %}—{% endif %}
           </td>
         </tr>
       </tfoot>
@@ -104,9 +110,9 @@
   </div>
 </div>
 
-{# ── Annual estimate calculation ── #}
+{# ── Open-days calculation ── #}
 <div class="card mb-4">
-  <div class="card-header fw-semibold">Annual Reference Transactions Estimate</div>
+  <div class="card-header-custom fw-semibold">Open Days Calculation</div>
   <div class="card-body">
     <div class="row g-3 align-items-start">
 
@@ -134,8 +140,10 @@
               <td class="text-end">{{ open_weeks }}</td>
             </tr>
             <tr>
-              <td class="text-muted">Avg weekly transactions ({{ quarterly_totals|length }} quarters)</td>
-              <td class="text-end">{% if avg_weekly %}{{ "%.1f"|format(avg_weekly) }}{% endif %}</td>
+              <td class="text-muted small" colspan="2">
+                Each branch estimate = (avg of available sample weeks) × {{ open_weeks }} open weeks,
+                summed across all branches for the system total.
+              </td>
             </tr>
           </tbody>
         </table>
@@ -147,11 +155,9 @@
           <div class="display-5 fw-bold text-primary">
             {{ "{:,}".format(annual_estimate) if annual_estimate else '—' }}
           </div>
-          {% if avg_weekly and open_weeks %}
           <div class="text-muted small mt-1">
-            {{ "%.1f"|format(avg_weekly) }} avg/week × {{ open_weeks }} open weeks
+            Sum of per-branch estimates &times; {{ open_weeks }} open weeks
           </div>
-          {% endif %}
         </div>
       </div>
 
@@ -160,7 +166,10 @@
 </div>
 
 {% elif sel_year %}
-<div class="alert alert-info">No quarterly reference data found for {{ sel_year }}. Use the entry form to add quarterly samples.</div>
+<div class="alert alert-info">
+  No quarterly reference data found for {{ sel_year }}.
+  Use the entry form to add quarterly samples.
+</div>
 {% endif %}
 
 {% endblock %}

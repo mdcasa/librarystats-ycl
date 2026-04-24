@@ -1574,61 +1574,75 @@ def report_quarterly_ref():
         reverse=True
     )
 
-    table = branches = quarterly_totals = None
-    open_days = open_weeks = avg_weekly = annual_estimate = None
+    table = quarterly_totals = None
+    open_days = open_weeks = annual_estimate = None
 
     if year:
         cat = Category.query.filter_by(name='Quarterly Reference Stats').first()
         if cat:
             metric = next((m for m in cat.metrics if m.name == 'Total Transactions for the Week'), None)
-            branches = _branches_for_category(cat)
+            all_branches = _branches_for_category(cat)
 
-            # {branch_id: {quarter: value}}
-            branch_data = {b.id: {} for b in branches}
+            # Raw data: {branch_id: {quarter: value}}
+            raw = {b.id: {} for b in all_branches}
             for e in Entry.query.filter_by(category_id=cat.id, year=year).all():
-                if e.branch_id in branch_data and e.quarter and metric:
+                if e.branch_id in raw and e.quarter and metric:
                     for ev in e.values:
                         if ev.metric_id == metric.id and ev.value_number is not None:
-                            branch_data[e.branch_id][e.quarter] = int(ev.value_number)
+                            raw[e.branch_id][e.quarter] = int(ev.value_number)
 
-            # System-wide total per quarter (only quarters with at least one entry)
+            # Open-time calculation
+            closed_days = (holidays or 0) + (unexpected or 0)
+            open_days   = 52 * 6 - closed_days
+            open_weeks  = round(open_days / 6, 2)
+
+            def _row(label, branch_ids, is_combined=False):
+                """Build one display row by summing across the given branch IDs."""
+                q_vals = {}
+                for q in range(1, 5):
+                    parts = [raw[bid][q] for bid in branch_ids if raw[bid].get(q) is not None]
+                    if parts:
+                        q_vals[q] = sum(parts)
+                avg = round(sum(q_vals.values()) / len(q_vals), 1) if q_vals else None
+                est = round(avg * open_weeks) if avg else None
+                return {
+                    'label':       label,
+                    'quarters':    [q_vals.get(q) for q in range(1, 5)],
+                    'avg':         avg,
+                    'estimate':    est,
+                    'is_combined': is_combined,
+                }
+
+            desk_branches    = [b for b in all_branches if b.is_desk]
+            regular_branches = [b for b in all_branches if not b.is_desk]
+
+            table = []
+            if desk_branches:
+                table.append(_row('Rock Hill (all desks)',
+                                  [b.id for b in desk_branches],
+                                  is_combined=True))
+            for b in regular_branches:
+                table.append(_row(b.name, [b.id]))
+
+            # System quarterly totals (across all individual branches)
             quarterly_totals = {}
             for q in range(1, 5):
-                total = sum(branch_data[b.id].get(q, 0) for b in branches)
-                if any(branch_data[b.id].get(q) is not None for b in branches):
-                    quarterly_totals[q] = total
+                parts = [raw[b.id][q] for b in all_branches if raw[b.id].get(q) is not None]
+                if parts:
+                    quarterly_totals[q] = sum(parts)
 
-            # Annual calculation
-            total_possible_days = 52 * 6          # Mon–Sat × 52 weeks
-            closed_days  = (holidays or 0) + (unexpected or 0)
-            open_days    = total_possible_days - closed_days
-            open_weeks   = round(open_days / 6, 2)
-
-            if quarterly_totals:
-                avg_weekly     = sum(quarterly_totals.values()) / len(quarterly_totals)
-                annual_estimate = round(avg_weekly * open_weeks)
-
-            table = [
-                {
-                    'branch':  b,
-                    'quarters': [branch_data[b.id].get(q) for q in range(1, 5)],
-                    'avg':     round(sum(v for v in branch_data[b.id].values()) /
-                                     len(branch_data[b.id]), 1) if branch_data[b.id] else None,
-                }
-                for b in branches
-            ]
+            # Annual estimate = sum of per-branch estimates
+            annual_estimate = sum(r['estimate'] for r in table if r['estimate']) or None
 
     return render_template('reports/quarterly_ref.html',
                            available_years=available_years,
                            sel_year=year,
                            holidays=holidays or 0,
                            unexpected=unexpected or 0,
-                           branches=branches,
                            table=table,
                            quarterly_totals=quarterly_totals,
                            open_days=open_days,
                            open_weeks=open_weeks,
-                           avg_weekly=avg_weekly,
                            annual_estimate=annual_estimate)
 
 

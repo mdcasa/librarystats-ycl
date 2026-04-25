@@ -146,11 +146,25 @@ def index():
     circ_trend_labels = circ_trend_data = gate_trend_data = []
 
     if bs_cat:
-        latest = (Entry.query
-                  .filter_by(category_id=bs_cat.id)
-                  .filter(Entry.month.isnot(None))
-                  .order_by(Entry.year.desc(), Entry.month.desc())
-                  .first())
+        # Use the latest month that has Total Branch Circulation data so that
+        # imports of other metrics (e.g. door count) don't push the display
+        # forward into a month where circulation is missing.
+        circ_metric = next((m for m in bs_cat.metrics if m.name == 'Total Branch Circulation'), None)
+        if circ_metric:
+            latest_ev = (EntryValue.query
+                         .join(Entry, Entry.id == EntryValue.entry_id)
+                         .filter(Entry.category_id == bs_cat.id,
+                                 Entry.month.isnot(None),
+                                 EntryValue.metric_id == circ_metric.id)
+                         .order_by(Entry.year.desc(), Entry.month.desc())
+                         .first())
+            latest = latest_ev.entry if latest_ev else None
+        else:
+            latest = (Entry.query
+                      .filter_by(category_id=bs_cat.id)
+                      .filter(Entry.month.isnot(None))
+                      .order_by(Entry.year.desc(), Entry.month.desc())
+                      .first())
         if latest:
             latest_year, latest_month = latest.year, latest.month
             prev_m = latest_month - 1 or 12

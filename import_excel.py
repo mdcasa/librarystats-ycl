@@ -868,6 +868,8 @@ def import_new_library_users(ws, year, month, branch_lookup):
             continue
 
         ils = str(user_lib).strip()
+        if not ils.startswith('YCL-'):
+            continue
         branch = ils_to_branch.get(ils)
         if branch is None:
             unrecognised.add(ils)

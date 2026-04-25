@@ -55,15 +55,27 @@ All imports go through the `/upload` page. The system auto-detects the file type
 **File naming example:** `Number of New Library Users by Branch and Patron Type - December 2025.xlsx`
 
 **Format:**
-- Columns: `Trans Stat Month | Trans Stat User Library | Trans Stat User Profile Name | Count`
-- Header rows identify year (`Trans Stat Year: 2025`) and month (`Trans Stat Month: 12`)
-- ILS codes in User Library column (e.g. `YCL-BK`, `YCL-CL`)
-- Patron profiles classified as Adult (`ADULT`, `TEEN`, `COLLEGE`, etc.) or Juvenile (`JUVENILE`, `J-INTERNET`, etc.)
+- Single sheet, paged by Station Library (the branch where the card was physically registered)
+- Each page section opens with a header: `Trans Stat Station Library: YCL-FM`
+- Data columns: `Trans Stat Month | Trans Stat User Library | Trans Stat User Profile Name | Count (Trans Stat Id)`
+- Year is in a header row near the top: `Trans Stat Year: 2025`
+- Month is **not** in a header — it comes from column 0 of the data rows (e.g. `12` for December)
+- `Trans Stat User Library` = the patron's **home branch** (ILS code, e.g. `YCL-FM`)
+
+**How counting works:**
+The importer ignores which branch the card was registered at (Station Library) and instead counts by **User Library** — the patron's home branch. This gives "new patrons belonging to each branch" regardless of where they physically registered. Rows with `Total` or header text in any column are skipped.
+
+**Patron profile classification:**
+- Adult: `ADULT`, `A-NONRES`, `INST-TEACH`, `TEEN`, `COLLEGE`, `HOMEBOUND`
+- Juvenile: `JUVENILE`, `J-INTERNET`, `J-RESTRICT`, `JR-NONRES`
+- Any other profile (e.g. `PRGMNG`, `STAFF-PERS`) is ignored
+
+**Locker locations:** Locker station pages (e.g. `YCL-FM-LOC`) appear in the file but User Library in those rows is always the parent branch (`YCL-FM`), so counts roll up to the parent branch naturally.
 
 **What it writes:**
 - `New Library Card Registrations, Adult` per branch → Branch Stats
 - `New Library Card Registrations, Juvenile` per branch → Branch Stats
-- `New Library Card Registrations, Total` per branch → Branch Stats
+- `New Library Card Registrations, Total` (adult + juvenile) per branch → Branch Stats
 
 **How detected:** Title cell contains `Number of New Library Users`
 

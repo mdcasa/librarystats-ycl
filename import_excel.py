@@ -677,54 +677,73 @@ def import_sirsi_checkouts(ws, year, month, branch_lookup):
             renewals=ren,
         ))
 
-    # Write Circulation category totals (per branch + system-wide)
-    circ_metrics, circ_cat = build_metric_lookup('Circulation')
-    chk_metric      = circ_metrics.get('Checkouts')
-    ren_metric      = circ_metrics.get('Renewals')
-    hotspot_metric  = circ_metrics.get('Hotspots Checkouts')
+    # Write Total Branch Circulation into Branch Stats (per branch + system-wide).
+    # Uses find-or-create so other manually entered stats (Gate Count, etc.) are preserved.
+    bs_metrics, bs_cat   = build_metric_lookup('Branch Stats')
+    total_circ_metric    = bs_metrics.get('Total Branch Circulation')
+    hotspot_metric       = bs_metrics.get('Hotspots Circulation')
     circ_entries = 0
 
-    if circ_cat and chk_metric and ren_metric:
-        # Remove existing Circulation entries for this period
-        old = Entry.query.filter_by(category_id=circ_cat.id, year=year, month=month).all()
-        for e in old:
-            EntryValue.query.filter_by(entry_id=e.id).delete()
-            db.session.delete(e)
-
-        # Aggregate checkouts/renewals and hotspot checkouts by branch
-        branch_totals   = {}  # branch_id → [checkouts, renewals, hotspots]
+    if bs_cat and total_circ_metric:
+        # Aggregate: total circ = checkouts + renewals; hotspots = hotspot checkouts only
+        branch_totals = {}  # branch_id → [total_circ, hotspots]
         for (branch_id, patron_type, shelving_location), (chk, ren) in detail.items():
             if branch_id not in branch_totals:
-                branch_totals[branch_id] = [0, 0, 0]
-            branch_totals[branch_id][0] += chk
-            branch_totals[branch_id][1] += ren
+                branch_totals[branch_id] = [0, 0]
+            branch_totals[branch_id][0] += chk + ren
             if shelving_location == 'A-HOTSPOT':
-                branch_totals[branch_id][2] += chk
+                branch_totals[branch_id][1] += chk
 
-        system_chk = system_ren = system_hot = 0
-        for branch_id, (chk, ren, hot) in branch_totals.items():
-            entry = Entry(category_id=circ_cat.id, branch_id=branch_id,
-                          year=year, month=month, submitted_by='SIRSI Import')
-            db.session.add(entry)
-            db.session.flush()
-            db.session.add(EntryValue(entry_id=entry.id, metric_id=chk_metric.id, value_number=chk))
-            db.session.add(EntryValue(entry_id=entry.id, metric_id=ren_metric.id, value_number=ren))
+        system_circ = system_hot = 0
+        for branch_id, (total_circ, hot) in branch_totals.items():
+            entry = (Entry.query
+                     .filter_by(category_id=bs_cat.id, branch_id=branch_id, year=year, month=month)
+                     .first())
+            if not entry:
+                entry = Entry(category_id=bs_cat.id, branch_id=branch_id,
+                              year=year, month=month, submitted_by='SIRSI Import')
+                db.session.add(entry)
+                db.session.flush()
+
+            ev = EntryValue.query.filter_by(entry_id=entry.id, metric_id=total_circ_metric.id).first()
+            if ev:
+                ev.value_number = total_circ
+            else:
+                db.session.add(EntryValue(entry_id=entry.id, metric_id=total_circ_metric.id, value_number=total_circ))
+
             if hotspot_metric and hot:
-                db.session.add(EntryValue(entry_id=entry.id, metric_id=hotspot_metric.id, value_number=hot))
+                ev_h = EntryValue.query.filter_by(entry_id=entry.id, metric_id=hotspot_metric.id).first()
+                if ev_h:
+                    ev_h.value_number = hot
+                else:
+                    db.session.add(EntryValue(entry_id=entry.id, metric_id=hotspot_metric.id, value_number=hot))
+
             circ_entries += 1
-            system_chk += chk
-            system_ren  += ren
+            system_circ += total_circ
             system_hot  += hot
 
-        # System-wide row
-        sys_entry = Entry(category_id=circ_cat.id, branch_id=None,
-                          year=year, month=month, submitted_by='SIRSI Import')
-        db.session.add(sys_entry)
-        db.session.flush()
-        db.session.add(EntryValue(entry_id=sys_entry.id, metric_id=chk_metric.id, value_number=system_chk))
-        db.session.add(EntryValue(entry_id=sys_entry.id, metric_id=ren_metric.id, value_number=system_ren))
+        # System-wide entry (branch_id=None)
+        sys_entry = (Entry.query
+                     .filter_by(category_id=bs_cat.id, branch_id=None, year=year, month=month)
+                     .first())
+        if not sys_entry:
+            sys_entry = Entry(category_id=bs_cat.id, branch_id=None,
+                              year=year, month=month, submitted_by='SIRSI Import')
+            db.session.add(sys_entry)
+            db.session.flush()
+
+        ev_sys = EntryValue.query.filter_by(entry_id=sys_entry.id, metric_id=total_circ_metric.id).first()
+        if ev_sys:
+            ev_sys.value_number = system_circ
+        else:
+            db.session.add(EntryValue(entry_id=sys_entry.id, metric_id=total_circ_metric.id, value_number=system_circ))
+
         if hotspot_metric and system_hot:
-            db.session.add(EntryValue(entry_id=sys_entry.id, metric_id=hotspot_metric.id, value_number=system_hot))
+            ev_sh = EntryValue.query.filter_by(entry_id=sys_entry.id, metric_id=hotspot_metric.id).first()
+            if ev_sh:
+                ev_sh.value_number = system_hot
+            else:
+                db.session.add(EntryValue(entry_id=sys_entry.id, metric_id=hotspot_metric.id, value_number=system_hot))
         circ_entries += 1
 
     db.session.commit()

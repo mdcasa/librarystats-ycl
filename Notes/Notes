@@ -1,2 +1,3 @@
 IMPORTING DATA 
 -train on the excel sheets first to make sure AI can read and understand them- then work on importing them
+make sure that when importing that the data shows in the system when browsing the data

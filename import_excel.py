@@ -304,23 +304,31 @@ def import_branch_stats(ws, cat, metric_lookup, branch_lookup, year_override=Non
                 buckets[key][col_metric[i].id] = float(val)
 
     warnings = [f'Unrecognised branch skipped: {b}' for b in sorted(skipped_branches)]
-    created = skipped = 0
+    created = updated = 0
     for (year, month, branch_id), values in buckets.items():
         if not values:
             continue
-        if entry_exists_monthly(cat.id, branch_id, year, month):
-            skipped += 1
-            continue
-        entry = Entry(category_id=cat.id, branch_id=branch_id,
-                      year=year, month=month, submitted_by='Excel Import')
-        db.session.add(entry)
-        db.session.flush()
+        entry = Entry.query.filter_by(
+            category_id=cat.id, branch_id=branch_id, year=year, month=month
+        ).first()
+        if entry is None:
+            entry = Entry(category_id=cat.id, branch_id=branch_id,
+                          year=year, month=month, submitted_by='Excel Import')
+            db.session.add(entry)
+            db.session.flush()
+            created += 1
+        else:
+            updated += 1
+        ev_map = {ev.metric_id: ev for ev in entry.values}
         for metric_id, val in values.items():
-            db.session.add(EntryValue(entry_id=entry.id, metric_id=metric_id, value_number=val))
-        created += 1
+            ev = ev_map.get(metric_id)
+            if ev:
+                ev.value_number = val
+            else:
+                db.session.add(EntryValue(entry_id=entry.id, metric_id=metric_id, value_number=val))
 
     db.session.commit()
-    return created, skipped, warnings
+    return created, updated, warnings
 
 
 def import_online_stats(ws, cat, metric_lookup, year_override=None):
@@ -353,23 +361,31 @@ def import_online_stats(ws, cat, metric_lookup, year_override=None):
             if i in col_metric and val is not None:
                 buckets[key][col_metric[i].id] = float(val)
 
-    created = skipped = 0
+    created = updated = 0
     for (year, month), values in buckets.items():
         if not values:
             continue
-        if entry_exists_monthly(cat.id, None, year, month):
-            skipped += 1
-            continue
-        entry = Entry(category_id=cat.id, year=year, month=month,
-                      submitted_by='Excel Import')
-        db.session.add(entry)
-        db.session.flush()
+        entry = Entry.query.filter_by(
+            category_id=cat.id, branch_id=None, year=year, month=month
+        ).first()
+        if entry is None:
+            entry = Entry(category_id=cat.id, year=year, month=month,
+                          submitted_by='Excel Import')
+            db.session.add(entry)
+            db.session.flush()
+            created += 1
+        else:
+            updated += 1
+        ev_map = {ev.metric_id: ev for ev in entry.values}
         for metric_id, val in values.items():
-            db.session.add(EntryValue(entry_id=entry.id, metric_id=metric_id, value_number=val))
-        created += 1
+            ev = ev_map.get(metric_id)
+            if ev:
+                ev.value_number = val
+            else:
+                db.session.add(EntryValue(entry_id=entry.id, metric_id=metric_id, value_number=val))
 
     db.session.commit()
-    return created, skipped, []
+    return created, updated, []
 
 
 def import_quarterly_ref(ws, cat, metric_lookup, branch_lookup):

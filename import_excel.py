@@ -725,32 +725,6 @@ def import_sirsi_checkouts(ws, year, month, branch_lookup):
                     db.session.add(EntryValue(entry_id=entry.id, metric_id=hotspot_metric.id, value_number=hot))
 
             circ_entries += 1
-            system_circ += total_circ
-            system_hot  += hot
-
-        # System-wide entry (branch_id=None)
-        sys_entry = (Entry.query
-                     .filter_by(category_id=bs_cat.id, branch_id=None, year=year, month=month)
-                     .first())
-        if not sys_entry:
-            sys_entry = Entry(category_id=bs_cat.id, branch_id=None,
-                              year=year, month=month, submitted_by='SIRSI Import')
-            db.session.add(sys_entry)
-            db.session.flush()
-
-        ev_sys = EntryValue.query.filter_by(entry_id=sys_entry.id, metric_id=total_circ_metric.id).first()
-        if ev_sys:
-            ev_sys.value_number = system_circ
-        else:
-            db.session.add(EntryValue(entry_id=sys_entry.id, metric_id=total_circ_metric.id, value_number=system_circ))
-
-        if hotspot_metric and system_hot:
-            ev_sh = EntryValue.query.filter_by(entry_id=sys_entry.id, metric_id=hotspot_metric.id).first()
-            if ev_sh:
-                ev_sh.value_number = system_hot
-            else:
-                db.session.add(EntryValue(entry_id=sys_entry.id, metric_id=hotspot_metric.id, value_number=system_hot))
-        circ_entries += 1
 
     db.session.commit()
     return len(detail), circ_entries, warnings

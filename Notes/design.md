@@ -19,21 +19,176 @@ Library Stats is a Flask web app (hosted on Railway, PostgreSQL in production) t
 
 ## How Data Gets In
 
-All imports go through the `/upload` page. The system auto-detects file type by reading the sheet name or header row.
+All imports go through the `/upload` page. The system auto-detects the file type by reading the sheet name or header row. Files can be uploaded in any order — each importer upserts its specific metrics without overwriting data from other importers.
 
-| File Type | What It Imports |
+---
+
+## Import Procedure — File by File
+
+### 1. SIRSI Checkouts by Shelving Location
+
+**Where to get it:** SIRSI ILS → report "Checkouts by Branch and Shelving Location"
+
+**File naming example:** `Checkouts by Branch and Shelving Location - August 2025.xlsx`
+
+**Format:**
+- Single sheet, two sections separated by a `Trans Stat Command Desc: Renew Item` header
+- Section 1: Charge Item Part B (checkouts)
+- Section 2: Renew Item (renewals)
+- Columns: `Trans Stat Station Library | Trans Stat User Profile Name | Trans Stat Home Location | Number of Checkouts`
+- Header rows identify year (`Trans Stat Year: 2025`) and month (`Trans Stat Month: 8`)
+
+**What it writes:**
+- `Total Branch Circulation` (checkouts + renewals) per branch → Branch Stats
+- `Hotspots Circulation` (A-HOTSPOT shelving location checkouts only) per branch → Branch Stats
+- Locker branches (`YCL-CL-LOC`, `YCL-FM-LOC`, etc.) stored as separate branch entries
+- All granular rows also stored in `SirsiCheckouts` table for detailed reporting
+
+**How detected:** Title cell contains `Checkouts by Branch and Shelving Location`
+
+---
+
+### 2. SIRSI New Library Users (Registrations)
+
+**Where to get it:** SIRSI ILS → report "Number of New Library Users by Branch and Patron Type"
+
+**File naming example:** `Number of New Library Users by Branch and Patron Type - December 2025.xlsx`
+
+**Format:**
+- Columns: `Trans Stat Month | Trans Stat User Library | Trans Stat User Profile Name | Count`
+- Header rows identify year (`Trans Stat Year: 2025`) and month (`Trans Stat Month: 12`)
+- ILS codes in User Library column (e.g. `YCL-BK`, `YCL-CL`)
+- Patron profiles classified as Adult (`ADULT`, `TEEN`, `COLLEGE`, etc.) or Juvenile (`JUVENILE`, `J-INTERNET`, etc.)
+
+**What it writes:**
+- `New Library Card Registrations, Adult` per branch → Branch Stats
+- `New Library Card Registrations, Juvenile` per branch → Branch Stats
+- `New Library Card Registrations, Total` per branch → Branch Stats
+
+**How detected:** Title cell contains `Number of New Library Users`
+
+---
+
+### 3. Branch Stats Excel (non-SIRSI monthly data)
+
+**Where to get it:** Manually compiled Excel workbook
+
+**File naming example:** `non-SIRSI423.xlsx`, `statsonly423.xlsx`
+
+**Format:**
+- Sheet must be named `Branch Stats`
+- Required columns: `Month Num` (or `Month`), `BRANCH`, `Year`
+- All other columns are matched to metrics via the column name map in `import_excel.py`
+
+**Key columns and what they map to:**
+
+| Excel Column | Metric |
 |---|---|
-| **Branch Stats Excel** (`statsonly...xlsx`) | Most monthly branch metrics — WiFi, PC, gate count, programs, outreach, etc. |
-| **SIRSI Checkouts by Shelving Location** | Granular checkout/renewal data → writes `Total Branch Circulation` and `Hotspots Circulation` into Branch Stats |
-| **SIRSI Checkouts by User Profile** | Adult/juvenile checkout counts → stored in `SirsiCheckouts` table |
-| **SIRSI New Library Users** | New card registrations → writes Adult/Juvenile registration metrics into Branch Stats |
-| **Princh export** | Print page counts → writes `Total Prints per Month` into Branch Stats |
-| **Door counter export** | Daily ins/outs → sums to `Gate Count` in Branch Stats |
-| **QRS Excel** | Quarterly reference transaction samples |
+| `Gate Count` | Gate Count |
+| `PC Reservations` | PC Reservations |
+| `WiFi - Unique Sessions` | WiFi - Unique Sessions |
+| `External Party Library Room Use` | External Party Library Room Use |
+| `Curbside` | Curbside |
+| `ILL - Sent (Main ONLY)` | ILL - Sent (Main ONLY) |
+| `ILL - Received (Main ONLY)` | ILL - Received (Main ONLY) |
+| `ICLs - Sent (MAIN ONLY)` | ICLs - Sent (Main ONLY) |
+| `ICLs - Received (MAIN ONLY)` | ICLs - Received (Main ONLY) |
+| `Total Prints per Month` | Total Prints per Month |
+| `I2: ONSITE Sessions 0-5` through `VIRTUAL Attendance General Interest` | Programming metrics |
+| `I21: NUMBER OF OUTREACH ACTIVITIES Conducted` | Number of Outreach Activities Conducted |
+| `Outreach Attendance (YCL Internal)` | Outreach Attendance |
+| `I22: TOTAL # TAKE & MAKES...` | Take & Makes / Other Passive Program Participants |
+| `I23: NUMBER OF STAFF TAKING TRAINING` | Number of Staff Taking Training |
+| `I24: NUMBER OF HOURS STAFF ATTENDED TRAINING` | Number of Hours Staff Attended Training |
+| `1-on-1 Total for Month` | 1-on-1 Total for Month |
+| `Locker Circulation` | Locker Circulation |
 
-### Import Order Note
+**What it writes:** All of the above metrics per branch per month → Branch Stats
 
-Multiple import sources write to the same Branch Stats entries. The system uses an **upsert** approach — each importer finds or creates the entry for a given branch/month, then adds or overwrites only its specific metrics. Other metrics already stored by a different importer are left untouched. This means files can be uploaded in any order without data loss.
+**How detected:** Sheet named `Branch Stats` inside the workbook
+
+---
+
+### 4. Online Stats Excel
+
+**Where to get it:** Manually compiled Excel workbook
+
+**File naming example:** `onlin423.xlsx`
+
+**Format:**
+- Sheet must be named `Online Stats`
+- Required columns: `Month Num` (or `Month`), `Year`
+- No branch column — these are system-wide metrics
+
+**Key columns:** `yclibrary.org - web sessions`, `ychistory.org - views`, `Dial A Story - CALLS`, `Beanstack - Sessions`, `LibraryCalendar - Sessions`, `Facebook Followers`, `Instragram - Subscribers`, `YouTube - Views`, etc.
+
+**What it writes:** All online/social metrics system-wide per month → Online Stats
+
+**How detected:** Sheet named `Online Stats` inside the workbook
+
+---
+
+### 5. Princh Print Export
+
+**Where to get it:** Princh print management portal → export report
+
+**File naming example:** `princh-export_2026-02-01_2026-02-28.xlsx`
+
+**Format:**
+- Columns include: `From`, `To`, `Location`, `Printer Name`, `Letter color pages`, `Letter monochrome pages`, `Legal color pages`, `Legal monochrome pages`, `Ledger color pages`, `Ledger monochrome pages`
+- One row per printer per date range
+- Location strings matched to branches by substring (e.g. "Lake Wylie" matches "York County Public Library - Lake Wylie")
+- Year/month extracted from the `From` date column
+
+**What it writes:** Sum of all page columns per branch per month → `Total Prints per Month` in Branch Stats
+
+**How detected:** Header row contains `Letter color pages` or (`Location` + `Documents` + `From`)
+
+---
+
+### 6. Door Counter Export
+
+**Where to get it:** Door counter management portal
+
+**File naming example:** `daily_door_count.xlsx`
+
+**Format:**
+- Columns: `(blank)`, `Location Name`, `Record Date`, `Ins`, `Outs`
+- One row per location per hour
+- Location names matched exactly: `Clover Library`, `Fort Mill Library`, `Lake Wylie Library`, `Main - Rock Hill Library`, `York Library`
+- Date is a datetime object; year/month extracted from it
+
+**What it writes:** Sum of `Ins` per branch per month → `Gate Count` in Branch Stats
+
+**How detected:** Header row contains `Location Name`
+
+---
+
+### 7. Quarterly Reference Stats (QRS)
+
+**Where to get it:** Manually compiled Excel workbook
+
+**File naming example:** `QRSver2.xlsx`
+
+**Format:**
+- Sheet named `Qrtly Ref Stats` or `Sheet1`
+- Columns: `Year`, `Quarter`, `Month`, `Branch or Location`, `Total # of Transactions for the Week`
+- Multiple rows per branch/quarter are summed together
+
+**What it writes:** `Total Transactions for the Week` per branch per quarter → Quarterly Reference Stats
+
+**How detected:** Sheet named `Qrtly Ref Stats` or `Sheet1` with matching metric column
+
+---
+
+## Verifying an Import
+
+After each upload the results page shows:
+- **Created** — new entries added
+- **Updated** — existing entries that had metrics merged in
+- **Warnings** — unrecognised branch names or format issues (check these)
+
+To verify a specific entry worked, go to `/entries` and filter by the month and branch. All metrics that should have values for that source file should show numbers, not dashes.
 
 ---
 

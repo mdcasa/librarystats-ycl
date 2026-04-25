@@ -13,7 +13,7 @@ Library Stats is a Flask web app (hosted on Railway, PostgreSQL in production) t
 - **Branches** — physical locations (Clover, Fort Mill, Lake Wylie, Rock Hill, York, Outreach/Bookmobile, plus Locker sub-branches kept separate)
 - **Entries** — one record per branch/month/category combination
 - **EntryValues** — the actual numbers, linked to an Entry and a Metric
-- **SirsiCheckouts** — granular ILS checkout data (branch × patron type × shelving location), stored separately from Entries
+- **SirsiCheckouts** — granular ILS checkout data (branch x patron type x shelving location), stored separately from Entries
 
 ---
 
@@ -31,12 +31,15 @@ All imports go through the `/upload` page. The system auto-detects the file type
 
 **File naming example:** `Checkouts by Branch and Shelving Location - August 2025.xlsx`
 
+**Sample file:** `Data files/Circulation/Checkouts by Branch and Shelving Location - August 2025.xlsx`
+
 **Format:**
 - Single sheet, two sections separated by a `Trans Stat Command Desc: Renew Item` header
 - Section 1: Charge Item Part B (checkouts)
 - Section 2: Renew Item (renewals)
 - Columns: `Trans Stat Station Library | Trans Stat User Profile Name | Trans Stat Home Location | Number of Checkouts`
 - Header rows identify year (`Trans Stat Year: 2025`) and month (`Trans Stat Month: 8`)
+- ILS codes in Station Library column: `YCL-BK`, `YCL-CL`, `YCL-CL-LOC`, `YCL-FM`, `YCL-FM-LOC`, `YCL-LW`, `YCL-LW-LOC`, `YCL-RH`, `YCL-RH-LOC`, `YCL-YK`, `YCL-YK-LOC` (plus `YCL` system-wide, which is skipped)
 
 **What it writes:**
 - `Total Branch Circulation` (checkouts + renewals) per branch → Branch Stats
@@ -54,12 +57,14 @@ All imports go through the `/upload` page. The system auto-detects the file type
 
 **File naming example:** `Number of New Library Users by Branch and Patron Type - December 2025.xlsx`
 
+**Sample file:** `Data files/Registration/Number of New Library Users by Branch and Patron Type - December 2025.xlsx`
+
 **Format:**
 - Single sheet, paged by Station Library (the branch where the card was physically registered)
 - Each page section opens with a header: `Trans Stat Station Library: YCL-FM`
 - Data columns: `Trans Stat Month | Trans Stat User Library | Trans Stat User Profile Name | Count (Trans Stat Id)`
 - Year is in a header row near the top: `Trans Stat Year: 2025`
-- Month is **not** in a header — it comes from column 0 of the data rows (e.g. `12` for December)
+- Month is **not** in a header row — it comes from column 0 of the data rows (e.g. `12` for December)
 - `Trans Stat User Library` = the patron's **home branch** (ILS code, e.g. `YCL-FM`)
 
 **How counting works:**
@@ -83,39 +88,76 @@ The importer ignores which branch the card was registered at (Station Library) a
 
 ### 3. Branch Stats Excel (non-SIRSI monthly data)
 
-**Where to get it:** Manually compiled Excel workbook
+**Where to get it:** Manually compiled Excel workbook (staff fill this in each month)
 
 **File naming example:** `non-SIRSI423.xlsx`, `statsonly423.xlsx`
 
+**Sample file:** `Data files/manual/non-SIRSI423.xlsx` — covers Jan 2024 through early 2026, 201 rows, all branches
+
 **Format:**
 - Sheet must be named `Branch Stats`
-- Required columns: `Month Num` (or `Month`), `BRANCH`, `Year`
-- All other columns are matched to metrics via the column name map in `import_excel.py`
+- 52 columns; required: `Month Num` (col 0), `Month` (col 1), `BRANCH` (col 2), `Year` (col 50)
+- Branch names are uppercase in the file (`ROCK HILL`, `CLOVER`, `FORT MILL`, `LAKE WYLIE`, `YORK`, `OUTREACH/BOOKMOBILE`) — the branch lookup handles case variants and trailing spaces automatically
+- `YCL (System Wide)` rows appear in the file but are skipped by the importer
+- All other columns matched to metrics by exact header name via `BRANCH_STATS_MAP` in `import_excel.py`
+- Safe to upload even if SIRSI data already exists for that month — importer upserts each metric individually
 
-**Key columns and what they map to:**
+**Complete column map (52 columns):**
 
-| Excel Column | Metric |
-|---|---|
-| `Gate Count` | Gate Count |
-| `PC Reservations` | PC Reservations |
-| `WiFi - Unique Sessions` | WiFi - Unique Sessions |
-| `External Party Library Room Use` | External Party Library Room Use |
-| `Curbside` | Curbside |
-| `ILL - Sent (Main ONLY)` | ILL - Sent (Main ONLY) |
-| `ILL - Received (Main ONLY)` | ILL - Received (Main ONLY) |
-| `ICLs - Sent (MAIN ONLY)` | ICLs - Sent (Main ONLY) |
-| `ICLs - Received (MAIN ONLY)` | ICLs - Received (Main ONLY) |
-| `Total Prints per Month` | Total Prints per Month |
-| `I2: ONSITE Sessions 0-5` through `VIRTUAL Attendance General Interest` | Programming metrics |
-| `I21: NUMBER OF OUTREACH ACTIVITIES Conducted` | Number of Outreach Activities Conducted |
-| `Outreach Attendance (YCL Internal)` | Outreach Attendance |
-| `I22: TOTAL # TAKE & MAKES...` | Take & Makes / Other Passive Program Participants |
-| `I23: NUMBER OF STAFF TAKING TRAINING` | Number of Staff Taking Training |
-| `I24: NUMBER OF HOURS STAFF ATTENDED TRAINING` | Number of Hours Staff Attended Training |
-| `1-on-1 Total for Month` | 1-on-1 Total for Month |
-| `Locker Circulation` | Locker Circulation |
-
-**What it writes:** All of the above metrics per branch per month → Branch Stats
+| Col | Excel Header | Metric |
+|---|---|---|
+| 0 | `Month Num` | *(period)* |
+| 1 | `Month` | *(period label)* |
+| 2 | `BRANCH` | *(branch)* |
+| 3 | `Gate Count` | Gate Count |
+| 4 | `PC Reservations` | PC Reservations |
+| 5 | `WiFi - Unique Sessions` | WiFi - Unique Sessions |
+| 6 | `External Party Library Room Use` | External Party Library Room Use |
+| 7 | `Curbside` | Curbside |
+| 8 | `ILL - Sent (Main ONLY)` | ILL - Sent (Main ONLY) |
+| 9 | `ILL - Received (Main ONLY)` | ILL - Received (Main ONLY) |
+| 10 | `ICLs - Sent (MAIN ONLY)` | ICLs - Sent (Main ONLY) |
+| 11 | `ICLs - Received (MAIN ONLY)` | ICLs - Received (Main ONLY) |
+| 12 | `Total Prints per Month` | Total Prints per Month |
+| 13 | `I2:  ONSITE Sessions 0-5` | ONSITE Sessions 0-5 |
+| 14 | `I3:   ONSITE Sessions 6-11` | ONSITE Sessions 6-11 |
+| 15 | `I4: ONSITE Sessions 12-18` | ONSITE Sessions 12-18 |
+| 16 | `I5:   ONSITE Sessions 19+` | ONSITE Sessions 19+ |
+| 17 | `I6:  ONSITE Sessions GENERAL INTEREST` | ONSITE Sessions General Interest |
+| 18 | `ONSITE Attendance 0-5` | ONSITE Attendance 0-5 |
+| 19 | `ONSITE Attendance 6-11` | ONSITE Attendance 6-11 |
+| 20 | `ONSITE Attendance 12-18` | ONSITE Attendance 12-18 |
+| 21 | `ONSITE Attendance 19+` | ONSITE Attendance 19+ |
+| 22 | `ONSITE Attendance General Interest` | ONSITE Attendance General Interest |
+| 23 | `OFFSITE Sessions 0-5` | OFFSITE Sessions 0-5 |
+| 24 | `OFFSITE Sessions 6-11` | OFFSITE Sessions 6-11 |
+| 25 | `OFFSITE Sessions 12-18` | OFFSITE Sessions 12-18 |
+| 26 | `OFFSITE Sessions 19+` | OFFSITE Sessions 19+ |
+| 27 | `OFFSITE Sessions General Interest` | OFFSITE Sessions General Interest |
+| 28 | `OFFSITE Attendance 0-5` | OFFSITE Attendance 0-5 |
+| 29 | `OFFSITE Attendance 6-11` | OFFSITE Attendance 6-11 |
+| 30 | `OFFSITE Attendance 12-18` | OFFSITE Attendance 12-18 |
+| 31 | `OFFSITE Attendance 19+` | OFFSITE Attendance 19+ |
+| 32 | `OFFSITE Attendance General Interest` | OFFSITE Attendance General Interest |
+| 33 | `VIRTUAL Sessions 0-5` | VIRTUAL Sessions 0-5 |
+| 34 | `VIRTUAL Sessions 6-11` | VIRTUAL Sessions 6-11 |
+| 35 | `VIRTUAL Sessions 12-18` | VIRTUAL Sessions 12-18 |
+| 36 | `VIRTUAL Sessions 19+` | VIRTUAL Sessions 19+ |
+| 37 | `VIRTUAL Sessions General Interest` | VIRTUAL Sessions General Interest |
+| 38 | `VIRTUAL Attendance 0-5` | VIRTUAL Attendance 0-5 |
+| 39 | `VIRTUAL Attendance 6-11` | VIRTUAL Attendance 6-11 |
+| 40 | `VIRTUAL Attendance 12-18` | VIRTUAL Attendance 12-18 |
+| 41 | `VIRTUAL Attendance 19+` | VIRTUAL Attendance 19+ |
+| 42 | `VIRTUAL Attendance General Interest` | VIRTUAL Attendance General Interest |
+| 43 | `I21: NUMBER OF OUTREACH ACTIVITIES Conducted` | Number of Outreach Activities Conducted |
+| 44 | `Outreach Attendance (YCL Internal)` | Outreach Attendance |
+| 45 | `I22: TOTAL # TAKE & MAKES and OTHER PASSIVE PROGRAM PARTICIPANTS` | Take & Makes / Other Passive Program Participants |
+| 46 | `I23: NUMBER OF STAFF TAKING TRAINING` | Number of Staff Taking Training |
+| 47 | `I24: NUMBER OF HOURS STAFF ATTENDED TRAINING` | Number of Hours Staff Attended Training |
+| 48 | `1-on-1 Total for Month` | 1-on-1 Total for Month |
+| 49 | `Email Address` | *(ignored)* |
+| 50 | `Year` | *(period)* |
+| 51 | `Locker Circulation` | Locker Circulation |
 
 **How detected:** Sheet named `Branch Stats` inside the workbook
 
@@ -123,18 +165,50 @@ The importer ignores which branch the card was registered at (Station Library) a
 
 ### 4. Online Stats Excel
 
-**Where to get it:** Manually compiled Excel workbook
+**Where to get it:** Manually compiled Excel workbook (staff fill this in each month)
 
 **File naming example:** `onlin423.xlsx`
 
+**Sample file:** `Data files/manual/onlin423.xlsx` — covers Jul 2025 through early 2026, 41 rows, system-wide
+
 **Format:**
 - Sheet must be named `Online Stats`
-- Required columns: `Month Num` (or `Month`), `Year`
-- No branch column — these are system-wide metrics
+- 28 columns; required: `Month Num` (col 0), `Year` (col 27)
+- No branch column — all metrics are system-wide
+- Two column headers contain typos in the Excel file; the importer maps them correctly
 
-**Key columns:** `yclibrary.org - web sessions`, `ychistory.org - views`, `Dial A Story - CALLS`, `Beanstack - Sessions`, `LibraryCalendar - Sessions`, `Facebook Followers`, `Instragram - Subscribers`, `YouTube - Views`, etc.
+**Complete column map (28 columns):**
 
-**What it writes:** All online/social metrics system-wide per month → Online Stats
+| Col | Excel Header | Metric |
+|---|---|---|
+| 0 | `Month Num` | *(period)* |
+| 1 | `Month` | *(period label)* |
+| 2 | `yclibrary.org - web sessions` | yclibrary.org - Web Sessions |
+| 3 | `ychistory.org - views` | ychistory.org - Views |
+| 4 | `patchworktales.org  - views` | patchworktales.org - Views |
+| 5 | `Dial A Story - CALLS` | Dial A Story - Calls |
+| 6 | `Dial A Story - VIEWS` | Dial A Story - Views |
+| 7 | `DSpace - Views` | DSpace - Views |
+| 8 | `Beanstack - Sessions` | Beanstack - Sessions |
+| 9 | `LibraryCalendar - Sessions` | LibraryCalendar - Sessions |
+| 10 | `LibGuides - Sessions` | LibGuides - Sessions |
+| 11 | `DigitalLearn.org - Sessions` | DigitalLearn.org - Sessions |
+| 12 | `DigitalLearn.org - Completed Courses` | DigitalLearn.org - Completed Courses |
+| 13 | `LOTE4Kids - Stories Watched` | LOTE4Kids - Stories Watched |
+| 14 | `LOTE4Kids - Actvitities` *(typo in Excel)* | LOTE4Kids - Activities |
+| 15 | `LOTE4Kids - Logins` | LOTE4Kids - Logins |
+| 16 | `Youtube - Subscribers` | YouTube - Subscribers |
+| 17 | `YouTube - Views` | YouTube - Views |
+| 18 | `YouTube - Hours Watched` | YouTube - Hours Watched |
+| 19 | `YCL News - Subscriber` | YCL News - Subscribers |
+| 20 | `Website Messages` | Website Messages |
+| 21 | `YCL - App - Users` | YCL App - Users |
+| 22 | `YCL - App - Sessions` | YCL App - Sessions |
+| 23 | `Facebook Followers` | Facebook Followers |
+| 24 | `Instragram - Subscribers` *(typo in Excel)* | Instagram - Subscribers |
+| 25 | `YouTube Uploads` | YouTube Uploads |
+| 26 | `Dial A Story Uploads` | Dial A Story Uploads |
+| 27 | `Year` | *(period)* |
 
 **How detected:** Sheet named `Online Stats` inside the workbook
 
@@ -146,15 +220,18 @@ The importer ignores which branch the card was registered at (Station Library) a
 
 **File naming example:** `princh-export_2026-02-01_2026-02-28.xlsx`
 
+**Sample file:** `Data files/Printing/princh-export_2026-02-01_2026-02-28.xlsx`
+
 **Format:**
-- Columns include: `From`, `To`, `Location`, `Printer Name`, `Letter color pages`, `Letter monochrome pages`, `Legal color pages`, `Legal monochrome pages`, `Ledger color pages`, `Ledger monochrome pages`
+- Columns: `From`, `To`, `Location`, `Printer Name`, `Number of orders`, `Documents`, `Revenue - At desk`, `Revenue - Electronic`, `Currency`, `Letter color pages`, `Letter monochrome pages`, `Legal color pages`, `Legal monochrome pages`, `Ledger color pages`, `Ledger monochrome pages`
 - One row per printer per date range
-- Location strings matched to branches by substring (e.g. "Lake Wylie" matches "York County Public Library - Lake Wylie")
-- Year/month extracted from the `From` date column
+- Location strings matched to branches by substring, case-insensitive (e.g. `York County Public Library - Lake Wylie` matches `lake wylie`)
+- Year/month extracted from the `From` date column (string `2026-02-01` or datetime)
+- Page columns summed: Letter color + Letter mono + Legal color + Legal mono + Ledger color + Ledger mono
 
-**What it writes:** Sum of all page columns per branch per month → `Total Prints per Month` in Branch Stats
+**What it writes:** Total pages per branch per month → `Total Prints per Month` in Branch Stats
 
-**How detected:** Header row contains `Letter color pages` or (`Location` + `Documents` + `From`)
+**How detected:** Header row contains `Letter color pages`, or contains all of `Location`, `Documents`, `From`
 
 ---
 
@@ -164,32 +241,58 @@ The importer ignores which branch the card was registered at (Station Library) a
 
 **File naming example:** `daily_door_count.xlsx`
 
+**Sample file:** `Data files/daily_door_count.xlsx`
+
 **Format:**
 - Columns: `(blank)`, `Location Name`, `Record Date`, `Ins`, `Outs`
-- One row per location per hour
-- Location names matched exactly: `Clover Library`, `Fort Mill Library`, `Lake Wylie Library`, `Main - Rock Hill Library`, `York Library`
-- Date is a datetime object; year/month extracted from it
+- One row per location per hour of the day
+- Location names matched exactly to branch names via `DOOR_COUNT_BRANCH_MAP` in `import_excel.py`:
+  - `Clover Library` → Clover
+  - `Fort Mill Library` → Fort Mill
+  - `Lake Wylie Library` → Lake Wylie
+  - `Main - Rock Hill Library` → Rock Hill
+  - `York Library` → York
+- Date is a Python datetime object; year/month extracted from it
+- Only `Ins` column is used (entries, not exits)
 
 **What it writes:** Sum of `Ins` per branch per month → `Gate Count` in Branch Stats
 
-**How detected:** Header row contains `Location Name`
+**How detected:** Any cell in first 3 rows contains `Location Name`
 
 ---
 
 ### 7. Quarterly Reference Stats (QRS)
 
-**Where to get it:** Manually compiled Excel workbook
+**Where to get it:** Google Forms export (staff submit weekly desk tally counts each quarter)
 
 **File naming example:** `QRSver2.xlsx`
 
+**Sample file:** `Data files/manual/QRSver2.xlsx` — covers Q1-Q3 2025 and into 2026, ~1000 rows
+
 **Format:**
-- Sheet named `Qrtly Ref Stats` or `Sheet1`
-- Columns: `Year`, `Quarter`, `Month`, `Branch or Location`, `Total # of Transactions for the Week`
-- Multiple rows per branch/quarter are summed together
+- Sheet named `Sheet1` (Google Forms export format — do not rename)
+- Columns: `Timestamp`, `Quarter`, `Month`, `Branch or Location`, `Total # of Transactions for the Week`, `Year`
+- `Timestamp` is the Google Forms submission time — not imported, just present
+- `Quarter` values accepted: `Q1`, `Q2`, `Q3`, `Q4`, `Quarter 1`, `1`, etc.
+- `Month` values: full month names (`January`, `June`, `October`)
+- Multiple rows for the same branch/quarter/month are **summed** — each row is one week's tally
 
-**What it writes:** `Total Transactions for the Week` per branch per quarter → Quarterly Reference Stats
+**Branches in the file and how they map:**
 
-**How detected:** Sheet named `Qrtly Ref Stats` or `Sheet1` with matching metric column
+| File Value | Maps To |
+|---|---|
+| `Clover` | Clover |
+| `Fort Mill` | Fort Mill |
+| `Lake Wylie` | Lake Wylie |
+| `York` | York |
+| `Outreach / Bookmobile` | Outreach/Bookmobile (alias) |
+| `Rock Hill - Circulation` | Rock Hill - Circulation (desk branch) |
+| `Rock Hill - Reference` | Rock Hill - Reference (desk branch) |
+| `Rock Hill - YA` | Rock Hill - YA (desk branch) |
+
+**What it writes:** `Total Transactions for the Week` (summed per branch/quarter/month) → Quarterly Reference Stats
+
+**How detected:** Sheet named `Qrtly Ref Stats` or `Sheet1` containing a `Total # of Transactions for the Week` column
 
 ---
 
@@ -198,9 +301,9 @@ The importer ignores which branch the card was registered at (Station Library) a
 After each upload the results page shows:
 - **Created** — new entries added
 - **Updated** — existing entries that had metrics merged in
-- **Warnings** — unrecognised branch names or format issues (check these)
+- **Warnings** — unrecognised branch names or format issues (always check these)
 
-To verify a specific entry worked, go to `/entries` and filter by the month and branch. All metrics that should have values for that source file should show numbers, not dashes.
+To verify a specific entry, go to `/entries`, filter by month and branch, and confirm the metrics from that file show numbers rather than dashes.
 
 ---
 

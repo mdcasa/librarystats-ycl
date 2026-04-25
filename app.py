@@ -1286,12 +1286,13 @@ def upload_data():
             import tempfile, openpyxl
             from import_excel import detect_and_import
             tmp_path = None
+            year_override = request.form.get('year', type=int) or None
             try:
                 with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
                     f.save(tmp.name)
                     tmp_path = tmp.name
                 wb = openpyxl.load_workbook(tmp_path, data_only=True)
-                results = detect_and_import(wb)
+                results = detect_and_import(wb, year_override=year_override)
                 total_created = sum(r['created'] for r in results)
                 flash(f'Upload complete — {total_created} new records added.', 'success')
             except Exception as e:
@@ -1299,7 +1300,7 @@ def upload_data():
             finally:
                 if tmp_path and os.path.exists(tmp_path):
                     os.unlink(tmp_path)
-    return render_template('upload.html', results=results)
+    return render_template('upload.html', results=results, now=datetime.utcnow())
 
 
 # ── Manual staff entry ────────────────────────────────────────────────────────

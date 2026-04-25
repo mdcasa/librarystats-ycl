@@ -255,7 +255,7 @@ def entry_exists_quarterly(cat_id, branch_id, year, quarter, month=None):
 
 # ── Sheet importers (return created, skipped, warnings) ───────────────────────
 
-def import_branch_stats(ws, cat, metric_lookup, branch_lookup):
+def import_branch_stats(ws, cat, metric_lookup, branch_lookup, year_override=None):
     rows = list(ws.iter_rows(values_only=True))
     headers = rows[0]
 
@@ -276,7 +276,7 @@ def import_branch_stats(ws, cat, metric_lookup, branch_lookup):
     for row in rows[1:]:
         if all(v is None for v in row):
             continue
-        year        = row[year_idx]   if year_idx   is not None else None
+        year        = row[year_idx]   if year_idx   is not None else year_override
         month_raw   = row[month_idx]  if month_idx  is not None else None
         branch_name = row[branch_idx] if branch_idx is not None else None
 
@@ -323,7 +323,7 @@ def import_branch_stats(ws, cat, metric_lookup, branch_lookup):
     return created, skipped, warnings
 
 
-def import_online_stats(ws, cat, metric_lookup):
+def import_online_stats(ws, cat, metric_lookup, year_override=None):
     rows = list(ws.iter_rows(values_only=True))
     headers = rows[0]
 
@@ -341,7 +341,7 @@ def import_online_stats(ws, cat, metric_lookup):
     for row in rows[1:]:
         if all(v is None for v in row):
             continue
-        year      = row[year_idx]  if year_idx  is not None else None
+        year      = row[year_idx]  if year_idx  is not None else year_override
         month_raw = row[month_idx] if month_idx is not None else None
         month     = parse_month(month_raw)
         if not year or not month:
@@ -505,12 +505,13 @@ def import_princh(ws, branch_lookup):
         try: return headers.index(name)
         except ValueError: return None
 
-    loc_idx  = ci('Location')
-    from_idx = ci('From')
+    loc_idx   = ci('Location')
+    from_idx  = ci('From')
+    docs_idx  = ci('Documents')
     page_idxs = [ci(c) for c in PRINCH_PAGE_COLS if ci(c) is not None]
 
-    if loc_idx is None or from_idx is None or not page_idxs:
-        return 0, ['Unrecognised Princh format — expected Location, From, and page columns']
+    if loc_idx is None or from_idx is None or (not page_idxs and docs_idx is None):
+        return 0, 0, ['Unrecognised Princh format — expected Location, From, and page or Documents columns']
 
     metric_lookup, cat = build_metric_lookup('Branch Stats')
     prints_metric = metric_lookup.get('Total Prints per Month')
@@ -554,7 +555,12 @@ def import_princh(ws, branch_lookup):
             unrecognised.add(branch_name)
             continue
 
-        pages = sum(int(r[i]) for i in page_idxs if isinstance(r[i], (int, float)))
+        if page_idxs:
+            pages = sum(int(r[i]) for i in page_idxs if isinstance(r[i], (int, float)))
+        elif docs_idx is not None and isinstance(r[docs_idx], (int, float)):
+            pages = int(r[docs_idx])
+        else:
+            continue
         totals[(year, month, branch.id)] += pages
 
     warnings = [f'Unrecognised locations skipped: {sorted(unrecognised)}'] if unrecognised else []
@@ -962,7 +968,7 @@ def import_door_count(ws, branch_lookup):
     return created, updated, []
 
 
-def detect_and_import(wb):
+def detect_and_import(wb, year_override=None):
     """
     Auto-detect the report type from a workbook and route to the correct importer.
     Returns a list of result dicts for display.
@@ -977,6 +983,7 @@ def detect_and_import(wb):
 
         # Find first non-blank cell to identify report type
         title = next((str(r[0]) for r in rows if r[0] is not None), '')
+        header_row = [str(v) for v in (rows[0] if rows else []) if v is not None]
 
         if 'Checkouts by Branch and User Profile' in title:
             det, year, month, w = import_sirsi_user_profile(ws, branch_lookup)
@@ -1021,8 +1028,8 @@ def detect_and_import(wb):
                 results.append({'sheet': sheet_name, 'created': 0, 'updated': 0, 'skipped': 0,
                                  'warnings': ['Could not determine year/month from report']})
 
-        elif any(v is not None and 'Letter color pages' in str(v)
-                 for r in rows[:3] for v in r):
+        elif (any(v is not None and 'Letter color pages' in str(v) for r in rows[:3] for v in r) or
+              ('Location' in header_row and 'Documents' in header_row and 'From' in header_row)):
             created, updated, w = import_princh(ws, branch_lookup)
             results.append({'sheet': 'Total Prints per Month (Princh)',
                              'created': created, 'updated': updated, 'skipped': 0, 'warnings': w})
@@ -1036,7 +1043,7 @@ def detect_and_import(wb):
         elif sheet_name in ('Branch Stats', 'Online Stats', 'Qrtly Ref Stats') or \
              any(sheet_name in wb.sheetnames for sheet_name in ('Branch Stats', 'Online Stats')):
             # Standard stats workbook — use do_import
-            results.extend(do_import(wb))
+            results.extend(do_import(wb, year_override))
             break  # do_import handles all sheets at once
 
         elif sheet_name == 'Sheet1':
@@ -1092,7 +1099,7 @@ def do_import_sirsi(wb):
 
 # ── Main orchestrator ─────────────────────────────────────────────────────────
 
-def do_import(wb):
+def do_import(wb, year_override=None):
     """
     Import all recognised sheets from an open openpyxl workbook.
     Must be called within an active Flask app context.
@@ -1104,7 +1111,7 @@ def do_import(wb):
     # Branch Stats
     metric_lookup, cat = build_metric_lookup('Branch Stats')
     if cat and 'Branch Stats' in wb.sheetnames:
-        c, s, w = import_branch_stats(wb['Branch Stats'], cat, metric_lookup, branch_lookup)
+        c, s, w = import_branch_stats(wb['Branch Stats'], cat, metric_lookup, branch_lookup, year_override)
         results.append({'sheet': 'Branch Stats', 'created': c, 'skipped': s, 'warnings': w})
     elif 'Branch Stats' not in wb.sheetnames:
         results.append({'sheet': 'Branch Stats', 'created': 0, 'skipped': 0,
@@ -1113,7 +1120,7 @@ def do_import(wb):
     # Online Stats
     metric_lookup, cat = build_metric_lookup('Online Stats')
     if cat and 'Online Stats' in wb.sheetnames:
-        c, s, w = import_online_stats(wb['Online Stats'], cat, metric_lookup)
+        c, s, w = import_online_stats(wb['Online Stats'], cat, metric_lookup, year_override)
         results.append({'sheet': 'Online Stats', 'created': c, 'skipped': s, 'warnings': w})
     elif 'Online Stats' not in wb.sheetnames:
         results.append({'sheet': 'Online Stats', 'created': 0, 'skipped': 0,

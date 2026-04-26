@@ -16,7 +16,8 @@
     body { background: #f0f4f9; }
     .navbar { background: var(--ycl-blue) !important; }
     .navbar-brand { font-weight: 700; letter-spacing: -.3px; }
-    .navbar-brand img { height: 36px; width: auto; filter: brightness(0) invert(1); }
+    .navbar-brand .logo-wrap { background: #fff; border-radius: 6px; padding: 2px 6px; display:inline-flex; align-items:center; }
+    .navbar-brand img { height: 34px; width: auto; display:block; }
     .navbar-brand .brand-text { font-size: .95rem; line-height: 1.1; }
     .navbar .nav-link { font-size: .88rem; }
     .navbar .dropdown-menu { font-size: .88rem; }
@@ -54,7 +55,7 @@
 <nav class="navbar navbar-expand-lg navbar-dark">
   <div class="container-lg">
     <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('index') }}">
-      <img src="{{ url_for('static', filename='ycl-logo.png') }}" alt="YCL logo">
+      <span class="logo-wrap"><img src="{{ url_for('static', filename='ycl-logo.png') }}" alt="YCL logo"></span>
       <span class="brand-text">YCL<br>Statistics</span>
     </a>
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">

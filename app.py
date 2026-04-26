@@ -236,12 +236,28 @@ def index():
                 circ_trend_data.append(_v(s, 'Total Branch Circulation'))
                 gate_trend_data.append(_v(s, 'Gate Count'))
 
-    # Per-category: most recent entry period
+    # Per-category: most recent entry period.
+    # The "Circulation" category is an alias for SIRSI data stored in Branch Stats —
+    # if it has no entries of its own, fall back to the latest Branch Stats entry
+    # that has a Total Branch Circulation value so the widget shows the correct date.
+    _bs_cat   = Category.query.filter_by(name='Branch Stats').first()
+    _circ_m   = next((m for m in _bs_cat.metrics if m.name == 'Total Branch Circulation'), None) \
+                if _bs_cat else None
+
     coverage = []
     for cat in Category.query.filter_by(is_active=True).order_by(Category.sort_order).all():
         last = (Entry.query.filter_by(category_id=cat.id)
                 .order_by(Entry.year.desc(), Entry.month.desc(), Entry.quarter.desc())
                 .first())
+        if last is None and cat.name == 'Circulation' and _circ_m:
+            _ev = (EntryValue.query
+                   .join(Entry, Entry.id == EntryValue.entry_id)
+                   .filter(Entry.category_id == _bs_cat.id,
+                           Entry.month.isnot(None),
+                           EntryValue.metric_id == _circ_m.id)
+                   .order_by(Entry.year.desc(), Entry.month.desc())
+                   .first())
+            last = _ev.entry if _ev else None
         coverage.append({'category': cat, 'last_entry': last})
 
     return render_template('index.html',

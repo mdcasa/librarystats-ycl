@@ -713,7 +713,11 @@ Shows the most recent month with circulation data as the "current" month, so it 
 
 **Summary cards:** Two cards at the top — Total Entries and Branches (6 service locations). The earlier "Categories" card was removed as it reflected an internal DB concept with no operational meaning.
 
-**Data Status widget:** Lists every active category with the period of its most recent entry (e.g. "Mar 2026"). Categories with no entries show "No data." eResources intentionally appears here as "No data" — a visible signal that digital circulation stats haven't been loaded. Physical branch circulation shows under Branch Stats.
+**Data Status widget:** Lists every active category with the period of its most recent entry (e.g. "Mar 2026"). Categories with no entries show "No data."
+
+**"Circulation" category:** A manually-created category that acts as a user-facing alias for SIRSI circulation data. Since SIRSI data is stored under Branch Stats (as "Total Branch Circulation"), the coverage query falls back to the latest Branch Stats entry with a circulation value when the Circulation category itself has no entries. This way the widget shows the correct latest SIRSI date without duplicating data or changing the import pipeline.
+
+**eResources:** Intentionally shown as "No data" — a visible reminder that digital resource stats (e-book, e-audio, etc.) have not been loaded.
 
 ---
 

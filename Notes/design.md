@@ -265,7 +265,7 @@ Single metric: `Total Transactions for the Week` (integer). Branches are the des
 
 ### eResources (monthly, has_branch=False)
 
-Created by seed but not currently used. Metrics: E-Book Circulation, E-Audio Circulation, E-Video Circulation, E-Serials Circulation. **At startup, if eResources has no entries, it is automatically marked `is_active=False`** so it is hidden from all lists, forms, and the dashboard Data Status widget. If e-resource data is ever collected, reactivate it via Admin → Categories.
+Created by seed but not currently used. Metrics: E-Book Circulation, E-Audio Circulation, E-Video Circulation, E-Serials Circulation. **Intentionally kept active** so it appears in the dashboard Data Status widget as "No data" — a visible reminder that digital resource stats have not been loaded. If e-resource data is collected in future, enter it via the normal entry forms or upload. Physical branch circulation (Total Branch Circulation from SIRSI) is stored under Branch Stats, not here.
 
 ---
 
@@ -713,7 +713,7 @@ Shows the most recent month with circulation data as the "current" month, so it 
 
 **Summary cards:** Two cards at the top — Total Entries and Branches (6 service locations). The earlier "Categories" card was removed as it reflected an internal DB concept with no operational meaning.
 
-**Data Status widget:** Lists every active category with the period of its most recent entry (e.g. "Mar 2026"). Categories with no entries show "No data." eResources is deactivated at startup (see above) so it never appears here as a false alarm.
+**Data Status widget:** Lists every active category with the period of its most recent entry (e.g. "Mar 2026"). Categories with no entries show "No data." eResources intentionally appears here as "No data" — a visible signal that digital circulation stats haven't been loaded. Physical branch circulation shows under Branch Stats.
 
 ---
 

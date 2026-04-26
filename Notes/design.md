@@ -648,7 +648,7 @@ Shows the most recent month with circulation data as the "current" month, so it 
 | SIRSI Registration | ⚠️ Partial | August 2025 only (6 values per metric) |
 | Princh Printing | ⚠️ Partial | Some months loaded (79 values), not full history |
 | Online Stats | ✅ Loaded (one-time insert) | 27 entries — Jan 2024 – Mar 2026, system-wide |
-| Quarterly Reference Stats | ✅ Loaded (one-time insert) | 24 entries — Q1/Jun 2025, Q2/Oct 2025, Q3/Jan 2026, all 8 branches |
+| Quarterly Reference Stats | ✅ Loaded (one-time insert) | 24 entries — Q1/Jun 2025, Q2/Oct 2025, Q3/Jan 2026, all 8 branches. **Future periods entered manually via nav.** |
 | Door Counter | ❌ Not loaded | Gate Count data in DB came from `non-SIRSI423.xlsx`, not door counter exports |
 
 ### Remaining uploads needed
@@ -668,14 +668,15 @@ Upload through the **Upload Data** page (`/upload`). Files can be uploaded in an
 - Future months: enter via Manual Entry form → Online Stats tab, or upload a new Excel file
 - Writes: all Online Stats metrics system-wide
 
-**Priority 4 — Quarterly Reference Stats** (single upload covers multiple quarters)
-- File: `QRSver2.xlsx` — already loaded (Q1/Jun 2025, Q2/Oct 2025, Q3/Jan 2026)
-- Future quarters: upload new Google Forms export through Upload Data page
-- Writes: `Total Transactions for the Week` per branch per quarter/month
+**Priority 4 — Quarterly Reference Stats**
+- Historical data already loaded via one-time script from `QRSver2.xlsx` (Q1/Jun 2025, Q2/Oct 2025, Q3/Jan 2026)
+- **Going forward: entered manually each period via Enter Data → Qrtly Ref Stats in the nav**
+- Do NOT upload future QRS data through the Upload Data page — use manual entry instead
 
-**Priority 5 — Princh Printing** (one file per month for any gaps)
-- File: `princh-export_{start}_{end}.xlsx`
+**Priority 5 — Princh Printing** (one file per month, ongoing)
+- File: `princh-export_{start}_{end}.xlsx` — upload monthly through Upload Data page
 - Writes: `Total Prints per Month` per branch
+- Some 2025 months have incomplete branch coverage (see data status table); historical Princh exports can fill gaps if available
 
 ---
 

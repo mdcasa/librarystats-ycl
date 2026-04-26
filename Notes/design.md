@@ -133,20 +133,65 @@ railway run python3 import_annual.py
 
 ---
 
+## Infrastructure
+
+This app uses **two hosted services** working together:
+
+| Service | Role | Why |
+|---|---|---|
+| **Supabase** | PostgreSQL database | Free tier, excellent database browser UI, connection pooling, easy backups, point-in-time recovery |
+| **Railway** | App hosting (Flask/gunicorn) | Simple git-based deploys, auto-deploys on push, easy environment variable management |
+
+Railway alone can host both app and database, but Supabase is preferred for the database because it offers a better dashboard for browsing and querying data directly, a more generous free tier, and more database tooling out of the box.
+
+---
+
 ## Deployment (Railway)
 
 The app is deployed on Railway. On startup, `db.create_all()` runs automatically — no migration tool is used. Schema changes that SQLAlchemy can't handle automatically (e.g. adding a column) are handled with inline `ALTER TABLE` statements inside a try/except in `app.py` at startup.
 
-**Required environment variables:**
+**Required environment variables (set in Railway → your app service → Variables):**
 
 | Variable | Purpose |
 |---|---|
-| `DATABASE_URL` | PostgreSQL connection string (Railway sets this automatically). Must start with `postgresql://` — the app rewrites `postgres://` automatically. |
-| `SECRET_KEY` | Flask session signing key |
+| `DATABASE_URL` | PostgreSQL connection string from Supabase. Must start with `postgresql://` — the app rewrites `postgres://` automatically. |
+| `SECRET_KEY` | Flask session signing key — any long random string |
 | `LOGIN_PASSWORD` | Password for the bootstrap admin account (used only on first boot if no users exist) |
 | `LOGIN_USERNAME` | *(Optional)* Username for the bootstrap admin — defaults to `admin` if not set |
 
-**Local development:** Create a `.env` file in the project root with the same variables pointing at the Railway PostgreSQL instance (or omit `DATABASE_URL` to use local SQLite).
+**Local development:** Create a `.env` file in the project root with the same variables pointing at the Supabase instance (or omit `DATABASE_URL` to use local SQLite for quick testing).
+
+---
+
+## Standing Up a New Instance (for another library)
+
+To deploy this app for a new library from scratch:
+
+**1. Supabase — create the database**
+- Go to [supabase.com](https://supabase.com) → New project
+- Note the **connection string** from Settings → Database → Connection string (URI mode)
+- Use the `postgresql://...` format (not `postgres://`)
+
+**2. Railway — deploy the app**
+- Go to [railway.app](https://railway.app) → New project → Deploy from GitHub repo
+- Select this repository and the active branch (`v4` or equivalent)
+- In the service settings, set the deployment branch
+
+**3. Set environment variables in Railway**
+- `DATABASE_URL` → paste the Supabase connection string
+- `SECRET_KEY` → generate a random string (e.g. `python3 -c "import secrets; print(secrets.token_hex(32))"`)
+- `LOGIN_PASSWORD` → the initial admin password
+
+**4. First boot**
+- Railway deploys automatically on push
+- On first boot, `db.create_all()` creates all tables in Supabase
+- `seed_data.py` runs once to populate categories, metrics, and branches
+- The bootstrap admin account is created using `LOGIN_USERNAME` / `LOGIN_PASSWORD`
+
+**5. Customise for the new library**
+- Update branch names via Admin → Branches
+- Update categories/metrics via Admin → Categories if the new library tracks different stats
+- Update branding (`static/ycl-logo.png`, CSS variables in `base.html`) for the new library's colours and logo
 
 ---
 

@@ -165,6 +165,8 @@
 {% endblock %}
 
 {% block scripts %}
+<link href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.bootstrap5.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 <script>
@@ -172,6 +174,13 @@ Chart.register(ChartDataLabels);
 const metricsByCat = {{ metrics_json | tojson }};
 const selMetric    = {{ sel_metric or 'null' }};
 const chartData    = {{ chart_data | tojson if chart_data else 'null' }};
+
+let tomMetric = null;
+
+function initTomMetric() {
+  if (tomMetric) { tomMetric.destroy(); tomMetric = null; }
+  tomMetric = new TomSelect('#metric-select', { maxOptions: null, placeholder: '— select metric —' });
+}
 
 // Show/hide branch col based on selected category
 function updateBranchCol() {
@@ -183,13 +192,16 @@ function updateBranchCol() {
 // Show/hide metric col based on mode
 function updateMetricCol() {
   const mode = document.getElementById('mode-select').value;
-  document.getElementById('metric-col').style.display = mode === 'monthly' ? '' : 'none';
+  const col  = document.getElementById('metric-col');
+  col.style.display = mode === 'monthly' ? '' : 'none';
+  if (mode === 'monthly' && !tomMetric) initTomMetric();
 }
 
 // Rebuild metric dropdown when category changes
 document.getElementById('cat-select').addEventListener('change', function () {
   updateBranchCol();
   const catId = parseInt(this.value);
+  if (tomMetric) { tomMetric.destroy(); tomMetric = null; }
   const sel = document.getElementById('metric-select');
   sel.innerHTML = '<option value="">— select metric —</option>';
   (metricsByCat[catId] || []).forEach(m => {
@@ -199,6 +211,7 @@ document.getElementById('cat-select').addEventListener('change', function () {
     if (m.id === selMetric) opt.selected = true;
     sel.appendChild(opt);
   });
+  if (document.getElementById('mode-select').value === 'monthly') initTomMetric();
 });
 
 document.getElementById('mode-select').addEventListener('change', updateMetricCol);

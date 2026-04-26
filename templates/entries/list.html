@@ -90,3 +90,32 @@
   {% endif %}
 </div>
 {% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const KEY  = 'filters_browse';
+  const form = document.querySelector('form[method="get"]');
+  if (!form) return;
+
+  if (!window.location.search) {
+    const saved = JSON.parse(sessionStorage.getItem(KEY) || '{}');
+    Object.entries(saved).forEach(([name, val]) => {
+      const el = form.querySelector(`[name="${name}"]`);
+      if (el) el.value = val;
+    });
+  }
+
+  form.addEventListener('submit', () => {
+    const data = {};
+    new FormData(form).forEach((val, key) => { data[key] = val; });
+    sessionStorage.setItem(KEY, JSON.stringify(data));
+  });
+
+  const clearBtn = document.querySelector('a.btn-outline-secondary[href]');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => sessionStorage.removeItem(KEY));
+  }
+})();
+</script>
+{% endblock %}

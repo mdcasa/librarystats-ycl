@@ -70,6 +70,8 @@
 {% endblock %}
 
 {% block scripts %}
+<link href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.bootstrap5.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 <script>
@@ -77,9 +79,17 @@ Chart.register(ChartDataLabels);
 const metricsByCat = {{ metrics_json | tojson }};
 const selMetric    = {{ sel_metric or 'null' }};
 
+let tomMetric = null;
+
+function initTomMetric() {
+  if (tomMetric) { tomMetric.destroy(); tomMetric = null; }
+  tomMetric = new TomSelect('#metric-select', { maxOptions: null, placeholder: '— select metric —' });
+}
+
 document.getElementById('cat-select').addEventListener('change', function () {
   const catId = parseInt(this.value);
-  const sel   = document.getElementById('metric-select');
+  if (tomMetric) { tomMetric.destroy(); tomMetric = null; }
+  const sel = document.getElementById('metric-select');
   sel.innerHTML = '<option value="">— select metric —</option>';
   (metricsByCat[catId] || []).forEach(m => {
     const opt = document.createElement('option');
@@ -88,7 +98,10 @@ document.getElementById('cat-select').addEventListener('change', function () {
     if (m.id === selMetric) opt.selected = true;
     sel.appendChild(opt);
   });
+  initTomMetric();
 });
+
+initTomMetric();
 
 {% if chart_data %}
 const chartData = {{ chart_data | tojson }};

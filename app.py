@@ -259,6 +259,15 @@ def index():
     _circ_m   = next((m for m in _bs_cat.metrics if m.name == 'Total Branch Circulation'), None) \
                 if _bs_cat else None
 
+    # Real service branches for per-branch drill-down (exclude lockers, desks, system-wide)
+    _real_branches = Branch.query.filter(
+        Branch.is_active == True,
+        Branch.is_desk == False,
+        ~Branch.name.ilike('%locker%'),
+        Branch.name != 'YCL (System Wide)',
+        Branch.name != 'Outreach / BKM',
+    ).order_by(Branch.sort_order).all()
+
     coverage = []
     for cat in Category.query.filter_by(is_active=True).order_by(Category.sort_order).all():
         last = (Entry.query.filter_by(category_id=cat.id)
@@ -273,7 +282,17 @@ def index():
                    .order_by(Entry.year.desc(), Entry.month.desc())
                    .first())
             last = _ev.entry if _ev else None
-        coverage.append({'category': cat, 'last_entry': last})
+
+        branch_detail = []
+        if cat.has_branch:
+            for b in _real_branches:
+                b_last = (Entry.query
+                          .filter_by(category_id=cat.id, branch_id=b.id)
+                          .order_by(Entry.year.desc(), Entry.month.desc(), Entry.quarter.desc())
+                          .first())
+                branch_detail.append({'branch': b, 'last_entry': b_last})
+
+        coverage.append({'category': cat, 'last_entry': last, 'branch_detail': branch_detail})
 
     return render_template('index.html',
                            total_entries=Entry.query.count(),

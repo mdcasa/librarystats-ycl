@@ -96,68 +96,68 @@ The importer ignores which branch the card was registered at (Station Library) a
 
 **Format:**
 - Sheet must be named `Branch Stats`
-- 52 columns; required: `Month Num` (col 0), `Month` (col 1), `BRANCH` (col 2), `Year` (col 50)
+- 51 columns; required: `Month` (col 0), `BRANCH` (col 1), `Year` (col 49)
+- There is NO separate `Month Num` column — col 0 contains full month names (`January`, `February`, etc.)
 - Branch names are uppercase in the file (`ROCK HILL`, `CLOVER`, `FORT MILL`, `LAKE WYLIE`, `YORK`, `OUTREACH/BOOKMOBILE`) — the branch lookup handles case variants and trailing spaces automatically
 - `YCL (System Wide)` rows appear in the file but are skipped by the importer
-- All other columns matched to metrics by exact header name via `BRANCH_STATS_MAP` in `import_excel.py`
+- All metric columns matched to metrics by exact header name via `BRANCH_STATS_MAP` in `import_excel.py`
 - Safe to upload even if SIRSI data already exists for that month — importer upserts each metric individually
 
-**Complete column map (52 columns):**
+**Complete column map (51 columns):**
 
 | Col | Excel Header | Metric |
 |---|---|---|
-| 0 | `Month Num` | *(period)* |
-| 1 | `Month` | *(period label)* |
-| 2 | `BRANCH` | *(branch)* |
-| 3 | `Gate Count` | Gate Count |
-| 4 | `PC Reservations` | PC Reservations |
-| 5 | `WiFi - Unique Sessions` | WiFi - Unique Sessions |
-| 6 | `External Party Library Room Use` | External Party Library Room Use |
-| 7 | `Curbside` | Curbside |
-| 8 | `ILL - Sent (Main ONLY)` | ILL - Sent (Main ONLY) |
-| 9 | `ILL - Received (Main ONLY)` | ILL - Received (Main ONLY) |
-| 10 | `ICLs - Sent (MAIN ONLY)` | ICLs - Sent (Main ONLY) |
-| 11 | `ICLs - Received (MAIN ONLY)` | ICLs - Received (Main ONLY) |
-| 12 | `Total Prints per Month` | Total Prints per Month |
-| 13 | `I2:  ONSITE Sessions 0-5` | ONSITE Sessions 0-5 |
-| 14 | `I3:   ONSITE Sessions 6-11` | ONSITE Sessions 6-11 |
-| 15 | `I4: ONSITE Sessions 12-18` | ONSITE Sessions 12-18 |
-| 16 | `I5:   ONSITE Sessions 19+` | ONSITE Sessions 19+ |
-| 17 | `I6:  ONSITE Sessions GENERAL INTEREST` | ONSITE Sessions General Interest |
-| 18 | `ONSITE Attendance 0-5` | ONSITE Attendance 0-5 |
-| 19 | `ONSITE Attendance 6-11` | ONSITE Attendance 6-11 |
-| 20 | `ONSITE Attendance 12-18` | ONSITE Attendance 12-18 |
-| 21 | `ONSITE Attendance 19+` | ONSITE Attendance 19+ |
-| 22 | `ONSITE Attendance General Interest` | ONSITE Attendance General Interest |
-| 23 | `OFFSITE Sessions 0-5` | OFFSITE Sessions 0-5 |
-| 24 | `OFFSITE Sessions 6-11` | OFFSITE Sessions 6-11 |
-| 25 | `OFFSITE Sessions 12-18` | OFFSITE Sessions 12-18 |
-| 26 | `OFFSITE Sessions 19+` | OFFSITE Sessions 19+ |
-| 27 | `OFFSITE Sessions General Interest` | OFFSITE Sessions General Interest |
-| 28 | `OFFSITE Attendance 0-5` | OFFSITE Attendance 0-5 |
-| 29 | `OFFSITE Attendance 6-11` | OFFSITE Attendance 6-11 |
-| 30 | `OFFSITE Attendance 12-18` | OFFSITE Attendance 12-18 |
-| 31 | `OFFSITE Attendance 19+` | OFFSITE Attendance 19+ |
-| 32 | `OFFSITE Attendance General Interest` | OFFSITE Attendance General Interest |
-| 33 | `VIRTUAL Sessions 0-5` | VIRTUAL Sessions 0-5 |
-| 34 | `VIRTUAL Sessions 6-11` | VIRTUAL Sessions 6-11 |
-| 35 | `VIRTUAL Sessions 12-18` | VIRTUAL Sessions 12-18 |
-| 36 | `VIRTUAL Sessions 19+` | VIRTUAL Sessions 19+ |
-| 37 | `VIRTUAL Sessions General Interest` | VIRTUAL Sessions General Interest |
-| 38 | `VIRTUAL Attendance 0-5` | VIRTUAL Attendance 0-5 |
-| 39 | `VIRTUAL Attendance 6-11` | VIRTUAL Attendance 6-11 |
-| 40 | `VIRTUAL Attendance 12-18` | VIRTUAL Attendance 12-18 |
-| 41 | `VIRTUAL Attendance 19+` | VIRTUAL Attendance 19+ |
-| 42 | `VIRTUAL Attendance General Interest` | VIRTUAL Attendance General Interest |
-| 43 | `I21: NUMBER OF OUTREACH ACTIVITIES Conducted` | Number of Outreach Activities Conducted |
-| 44 | `Outreach Attendance (YCL Internal)` | Outreach Attendance |
-| 45 | `I22: TOTAL # TAKE & MAKES and OTHER PASSIVE PROGRAM PARTICIPANTS` | Take & Makes / Other Passive Program Participants |
-| 46 | `I23: NUMBER OF STAFF TAKING TRAINING` | Number of Staff Taking Training |
-| 47 | `I24: NUMBER OF HOURS STAFF ATTENDED TRAINING` | Number of Hours Staff Attended Training |
-| 48 | `1-on-1 Total for Month` | 1-on-1 Total for Month |
-| 49 | `Email Address` | *(ignored)* |
-| 50 | `Year` | *(period)* |
-| 51 | `Locker Circulation` | Locker Circulation |
+| 0 | `Month` | *(period — month name)* |
+| 1 | `BRANCH` | *(branch)* |
+| 2 | `Gate Count` | Gate Count |
+| 3 | `PC Reservations` | PC Reservations |
+| 4 | `WiFi - Unique Sessions` | WiFi - Unique Sessions |
+| 5 | `External Party Library Room Use` | External Party Library Room Use |
+| 6 | `Curbside` | Curbside |
+| 7 | `ILL - Sent (Main ONLY)` | ILL - Sent (Main ONLY) |
+| 8 | `ILL - Received (Main ONLY)` | ILL - Received (Main ONLY) |
+| 9 | `ICLs - Sent (MAIN ONLY)` | ICLs - Sent (Main ONLY) |
+| 10 | `ICLs - Received (MAIN ONLY)` | ICLs - Received (Main ONLY) |
+| 11 | `Total Prints per Month` | Total Prints per Month |
+| 12 | `I2:  ONSITE Sessions 0-5` | ONSITE Sessions 0-5 |
+| 13 | `I3:   ONSITE Sessions 6-11` | ONSITE Sessions 6-11 |
+| 14 | `I4: ONSITE Sessions 12-18` | ONSITE Sessions 12-18 |
+| 15 | `I5:   ONSITE Sessions 19+` | ONSITE Sessions 19+ |
+| 16 | `I6:  ONSITE Sessions GENERAL INTEREST` | ONSITE Sessions General Interest |
+| 17 | `ONSITE Attendance 0-5` | ONSITE Attendance 0-5 |
+| 18 | `ONSITE Attendance 6-11` | ONSITE Attendance 6-11 |
+| 19 | `ONSITE Attendance 12-18` | ONSITE Attendance 12-18 |
+| 20 | `ONSITE Attendance 19+` | ONSITE Attendance 19+ |
+| 21 | `ONSITE Attendance General Interest` | ONSITE Attendance General Interest |
+| 22 | `OFFSITE Sessions 0-5` | OFFSITE Sessions 0-5 |
+| 23 | `OFFSITE Sessions 6-11` | OFFSITE Sessions 6-11 |
+| 24 | `OFFSITE Sessions 12-18` | OFFSITE Sessions 12-18 |
+| 25 | `OFFSITE Sessions 19+` | OFFSITE Sessions 19+ |
+| 26 | `OFFSITE Sessions General Interest` | OFFSITE Sessions General Interest |
+| 27 | `OFFSITE Attendance 0-5` | OFFSITE Attendance 0-5 |
+| 28 | `OFFSITE Attendance 6-11` | OFFSITE Attendance 6-11 |
+| 29 | `OFFSITE Attendance 12-18` | OFFSITE Attendance 12-18 |
+| 30 | `OFFSITE Attendance 19+` | OFFSITE Attendance 19+ |
+| 31 | `OFFSITE Attendance General Interest` | OFFSITE Attendance General Interest |
+| 32 | `VIRTUAL Sessions 0-5` | VIRTUAL Sessions 0-5 |
+| 33 | `VIRTUAL Sessions 6-11` | VIRTUAL Sessions 6-11 |
+| 34 | `VIRTUAL Sessions 12-18` | VIRTUAL Sessions 12-18 |
+| 35 | `VIRTUAL Sessions 19+` | VIRTUAL Sessions 19+ |
+| 36 | `VIRTUAL Sessions General Interest` | VIRTUAL Sessions General Interest |
+| 37 | `VIRTUAL Attendance 0-5` | VIRTUAL Attendance 0-5 |
+| 38 | `VIRTUAL Attendance 6-11` | VIRTUAL Attendance 6-11 |
+| 39 | `VIRTUAL Attendance 12-18` | VIRTUAL Attendance 12-18 |
+| 40 | `VIRTUAL Attendance 19+` | VIRTUAL Attendance 19+ |
+| 41 | `VIRTUAL Attendance General Interest` | VIRTUAL Attendance General Interest |
+| 42 | `I21: NUMBER OF OUTREACH ACTIVITIES Conducted` | Number of Outreach Activities Conducted |
+| 43 | `Outreach Attendance (YCL Internal)` | Outreach Attendance |
+| 44 | `I22: TOTAL # TAKE & MAKES and OTHER PASSIVE PROGRAM PARTICIPANTS` | Take & Makes / Other Passive Program Participants |
+| 45 | `I23: NUMBER OF STAFF TAKING TRAINING` | Number of Staff Taking Training |
+| 46 | `I24: NUMBER OF HOURS STAFF ATTENDED TRAINING` | Number of Hours Staff Attended Training |
+| 47 | `1-on-1 Total for Month` | 1-on-1 Total for Month |
+| 48 | `Email Address` | *(ignored)* |
+| 49 | `Year` | *(period)* |
+| 50 | `Locker Circulation` | Locker Circulation |
 
 **How detected:** Sheet named `Branch Stats` inside the workbook
 
@@ -174,6 +174,7 @@ The importer ignores which branch the card was registered at (Station Library) a
 **Format:**
 - Sheet must be named `Online Stats`
 - 28 columns; required: `Month Num` (col 0), `Year` (col 27)
+- Col 0 is `Month Num` — contains numeric month values (1–12)
 - No branch column — all metrics are system-wide
 - Two column headers contain typos in the Excel file; the importer maps them correctly
 

@@ -19,7 +19,9 @@ The app is branded as **YCL Statistics** (York County Library). All pages use th
 | `--ycl-blue-light` | `#2563b8` | Lighter accent |
 | `--ycl-blue-pale` | `#e8f0fb` | Section header backgrounds, accordion active state |
 
-**Logo:** `static/ycl-logo.png` — the full YCL logo file (`Data files/YCL Logo.png`) copied to `static/` for Flask to serve. Rendered white in the navbar via `filter: brightness(0) invert(1)`. Served via `url_for('static', filename='ycl-logo.png')`.
+**Logo:** `static/ycl-logo.png` — the full YCL logo file (`Data files/YCL Logo.png`) copied to `static/` for Flask to serve. Served via `url_for('static', filename='ycl-logo.png')`.
+- **Navbar:** rendered white via `filter: brightness(0) invert(1)` (white logo on blue navbar background).
+- **Login page:** shown in natural full color — the login card header is white (`background: #fff`) so no filter is applied. The "YCL Statistics" title below the logo is styled in `#1a4f9e`.
 
 **Static files:** Flask's default `static/` folder (project root). `Flask(__name__)` picks this up automatically with no configuration needed.
 

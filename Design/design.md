@@ -936,3 +936,5 @@ Added fallback month detection for SIRSI New Library Users reports where the mon
 ### Missing 'New Library Card Registrations, Total' metric (fixed 2026-04-26)
 
 The SIRSI registration importer writes Adult + Juvenile + Total, but only Adult and Juvenile were in `seed_data.py`. Total was never seeded, so the importer silently dropped that value. Fixed by adding it to `seed_data.py` and adding a startup patch in `app.py` that creates the metric in existing databases on next boot (inserted after Juvenile in the Registrations group).
+
+A second startup patch (same deploy) backfills the Total `EntryValue` for all existing Branch Stats entries that have Adult and/or Juvenile values but no Total — covering every month imported before the metric existed. The patch iterates all Branch Stats entries on startup and writes `Total = Adult + Juvenile` wherever Total is absent; it is a no-op on subsequent boots since those entries already have Total.

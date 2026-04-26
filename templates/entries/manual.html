@@ -57,11 +57,6 @@
         <i class="bi bi-globe me-1"></i>Online Stats
       </button>
     </li>
-    <li class="nav-item">
-      <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-illicl" type="button">
-        <i class="bi bi-arrow-left-right me-1"></i>ILL / ICL <span class="text-muted small">(Main only)</span>
-      </button>
-    </li>
   </ul>
 
   <div class="tab-content">
@@ -144,56 +139,6 @@
             </div>
             {% endfor %}
           </div>
-        </div>
-      </div>
-    </div>
-
-    {# ── ILL / ICL tab ── #}
-    <div class="tab-pane fade" id="tab-illicl">
-      <div class="card">
-        <div class="card-header-custom fw-semibold">ILL / ICL <span class="text-muted fw-normal small">(Rock Hill / Main branch only)</span></div>
-        <div class="table-responsive">
-          <table class="table table-sm mb-0 align-middle">
-            <colgroup><col style="width:55%"><col style="width:45%"></colgroup>
-            <tbody>
-              {% if ill_metrics %}
-              <tr class="table-light">
-                <td colspan="2" class="fw-semibold text-secondary small py-1 px-3">Interlibrary Loans (ILL)</td>
-              </tr>
-              {% for m in ill_metrics %}
-              {% set ev = illicl_values.get(m.id) %}
-              <tr>
-                <td class="ps-3">{{ m.name }}</td>
-                <td>
-                  <input type="number" name="illicl_m{{ m.id }}"
-                         class="form-control form-control-sm"
-                         min="0" step="1"
-                         value="{{ ev.display_value if ev else '' }}"
-                         placeholder="—">
-                </td>
-              </tr>
-              {% endfor %}
-              {% endif %}
-              {% if icl_metrics %}
-              <tr class="table-light">
-                <td colspan="2" class="fw-semibold text-secondary small py-1 px-3">Interlibrary Cooperative Loans (ICL)</td>
-              </tr>
-              {% for m in icl_metrics %}
-              {% set ev = illicl_values.get(m.id) %}
-              <tr>
-                <td class="ps-3">{{ m.name }}</td>
-                <td>
-                  <input type="number" name="illicl_m{{ m.id }}"
-                         class="form-control form-control-sm"
-                         min="0" step="1"
-                         value="{{ ev.display_value if ev else '' }}"
-                         placeholder="—">
-                </td>
-              </tr>
-              {% endfor %}
-              {% endif %}
-            </tbody>
-          </table>
         </div>
       </div>
     </div>

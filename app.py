@@ -1353,10 +1353,6 @@ def manual_entry():
     branch_metrics = [m for m in (branch_cat.active_metrics if branch_cat else [])
                       if m.name not in _UPLOAD_SOURCED_METRICS]
     online_metrics = online_cat.active_metrics if online_cat else []
-    ill_metrics    = [m for m in (branch_cat.active_metrics if branch_cat else [])
-                      if m.name in _ILL_METRICS]
-    icl_metrics    = [m for m in (branch_cat.active_metrics if branch_cat else [])
-                      if m.name in _ICL_METRICS]
 
     # Main branches only — no lockers, no desk branches, no system-wide
     branches = (Branch.query
@@ -1365,8 +1361,6 @@ def manual_entry():
                         Branch.name != 'YCL (System Wide)')
                 .order_by(Branch.name)
                 .all())
-
-    rock_hill = next((b for b in branches if 'rock hill' in b.name.lower()), None)
 
     year  = request.args.get('year',  type=int) or datetime.now().year
     month = request.args.get('month', type=int) or datetime.now().month
@@ -1464,35 +1458,6 @@ def manual_entry():
                                               metric_id=metric_id,
                                               value_number=val))
 
-        # ── ILL / ICL (Rock Hill only) ────────────────────────────────────
-        if rock_hill:
-            ill_icl_vals = {}
-            for m in ill_metrics + icl_metrics:
-                raw = request.form.get(f'illicl_m{m.id}', '').strip()
-                if raw:
-                    try:
-                        ill_icl_vals[m.id] = float(raw)
-                    except ValueError:
-                        pass
-            if ill_icl_vals:
-                rh_entry = Entry.query.filter_by(category_id=branch_cat.id,
-                                                  branch_id=rock_hill.id,
-                                                  year=year, month=month).first()
-                if not rh_entry:
-                    rh_entry = Entry(category_id=branch_cat.id, branch_id=rock_hill.id,
-                                     year=year, month=month, submitted_by=submitted_by)
-                    db.session.add(rh_entry)
-                    db.session.flush()
-                for metric_id, val in ill_icl_vals.items():
-                    ev = EntryValue.query.filter_by(entry_id=rh_entry.id,
-                                                    metric_id=metric_id).first()
-                    if ev:
-                        ev.value_number = val
-                    else:
-                        db.session.add(EntryValue(entry_id=rh_entry.id,
-                                                  metric_id=metric_id,
-                                                  value_number=val))
-
         db.session.commit()
         flash(f'Data saved for {MONTHS[month - 1]} {year}.', 'success')
         return redirect(url_for('manual_entry', year=year, month=month))
@@ -1512,25 +1477,94 @@ def manual_entry():
                                      year=year, month=month).first()
     online_values = {ev.metric_id: ev for ev in o_entry.values} if o_entry else {}
 
-    rh_entry = (Entry.query.filter_by(category_id=branch_cat.id,
-                                       branch_id=rock_hill.id,
-                                       year=year, month=month).first()
-                if rock_hill else None)
-    illicl_values = {ev.metric_id: ev for ev in rh_entry.values} if rh_entry else {}
-
     year_range = range(datetime.now().year - 5, datetime.now().year + 2)
     return render_template('entries/manual.html',
                            branches=branches,
                            branch_metrics=branch_metrics,
                            online_metrics=online_metrics,
-                           ill_metrics=ill_metrics,
-                           icl_metrics=icl_metrics,
                            branch_values=branch_values,
                            online_values=online_values,
-                           illicl_values=illicl_values,
                            year=year, month=month,
                            months=MONTHS,
                            year_range=year_range)
+
+
+def _ill_icl_entry(metric_names_set, form_title, endpoint):
+    """Shared handler for ILL and ICL manual entry forms (Rock Hill only)."""
+    branch_cat = Category.query.filter_by(name='Branch Stats').first()
+    rock_hill  = Branch.query.filter(Branch.name.ilike('%rock hill%'),
+                                     Branch.is_active == True).first()
+    metrics    = [m for m in (branch_cat.active_metrics if branch_cat else [])
+                  if m.name in metric_names_set]
+    year_range = range(datetime.now().year - 5, datetime.now().year + 2)
+
+    year  = request.args.get('year',  type=int) or datetime.now().year
+    month = request.args.get('month', type=int) or datetime.now().month
+
+    if request.method == 'POST':
+        year         = request.form.get('year',  type=int)
+        month        = request.form.get('month', type=int)
+        submitted_by = request.form.get('submitted_by', '').strip()
+
+        vals = {}
+        for m in metrics:
+            raw = request.form.get(f'm{m.id}', '').strip()
+            if raw:
+                try:
+                    vals[m.id] = float(raw)
+                except ValueError:
+                    pass
+
+        if vals and rock_hill:
+            entry = Entry.query.filter_by(category_id=branch_cat.id,
+                                          branch_id=rock_hill.id,
+                                          year=year, month=month).first()
+            if not entry:
+                entry = Entry(category_id=branch_cat.id, branch_id=rock_hill.id,
+                              year=year, month=month, submitted_by=submitted_by)
+                db.session.add(entry)
+                db.session.flush()
+
+            for metric_id, val in vals.items():
+                ev = EntryValue.query.filter_by(entry_id=entry.id,
+                                                metric_id=metric_id).first()
+                if ev:
+                    ev.value_number = val
+                else:
+                    db.session.add(EntryValue(entry_id=entry.id,
+                                              metric_id=metric_id,
+                                              value_number=val))
+
+            db.session.commit()
+            flash(f'Data saved for {MONTHS[month - 1]} {year}.', 'success')
+        return redirect(url_for(endpoint, year=year, month=month))
+
+    # Load existing values
+    rh_entry = (Entry.query.filter_by(category_id=branch_cat.id,
+                                      branch_id=rock_hill.id,
+                                      year=year, month=month).first()
+                if rock_hill else None)
+    values = {ev.metric_id: ev for ev in rh_entry.values} if rh_entry else {}
+
+    return render_template('entries/main_only_entry.html',
+                           form_title=form_title,
+                           branch=rock_hill,
+                           redirect_endpoint=endpoint,
+                           metrics=metrics,
+                           values=values,
+                           year=year, month=month,
+                           months=MONTHS,
+                           year_range=year_range)
+
+
+@app.route('/enter/ill', methods=['GET', 'POST'])
+def ill_entry():
+    return _ill_icl_entry(_ILL_METRICS, 'ILL Entry (Main only)', 'ill_entry')
+
+
+@app.route('/enter/icl', methods=['GET', 'POST'])
+def icl_entry():
+    return _ill_icl_entry(_ICL_METRICS, 'ICL Entry (Main only)', 'icl_entry')
 
 
 

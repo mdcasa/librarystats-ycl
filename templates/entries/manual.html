@@ -5,8 +5,8 @@
 <h1 class="h4 fw-bold mb-1"><i class="bi bi-pencil-square me-2 text-primary"></i>Manual Data Entry</h1>
 <p class="text-muted mb-4">Enter Branch Stats, Online Stats, and ILL/ICL data for a selected month. Gate Count, Registrations, and Circulation are populated automatically from uploaded files.</p>
 
-{# ── Period selector ── #}
-<form method="get" class="card mb-4">
+{# ── Period selector (sticky so it stays visible while scrolling accordions) ── #}
+<form method="get" class="card mb-4 sticky-period">
   <div class="card-body">
     <div class="row g-3 align-items-end">
       <div class="col-sm-3">
@@ -62,14 +62,21 @@
         {% for branch in branches %}
         {% set bvals = branch_values.get(branch.id, {}) %}
         {% set has_data = bvals|length > 0 %}
+        {% set pns = namespace(filled=0) %}
+        {% for m in branch_metrics %}{% if bvals.get(m.id) is not none %}{% set pns.filled = pns.filled + 1 %}{% endif %}{% endfor %}
+        {% set total_m = branch_metrics | length %}
         <div class="accordion-item">
           <h2 class="accordion-header">
             <button class="accordion-button {% if not loop.first and not has_data %}collapsed{% endif %}"
                     type="button" data-bs-toggle="collapse"
                     data-bs-target="#branch-{{ branch.id }}">
               {{ branch.name }}
-              {% if has_data %}
-              <span class="badge bg-success ms-2">data entered</span>
+              {% if pns.filled == total_m and total_m > 0 %}
+              <span class="badge bg-success ms-2 flex-shrink-0"><i class="bi bi-check2 me-1"></i>Complete</span>
+              {% elif pns.filled > 0 %}
+              <span class="badge bg-warning text-dark ms-2 flex-shrink-0">{{ pns.filled }}/{{ total_m }} fields</span>
+              {% else %}
+              <span class="badge bg-light text-secondary border ms-2 flex-shrink-0">0/{{ total_m }} fields</span>
               {% endif %}
             </button>
           </h2>
@@ -148,4 +155,15 @@
   </div>
 
 </form>
+{% endblock %}
+
+{% block scripts %}
+<style>
+.sticky-period {
+  position: sticky;
+  top: 56px;
+  z-index: 99;
+  box-shadow: 0 2px 8px rgba(0,0,0,.1);
+}
+</style>
 {% endblock %}

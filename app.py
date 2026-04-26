@@ -4,6 +4,7 @@ from models import db, Category, Metric, Branch, Entry, EntryValue, User
 from datetime import datetime
 from functools import wraps
 import hmac
+import io
 import os
 
 app = Flask(__name__)
@@ -706,6 +707,29 @@ def metrics_by_category_json():
     return result
 
 
+def _xlsx_response(wb, filename):
+    """Serialize a workbook to a Flask send_file response."""
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
+def _xl_header(ws, bold_font, text):
+    """Write a bold section header row and return the next row index."""
+    from openpyxl.styles import PatternFill
+    ws.append([text])
+    row = ws.max_row
+    ws.cell(row, 1).font = bold_font
+    ws.cell(row, 1).fill = PatternFill('solid', fgColor='D9E1F2')
+    return row + 1
+
+
 @app.route('/reports')
 def reports_index():
     return render_template('reports/index.html')
@@ -1116,6 +1140,51 @@ def report_fiscal():
 
         table = report_data_table(metrics, branch_list, totals)
 
+    if table and request.args.get('format') == 'xlsx':
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill
+        wb = Workbook()
+        ws = wb.active
+        ws.title = category.name[:31]
+        bold = Font(bold=True)
+
+        # Title row
+        ws.append([f'{category.name} — {fy_label}'])
+        ws.cell(1, 1).font = Font(bold=True, size=13)
+        ws.append([])
+
+        # Header row
+        hdr = ['Metric'] + [b.name for b in branches] + (['Total'] if len(branches) > 1 else [])
+        ws.append(hdr)
+        hr = ws.max_row
+        for col in range(1, len(hdr) + 1):
+            ws.cell(hr, col).font = bold
+            ws.cell(hr, col).fill = PatternFill('solid', fgColor='2C6E8A')
+            ws.cell(hr, col).font = Font(bold=True, color='FFFFFF')
+
+        for group in table:
+            if group['name']:
+                ws.append([group['name']])
+                r = ws.max_row
+                ws.cell(r, 1).font = Font(bold=True)
+                ws.cell(r, 1).fill = PatternFill('solid', fgColor='D9E1F2')
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=len(hdr))
+            for row in group['rows']:
+                def _num(s):
+                    try: return float(s.replace(',', ''))
+                    except Exception: return s
+                vals = [row['metric'].name] + [_num(c) for c in row['cells']]
+                if len(branches) > 1:
+                    vals.append(_num(row['row_total']))
+                ws.append(vals)
+
+        ws.column_dimensions['A'].width = 42
+        for i in range(len(branches) + 1):
+            col_letter = ws.cell(1, i + 2).column_letter
+            ws.column_dimensions[col_letter].width = 16
+
+        return _xlsx_response(wb, f'fiscal_{category.name.replace(" ", "_")}_{fy_year}.xlsx')
+
     return render_template('reports/fiscal.html',
                            categories=categories, available_fy=available_fy,
                            sel_cat=cat_id, sel_fy=fy_year,
@@ -1286,6 +1355,12 @@ def report_crosstab():
                 'total': int(row_sum) if row_sum == int(row_sum) else round(row_sum, 1) if row_sum else None,
             })
 
+    if table and request.args.get('format') == 'xlsx':
+        wb = _crosstab_xlsx(table, col_totals, metric, category,
+                            _fy_label(fy_year), branches,
+                            category.has_branch if category else False)
+        return _xlsx_response(wb, f'crosstab_{metric.name[:20].replace(" ", "_")}_{fy_year}.xlsx')
+
     return render_template('reports/crosstab.html',
                            categories=categories,
                            available_fy=_available_fy(),
@@ -1301,6 +1376,53 @@ def report_crosstab():
                            col_max=col_max,
                            col_totals=col_totals,
                            has_branch=category.has_branch if category else False)
+
+
+def _crosstab_xlsx(table, col_totals, metric, category, fy_label, branches, has_branch):
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Cross-tab'
+    bold = Font(bold=True)
+
+    ws.append([f'{metric.name} — {fy_label}'])
+    ws.cell(1, 1).font = Font(bold=True, size=13)
+    ws.cell(1, 2).value = category.name
+    ws.append([])
+
+    if has_branch:
+        hdr = ['Month'] + [b.name for b in branches] + ['Total']
+    else:
+        hdr = ['Month', 'Value']
+    ws.append(hdr)
+    hr = ws.max_row
+    for col in range(1, len(hdr) + 1):
+        ws.cell(hr, col).font = Font(bold=True, color='FFFFFF')
+        ws.cell(hr, col).fill = PatternFill('solid', fgColor='2C6E8A')
+
+    for row in table:
+        vals = [row['month_short']] + [c if c is not None else '' for c in row['cells']]
+        if has_branch:
+            vals.append(row['total'] if row['total'] is not None else '')
+        ws.append(vals)
+
+    # Totals row
+    tot_row = ['FY Total'] + [t if t is not None else '' for t in col_totals]
+    if has_branch:
+        grand = sum(t for t in col_totals if isinstance(t, (int, float)))
+        tot_row.append(grand if grand else '')
+    ws.append(tot_row)
+    r = ws.max_row
+    for col in range(1, len(hdr) + 1):
+        ws.cell(r, col).font = bold
+        ws.cell(r, col).fill = PatternFill('solid', fgColor='D9E1F2')
+
+    ws.column_dimensions['A'].width = 14
+    for i in range(1, len(hdr)):
+        ws.column_dimensions[ws.cell(1, i + 1).column_letter].width = 14
+
+    return wb
 
 
 # ── Programming Age / Delivery-Type Cross-tab ─────────────────────────────────
@@ -1964,6 +2086,82 @@ def director_dashboard():
                 ) or None,
             },
         }
+
+    if stats and request.args.get('format') == 'xlsx':
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        wb = Workbook()
+        ws = wb.active
+        ws.title = 'Director Dashboard'
+        bold = Font(bold=True)
+        hdr_fill = PatternFill('solid', fgColor='1A5276')
+        hdr_font = Font(bold=True, color='FFFFFF')
+        fy_lbl = f'FY{fy_year} (Jul {fy_year-1} – Jun {fy_year})'
+        ws.column_dimensions['A'].width = 12
+        ws.column_dimensions['B'].width = 48
+        ws.column_dimensions['C'].width = 16
+
+        ws.append(['York County Library', '', fy_lbl])
+        ws.cell(1, 1).font = Font(bold=True, size=14)
+        ws.cell(1, 3).font = Font(italic=True)
+        ws.append([])
+
+        def section(title, rows, has_code=True):
+            ws.append([title])
+            r = ws.max_row
+            ws.cell(r, 1).font = Font(bold=True, color='FFFFFF')
+            ws.cell(r, 1).fill = PatternFill('solid', fgColor='2C3E50')
+            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=3)
+            if has_code:
+                ws.append(['Code', 'Metric', 'FY Total'])
+            else:
+                ws.append(['Metric', 'FY Total'])
+            hr = ws.max_row
+            for col in range(1, 4 if has_code else 3):
+                ws.cell(hr, col).font = bold
+                ws.cell(hr, col).fill = PatternFill('solid', fgColor='D9E1F2')
+            for row in rows:
+                if has_code:
+                    code, label, val = row
+                    ws.append([code, label, val if val is not None else ''])
+                else:
+                    label, val = row
+                    ws.append([label, val if val is not None else ''])
+            ws.append([])
+
+        section('Library Users, Visits & Internet Usage', stats['users'])
+        section('Reference & Circulation', stats['circulation'])
+
+        ws.append(['Programming'])
+        r = ws.max_row
+        ws.cell(r, 1).font = Font(bold=True, color='FFFFFF')
+        ws.cell(r, 1).fill = PatternFill('solid', fgColor='2C3E50')
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=7)
+        hdrs = ['Age Group'] + [f'{t} Sessions' for t in TYPES] + [f'{t} Attendance' for t in TYPES]
+        ws.append(hdrs)
+        hr = ws.max_row
+        for col in range(1, len(hdrs) + 1):
+            ws.cell(hr, col).font = bold
+            ws.cell(hr, col).fill = PatternFill('solid', fgColor='D9E1F2')
+        for age in AGE:
+            row_data = [age]
+            for t in TYPES:
+                sv = next((val for a, val in stats['sessions'][t] if a == age), None)
+                row_data.append(sv if sv is not None else '')
+            for t in TYPES:
+                av = next((val for a, val in stats['attendance'][t] if a == age), None)
+                row_data.append(av if av is not None else '')
+            ws.append(row_data)
+        ws.append([])
+
+        for col_idx in range(2, 8):
+            ws.column_dimensions[ws.cell(1, col_idx).column_letter].width = 16
+
+        section('Outreach & Other', stats['outreach'], has_code=False)
+        section('Asynchronous Programs', stats['async_'], has_code=False)
+        section('Online & Social Media', stats['online'], has_code=False)
+
+        return _xlsx_response(wb, f'director_dashboard_{fy_year}.xlsx')
 
     return render_template('director.html',
                            available_fy=available_fy, sel_fy=fy_year,

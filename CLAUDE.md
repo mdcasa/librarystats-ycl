@@ -1,7 +1,9 @@
 # CLAUDE.md — YCL Statistics
 
 This file is read automatically by Claude Code at the start of every session.
-Full technical detail is in `Notes/design.md`.
+
+**For setting up a new library instance — read `Design/first_steps.md` first.**
+Full technical detail is in `Design/design.md`.
 
 ---
 

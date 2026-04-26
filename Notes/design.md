@@ -392,6 +392,7 @@ with app.app_context():
 |---|---|---|
 | `Data files/manual/non-SIRSI423.xlsx` | 2026-04-26 | 165 Branch Stats entries created, covering Jan 2024 – Mar 2026 (all branches, all non-SIRSI metrics) |
 | `Data files/manual/QRSver2.xlsx` | 2026-04-26 | 24 Quarterly Reference Stats entries created — Q1/Jun 2025, Q2/Oct 2025, Q3/Jan 2026, all 8 branches |
+| `Data files/manual/onlin423.xlsx` | 2026-04-26 | 27 Online Stats entries created — Jan 2024 – Mar 2026, system-wide |
 
 ### Verifying after a one-time load
 
@@ -448,7 +449,7 @@ Shows the most recent month with circulation data as the "current" month, so it 
 | SIRSI Circulation | ⚠️ Partial | August 2025 only (11 entries, 1,563 SirsiCheckout rows) |
 | SIRSI Registration | ⚠️ Partial | August 2025 only (6 values per metric) |
 | Princh Printing | ⚠️ Partial | Some months loaded (79 values), not full history |
-| Online Stats | ❌ Not loaded | 0 entries — `onlin423.xlsx` has not been uploaded |
+| Online Stats | ✅ Loaded (one-time insert) | 27 entries — Jan 2024 – Mar 2026, system-wide |
 | Quarterly Reference Stats | ✅ Loaded (one-time insert) | 24 entries — Q1/Jun 2025, Q2/Oct 2025, Q3/Jan 2026, all 8 branches |
 | Door Counter | ❌ Not loaded | Gate Count data in DB came from `non-SIRSI423.xlsx`, not door counter exports |
 
@@ -465,8 +466,8 @@ Upload through the **Upload Data** page (`/upload`). Files can be uploaded in an
 - Writes: `New Library Card Registrations, Adult/Juvenile/Total` per branch
 
 **Priority 3 — Online Stats** (single upload covers multiple months)
-- File: `onlin423.xlsx` (covers Jul 2025 – early 2026)
-- For data before Jul 2025, use a one-time script insert if an older file exists
+- File: `onlin423.xlsx` — already loaded (Jan 2024 – Mar 2026)
+- Future months: enter via Manual Entry form → Online Stats tab, or upload a new Excel file
 - Writes: all Online Stats metrics system-wide
 
 **Priority 4 — Quarterly Reference Stats** (single upload covers multiple quarters)

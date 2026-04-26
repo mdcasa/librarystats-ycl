@@ -55,6 +55,13 @@ with app.app_context():
         from seed_data import seed
         seed(db)
 
+    # Deactivate eResources if it has never had data loaded (it's a seed
+    # placeholder that isn't part of the active data collection workflow)
+    _eres = Category.query.filter_by(name='eResources').first()
+    if _eres and _eres.is_active and Entry.query.filter_by(category_id=_eres.id).count() == 0:
+        _eres.is_active = False
+        db.session.commit()
+
     # Bootstrap: create default admin from env vars if no users exist yet
     if User.query.count() == 0:
         _admin = User(

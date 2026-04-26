@@ -32,7 +32,7 @@ Railway hosts the app only. The database lives in Supabase. `DATABASE_URL` in Ra
 - `import_excel.py` — all file importers (auto-detected by sheet name / header)
 - `seed_data.py` — runs once on first boot when DB is empty
 - `templates/base.html` — all shared CSS, nav, branding
-- `Notes/design.md` — full technical reference
+- `Design/design.md` — full technical reference
 
 ---
 
@@ -96,4 +96,4 @@ Chart.js v4 with `chartjs-plugin-datalabels` on line charts (Trend Over Time, Ye
 4. **First boot** — tables created automatically, seed data loaded, bootstrap admin created
 5. **Customise** — branding, branches, categories via admin UI
 
-See `Notes/design.md → Standing Up a New Instance` for full detail.
+See `Design/design.md → Standing Up a New Instance` for full detail.

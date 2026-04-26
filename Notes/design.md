@@ -41,10 +41,10 @@ Shows all active Branch Stats metrics **except** those sourced from uploads. Met
 | New Library Card Registrations, Total | SIRSI registration upload |
 | Total Branch Circulation | SIRSI checkout upload |
 | Hotspots Circulation | SIRSI checkout upload |
-| ILL - Sent (Main ONLY) | ILL/ICL tab (see below) |
-| ILL - Received (Main ONLY) | ILL/ICL tab (see below) |
-| ICLs - Sent (Main ONLY) | ILL/ICL tab (see below) |
-| ICLs - Received (Main ONLY) | ILL/ICL tab (see below) |
+| ILL - Sent (Main ONLY) | ILL/ICL tab — see Tab 3 |
+| ILL - Received (Main ONLY) | ILL/ICL tab — see Tab 3 |
+| ICLs - Sent (Main ONLY) | ILL/ICL tab — see Tab 3 |
+| ICLs - Received (Main ONLY) | ILL/ICL tab — see Tab 3 |
 
 Each branch appears as an accordion panel. Panels that already have data for the selected month are automatically expanded.
 
@@ -63,9 +63,17 @@ Input field names use the prefix `illicl_m{metric_id}`. On POST, these values ar
 
 **Why ILL/ICL live in Rock Hill's Branch Stats:** These metrics are collected only at the Main (Rock Hill) branch. Storing them in Branch Stats keeps all branch-level data in one category and avoids a separate entry type.
 
+**Historical data note:** ILL/ICL values prior to April 2026 were loaded as a one-time insert from `non-SIRSI423.xlsx` (see One-Time Historical Data Loads). Going forward all ILL/ICL values are entered monthly via this tab.
+
 ### History
 
 Before April 2026, ILL and ICL had separate routes (`/enter/ill`, `/enter/icl`) using a dedicated `main_only_entry.html` template. These were removed and consolidated into the third tab of the main manual entry form. The `main_only_entry.html` template remains on disk but no route points to it.
+
+---
+
+## New Entry / Edit Entry Forms (`/entries/new/<id>`, `/entries/<id>/edit`)
+
+These generic forms (used by "Enter Data → [category]" in the nav) also filter out `_UPLOAD_SOURCED_METRICS` for Branch Stats entries, matching the manual entry form. This prevents staff from accidentally entering values for metrics that are owned by file imports or the ILL/ICL tab. The filtering applies only to Branch Stats; other categories (Online Stats, Quarterly Reference Stats) show all their metrics.
 
 ---
 

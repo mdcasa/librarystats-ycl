@@ -275,7 +275,11 @@ def _branches_for_category(category):
 def entry_create(category_id):
     category = Category.query.get_or_404(category_id)
     branches = _branches_for_category(category)
-    metrics = Metric.query.filter_by(category_id=category_id, is_active=True).order_by(Metric.sort_order).all()
+    all_metrics = Metric.query.filter_by(category_id=category_id, is_active=True).order_by(Metric.sort_order).all()
+    if category.name == 'Branch Stats':
+        metrics = [m for m in all_metrics if m.name not in _UPLOAD_SOURCED_METRICS]
+    else:
+        metrics = all_metrics
     year_range = range(datetime.now().year - 5, datetime.now().year + 2)
 
     if request.method == 'POST':
@@ -342,7 +346,11 @@ def entry_edit(entry_id):
     entry = Entry.query.get_or_404(entry_id)
     category = entry.category
     branches = _branches_for_category(category)
-    metrics = Metric.query.filter_by(category_id=category.id, is_active=True).order_by(Metric.sort_order).all()
+    all_metrics = Metric.query.filter_by(category_id=category.id, is_active=True).order_by(Metric.sort_order).all()
+    if category.name == 'Branch Stats':
+        metrics = [m for m in all_metrics if m.name not in _UPLOAD_SOURCED_METRICS]
+    else:
+        metrics = all_metrics
     values = {ev.metric_id: ev for ev in entry.values}
     year_range = range(datetime.now().year - 5, datetime.now().year + 2)
 

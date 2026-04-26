@@ -10,11 +10,13 @@ The app is fully built but the database is only partially filled. Reports and da
 
 | Task | How | Priority |
 |---|---|---|
-| Load full SIRSI Circulation history | Upload one file/month Jan 2024–present (except Aug 2025 already done) via `/upload` | 🔴 High |
-| Load full SIRSI Registration history | Same — one file/month Jan 2024–present | 🔴 High |
+| Load SIRSI Circulation history | Upload one file/month for available months via `/upload` — **2024 files may not be recoverable** | 🔴 High |
+| Load SIRSI Registration history | Same — upload for whatever months are available | 🔴 High |
 | Load Princh printing history | Upload monthly files for any missing months | 🟡 Medium |
 | Door counter data | Not loaded at all — upload `daily_door_count.xlsx` files if available | 🟡 Medium |
 | Enter missing manual metrics | Outreach, Staff Training, 1-on-1 — blank in DB for most months | 🟡 Medium |
+
+> **Note:** 2024 SIRSI historical files may not be available to retrieve. Load whatever is accessible — the app handles partial history gracefully and reports will simply show gaps for months with no data.
 
 **Current data status (as of 2026-04-26):**
 

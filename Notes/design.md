@@ -391,6 +391,7 @@ with app.app_context():
 | File | Date Loaded | Result |
 |---|---|---|
 | `Data files/manual/non-SIRSI423.xlsx` | 2026-04-26 | 165 Branch Stats entries created, covering Jan 2024 – Mar 2026 (all branches, all non-SIRSI metrics) |
+| `Data files/manual/QRSver2.xlsx` | 2026-04-26 | 24 Quarterly Reference Stats entries created — Q1/Jun 2025, Q2/Oct 2025, Q3/Jan 2026, all 8 branches |
 
 ### Verifying after a one-time load
 
@@ -448,7 +449,7 @@ Shows the most recent month with circulation data as the "current" month, so it 
 | SIRSI Registration | ⚠️ Partial | August 2025 only (6 values per metric) |
 | Princh Printing | ⚠️ Partial | Some months loaded (79 values), not full history |
 | Online Stats | ❌ Not loaded | 0 entries — `onlin423.xlsx` has not been uploaded |
-| Quarterly Reference Stats | ❌ Not loaded | 0 entries — `QRSver2.xlsx` has not been uploaded (covers Q1/Jun 2025, Q2/Oct 2025, Q3/Jan 2026) |
+| Quarterly Reference Stats | ✅ Loaded (one-time insert) | 24 entries — Q1/Jun 2025, Q2/Oct 2025, Q3/Jan 2026, all 8 branches |
 | Door Counter | ❌ Not loaded | Gate Count data in DB came from `non-SIRSI423.xlsx`, not door counter exports |
 
 ### Remaining uploads needed
@@ -469,7 +470,8 @@ Upload through the **Upload Data** page (`/upload`). Files can be uploaded in an
 - Writes: all Online Stats metrics system-wide
 
 **Priority 4 — Quarterly Reference Stats** (single upload covers multiple quarters)
-- File: `QRSver2.xlsx` (covers Q1 2025 – present)
+- File: `QRSver2.xlsx` — already loaded (Q1/Jun 2025, Q2/Oct 2025, Q3/Jan 2026)
+- Future quarters: upload new Google Forms export through Upload Data page
 - Writes: `Total Transactions for the Week` per branch per quarter/month
 
 **Priority 5 — Princh Printing** (one file per month for any gaps)

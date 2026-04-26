@@ -6,14 +6,147 @@ Library Stats is a Flask web app (hosted on Railway, PostgreSQL in production) t
 
 ---
 
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Language | Python 3 |
+| Web framework | Flask ≥ 3.0 |
+| ORM | Flask-SQLAlchemy ≥ 3.1 |
+| Database (production) | PostgreSQL via Railway |
+| Database (local dev) | SQLite (`librarystats.db`) |
+| WSGI server | gunicorn |
+| Excel parsing | openpyxl |
+| Environment | python-dotenv |
+
+**Key files:**
+- `app.py` — Flask app, all routes, business logic
+- `models.py` — SQLAlchemy models
+- `import_excel.py` — all file importers
+- `export_excel.py` — Excel export
+- `seed_data.py` — initial categories, metrics, and branches (runs once on first boot when DB is empty)
+- `requirements.txt` — `Flask`, `Flask-SQLAlchemy`, `psycopg2-binary`, `gunicorn`, `openpyxl`, `python-dotenv`
+
+---
+
+## Deployment (Railway)
+
+The app is deployed on Railway. On startup, `db.create_all()` runs automatically — no migration tool is used. Schema changes that SQLAlchemy can't handle automatically (e.g. adding a column) are handled with inline `ALTER TABLE` statements inside a try/except in `app.py` at startup.
+
+**Required environment variables:**
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection string (Railway sets this automatically). Must start with `postgresql://` — the app rewrites `postgres://` automatically. |
+| `SECRET_KEY` | Flask session signing key |
+| `LOGIN_USERNAME` | Single shared login username |
+| `LOGIN_PASSWORD` | Single shared login password |
+
+**Local development:** Create a `.env` file in the project root with the same variables pointing at the Railway PostgreSQL instance (or omit `DATABASE_URL` to use local SQLite).
+
+---
+
+## Authentication
+
+Single shared username/password — no user accounts or roles. Credentials are stored as environment variables (`LOGIN_USERNAME`, `LOGIN_PASSWORD`). All routes require login except `/login` and `/logout`. Comparison uses `hmac.compare_digest` to prevent timing attacks. Session is permanent (browser session cookie).
+
+---
+
 ## Data Model
 
-- **Categories** — the types of stats (Branch Stats, Online Stats, Quarterly Reference Stats)
-- **Metrics** — individual fields within a category (Gate Count, WiFi Sessions, etc.), grouped and ordered
-- **Branches** — physical locations (Clover, Fort Mill, Lake Wylie, Rock Hill, York, Outreach/Bookmobile, plus Locker sub-branches kept separate)
-- **Entries** — one record per branch/month/category combination
-- **EntryValues** — the actual numbers, linked to an Entry and a Metric
-- **SirsiCheckouts** — granular ILS checkout data (branch x patron type x shelving location), stored separately from Entries
+Six tables:
+
+| Table | Purpose |
+|---|---|
+| `categories` | Types of stats (Branch Stats, Online Stats, etc.) |
+| `metrics` | Individual fields within a category, with group_name for display grouping |
+| `branches` | Physical locations; `is_desk=True` for sub-desks like Rock Hill - Circulation |
+| `entries` | One record per branch/month(or quarter)/category |
+| `entry_values` | The actual numbers, linked to an Entry and a Metric |
+| `sirsi_checkouts` | Granular ILS checkout data: branch × patron type × shelving location × month |
+
+**Key model fields:**
+- `Entry.month` (1–12) and `Entry.quarter` (1–4) are both nullable — a monthly entry has month set, quarter null, and vice versa
+- `Entry.branch_id` is nullable — null means system-wide (used by Online Stats)
+- `Metric.group_name` controls section headers in forms and reports
+- `Metric.data_type` is `integer`, `decimal`, or `text`
+- `Branch.is_desk` — desk-level branches (Rock Hill - Circulation, Rock Hill - YA) are excluded from Branch Stats forms but shown in QRS
+- `Branch.is_active=False` hides a branch from all lists (Rock Hill - Reference is deactivated)
+- `EntryValue.display_value` — property that formats numbers cleanly (strips trailing `.0`)
+
+---
+
+## Branches (seed data)
+
+Created by `seed_data.py` on first boot. The SIRSI importer also creates branches on the fly if an unrecognised ILS code appears.
+
+| Branch Name | ILS Code | is_desk | Notes |
+|---|---|---|---|
+| Rock Hill | YCL-RH | No | Main branch |
+| Clover | YCL-CL | No | |
+| Fort Mill | YCL-FM | No | |
+| Lake Wylie | YCL-LW | No | |
+| York | YCL-YK | No | |
+| Outreach/Bookmobile | YCL-BK | No | Also aliased as `Outreach / BKM`, `Outreach / Bookmobile` |
+| YCL (System Wide) | YCL | No | Skipped by importers; excluded from forms |
+| Rock Hill - Circulation | — | Yes | QRS desk branch |
+| Rock Hill - Reference | — | Yes | Deactivated (`is_active=False`) |
+| Rock Hill - YA | — | Yes | QRS desk branch |
+| Rock Hill Lockers | YCL-RH-LOC | No | Created by SIRSI importer |
+| Clover Lockers | YCL-CL-LOC | No | Created by SIRSI importer |
+| Fort Mill Lockers | YCL-FM-LOC | No | Created by SIRSI importer |
+| Lake Wylie Lockers | YCL-LW-LOC | No | Created by SIRSI importer |
+| York Lockers | YCL-YK-LOC | No | Created by SIRSI importer |
+
+---
+
+## Categories and Metrics (seed data)
+
+Created by `seed_data.py` on first boot if no categories exist. Categories and metrics can also be managed via the Admin UI.
+
+### Branch Stats (monthly, has_branch=True)
+
+| Group | Metric | Type |
+|---|---|---|
+| Registrations | New Library Card Registrations, Adult | integer |
+| Registrations | New Library Card Registrations, Juvenile | integer |
+| Access & Usage | Gate Count | integer |
+| Access & Usage | PC Reservations | integer |
+| Access & Usage | WiFi - Unique Sessions | integer |
+| Access & Usage | External Party Library Room Use | integer |
+| Access & Usage | Total Prints per Month | integer |
+| Circulation | Total Branch Circulation | integer |
+| Circulation | Hotspots Circulation | integer |
+| Circulation | Curbside | integer |
+| Circulation | Locker Circulation | integer |
+| ILL / ICL | ILL - Sent (Main ONLY) | integer |
+| ILL / ICL | ILL - Received (Main ONLY) | integer |
+| ILL / ICL | ICLs - Sent (Main ONLY) | integer |
+| ILL / ICL | ICLs - Received (Main ONLY) | integer |
+| ONSITE Programming | ONSITE Sessions 0-5 through General Interest (5 metrics) | integer |
+| ONSITE Programming | ONSITE Attendance 0-5 through General Interest (5 metrics) | integer |
+| OFFSITE Programming | OFFSITE Sessions 0-5 through General Interest (5 metrics) | integer |
+| OFFSITE Programming | OFFSITE Attendance 0-5 through General Interest (5 metrics) | integer |
+| VIRTUAL Programming | VIRTUAL Sessions 0-5 through General Interest (5 metrics) | integer |
+| VIRTUAL Programming | VIRTUAL Attendance 0-5 through General Interest (5 metrics) | integer |
+| Outreach | Number of Outreach Activities Conducted | integer |
+| Outreach | Outreach Attendance | integer |
+| Outreach | Take & Makes / Other Passive Program Participants | integer |
+| Staff Training | Number of Staff Taking Training | integer |
+| Staff Training | Number of Hours Staff Attended Training | decimal |
+| Other | 1-on-1 Total for Month | integer |
+
+### Online Stats (monthly, has_branch=False — system-wide)
+
+Groups: Website, Dial A Story, Other Platforms, DigitalLearn, LOTE4Kids, Social Media, Newsletters & Apps — 25 metrics total. See column map in Import Procedure §4 for full list.
+
+### Quarterly Reference Stats (quarterly, has_branch=True)
+
+Single metric: `Total Transactions for the Week` (integer). Branches are the desk-level branches (Rock Hill - Circulation, Rock Hill - YA) plus all standard branches.
+
+### eResources (monthly, has_branch=False)
+
+Created by seed but not currently used. Metrics: E-Book Circulation, E-Audio Circulation, E-Video Circulation, E-Serials Circulation.
 
 ---
 
@@ -436,6 +569,71 @@ Locker circulation (`YCL-CL-LOC`, `YCL-FM-LOC`, `YCL-LW-LOC`, `YCL-RH-LOC`, `YCL
 ## Dashboard
 
 Shows the most recent month with circulation data as the "current" month, so it does not go blank if data for the latest calendar month has not been uploaded yet.
+
+---
+
+## All Routes
+
+### Navigation / Auth
+| Route | Function | Description |
+|---|---|---|
+| `/login` | `login` | Single shared login form |
+| `/logout` | `logout` | Clears session |
+| `/` | `index` | Main dashboard |
+
+### Data Entry
+| Route | Function | Description |
+|---|---|---|
+| `/enter/manual` | `manual_entry` | Manual entry form — Branch Stats tab + Online Stats tab |
+| `/enter/ill` | `ill_entry` | ILL entry form (Rock Hill only) |
+| `/enter/icl` | `icl_entry` | ICL entry form (Rock Hill only) |
+| `/entries/new/<category_id>` | `entry_create` | Generic new entry form for any category |
+| `/entries/<id>/edit` | `entry_edit` | Edit an existing entry |
+| `/entries/<id>/delete` | `entry_delete` | Delete an entry (POST) |
+
+### Browse & View
+| Route | Function | Description |
+|---|---|---|
+| `/entries` | `entries_list` | Browse all entries with filters (category, branch, year) |
+| `/entries/<id>` | `entry_view` | View a single entry and all its metric values |
+
+### Upload
+| Route | Function | Description |
+|---|---|---|
+| `/upload` | `upload_data` | Upload any supported Excel file; auto-detects format |
+
+### Reports
+| Route | Function | Description |
+|---|---|---|
+| `/reports/monthlystats` | `report_monthly_stats` | Monthly Board Report — key metrics for a selected month |
+| `/reports/monthly` | `report_monthly` | Monthly Summary — all metrics for a category/month across branches |
+| `/reports/fiscal` | `report_fiscal` | Fiscal Year Totals — annual rollup by category |
+| `/reports/trend` | `report_trend` | Trend Over Time — one metric charted over months |
+| `/reports/yearoveryear` | `report_yoy` | Year-over-Year — compare same month across years |
+| `/reports/quarterly_ref` | `report_quarterly_ref` | Quarterly Reference Stats — desk tallies by quarter |
+| `/reports/annual` | `report_annual` | Branch Scorecard — annual summary per branch |
+| `/reports/crosstab` | `report_crosstab` | Cross-tab Heat Map — metric × branch grid |
+| `/reports/programming_age` | `report_programming_age` | Programming Cross-tab — sessions/attendance by age group |
+| `/reports/programming` | `report_programming` | Programming Summary — all programming metrics |
+| `/reports/online` | `report_online` | Online Stats — all online/social metrics over time |
+| `/director` | `director_dashboard` | Director's Dashboard — high-level summary for leadership |
+
+### Admin
+| Route | Function | Description |
+|---|---|---|
+| `/admin/categories` | `admin_categories` | List and create categories |
+| `/admin/categories/<id>` | `admin_category_edit` | Edit category; add/manage metrics |
+| `/admin/categories/<id>/toggle` | — | Toggle category active/inactive |
+| `/admin/categories/<id>/delete` | — | Delete category |
+| `/admin/categories/<id>/metrics/add` | — | Add a metric to a category |
+| `/admin/metrics/<id>/edit` | `admin_metric_edit` | Edit a metric |
+| `/admin/metrics/<id>/toggle` | — | Toggle metric active/inactive |
+| `/admin/metrics/<id>/delete` | — | Delete a metric |
+| `/admin/branches` | `admin_branches` | List, create, and manage branches |
+| `/admin/branches/<id>/toggle` | — | Toggle branch active/inactive |
+| `/admin/branches/<id>/delete` | — | Delete a branch |
+| `/admin/import` | `admin_import` | Legacy import page (admin-only upload) |
+| `/admin/export` | `admin_export` | Export all data to Excel |
 
 ---
 

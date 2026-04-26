@@ -27,13 +27,13 @@ For metrics not covered by uploaded files, staff use the **Manual Entry** form a
 
 ## Manual Entry Form (`/enter/manual`)
 
-The manual entry form lets staff enter data for a selected month without uploading a file. It has three tabs:
+The manual entry form lets staff enter data for a selected month without uploading a file. It has two tabs:
 
 ### Tab 1 — Branch Stats
 
-Shows all active Branch Stats metrics **except** those sourced from uploads. Metrics excluded from this tab (controlled by `_UPLOAD_SOURCED_METRICS` in `app.py`):
+Shows all active Branch Stats metrics **except** those sourced from uploads or dedicated entry forms. Metrics excluded (controlled by `_UPLOAD_SOURCED_METRICS` in `app.py`):
 
-| Metric | Source |
+| Metric | Where to enter |
 |---|---|
 | Gate Count | Door counter upload |
 | New Library Card Registrations, Adult | SIRSI registration upload |
@@ -41,10 +41,10 @@ Shows all active Branch Stats metrics **except** those sourced from uploads. Met
 | New Library Card Registrations, Total | SIRSI registration upload |
 | Total Branch Circulation | SIRSI checkout upload |
 | Hotspots Circulation | SIRSI checkout upload |
-| ILL - Sent (Main ONLY) | ILL/ICL tab — see Tab 3 |
-| ILL - Received (Main ONLY) | ILL/ICL tab — see Tab 3 |
-| ICLs - Sent (Main ONLY) | ILL/ICL tab — see Tab 3 |
-| ICLs - Received (Main ONLY) | ILL/ICL tab — see Tab 3 |
+| ILL - Sent (Main ONLY) | `/enter/ill` form |
+| ILL - Received (Main ONLY) | `/enter/ill` form |
+| ICLs - Sent (Main ONLY) | `/enter/icl` form |
+| ICLs - Received (Main ONLY) | `/enter/icl` form |
 
 Each branch appears as an accordion panel. Panels that already have data for the selected month are automatically expanded.
 
@@ -52,28 +52,26 @@ Each branch appears as an accordion panel. Panels that already have data for the
 
 System-wide online/social media metrics (not branch-specific). All active Online Stats metrics appear here.
 
-### Tab 3 — ILL / ICL (Main only)
+---
 
-ILL and ICL data is entered only for the Rock Hill (Main) branch. The tab is split into two groups:
+## ILL and ICL Entry Forms (`/enter/ill`, `/enter/icl`)
 
-- **Interlibrary Loans (ILL):** ILL - Sent (Main ONLY), ILL - Received (Main ONLY)
-- **Interlibrary Cooperative Loans (ICL):** ICLs - Sent (Main ONLY), ICLs - Received (Main ONLY)
+Separate dedicated forms for Interlibrary Loans and Interlibrary Cooperative Loans. Both are Rock Hill (Main branch) only and accessible from the **Enter Data** dropdown in the nav.
 
-Input field names use the prefix `illicl_m{metric_id}`. On POST, these values are saved to the Rock Hill branch's Branch Stats entry for the selected month (upserted — existing values are overwritten, missing ones are created).
+- **ILL Entry** (`/enter/ill`) — saves `ILL - Sent (Main ONLY)` and `ILL - Received (Main ONLY)` to Rock Hill's Branch Stats entry for the selected month
+- **ICL Entry** (`/enter/icl`) — saves `ICLs - Sent (Main ONLY)` and `ICLs - Received (Main ONLY)` to Rock Hill's Branch Stats entry for the selected month
 
-**Why ILL/ICL live in Rock Hill's Branch Stats:** These metrics are collected only at the Main (Rock Hill) branch. Storing them in Branch Stats keeps all branch-level data in one category and avoids a separate entry type.
+Both forms use `templates/entries/main_only_entry.html` and upsert values (existing values are overwritten, missing ones are created). The form pre-populates with any existing values for the selected month.
 
-**Historical data note:** ILL/ICL values prior to April 2026 were loaded as a one-time insert from `non-SIRSI423.xlsx` (see One-Time Historical Data Loads). Going forward all ILL/ICL values are entered monthly via this tab.
+**Why ILL/ICL live in Rock Hill's Branch Stats:** These metrics are collected only at the Main (Rock Hill) branch. Storing them in Branch Stats keeps all branch-level data in one category.
 
-### History
-
-Before April 2026, ILL and ICL had separate routes (`/enter/ill`, `/enter/icl`) using a dedicated `main_only_entry.html` template. These were removed and consolidated into the third tab of the main manual entry form. The `main_only_entry.html` template remains on disk but no route points to it.
+**Historical data note:** ILL/ICL values prior to April 2026 were loaded as a one-time insert from `non-SIRSI423.xlsx` (see One-Time Historical Data Loads). Going forward all ILL/ICL values are entered monthly via these forms.
 
 ---
 
 ## New Entry / Edit Entry Forms (`/entries/new/<id>`, `/entries/<id>/edit`)
 
-These generic forms (used by "Enter Data → [category]" in the nav) also filter out `_UPLOAD_SOURCED_METRICS` for Branch Stats entries, matching the manual entry form. This prevents staff from accidentally entering values for metrics that are owned by file imports or the ILL/ICL tab. The filtering applies only to Branch Stats; other categories (Online Stats, Quarterly Reference Stats) show all their metrics.
+These generic forms (used by "Enter Data → [category]" in the nav) also filter out `_UPLOAD_SOURCED_METRICS` for Branch Stats entries, matching the manual entry form. This prevents staff from accidentally entering values for metrics that are owned by file imports or the dedicated ILL/ICL forms. The filtering applies only to Branch Stats; other categories (Online Stats, Quarterly Reference Stats) show all their metrics.
 
 ---
 
@@ -424,6 +422,47 @@ Locker circulation (`YCL-CL-LOC`, `YCL-FM-LOC`, `YCL-LW-LOC`, `YCL-RH-LOC`, `YCL
 ## Dashboard
 
 Shows the most recent month with circulation data as the "current" month, so it does not go blank if data for the latest calendar month has not been uploaded yet.
+
+---
+
+## Current Data Status (as of 2026-04-26)
+
+### What is loaded
+
+| Source | Status | Coverage |
+|---|---|---|
+| `non-SIRSI423.xlsx` | ✅ Loaded (one-time insert) | Jan 2024 – Mar 2026, all branches, all non-SIRSI Branch Stats metrics (WiFi, PC reservations, programs, ILL/ICL, printing, etc.) |
+| SIRSI Circulation | ⚠️ Partial | August 2025 only (11 entries, 1,563 SirsiCheckout rows) |
+| SIRSI Registration | ⚠️ Partial | August 2025 only (6 values per metric) |
+| Princh Printing | ⚠️ Partial | Some months loaded (79 values), not full history |
+| Online Stats | ❌ Not loaded | 0 entries — `onlin423.xlsx` has not been uploaded |
+| Quarterly Reference Stats | ❌ Not loaded | 0 entries — `QRSver2.xlsx` has not been uploaded |
+| Door Counter | ❌ Not loaded | Gate Count data in DB came from `non-SIRSI423.xlsx`, not door counter exports |
+
+### Remaining uploads needed
+
+Upload through the **Upload Data** page (`/upload`). Files can be uploaded in any order — the system upserts and will not overwrite unrelated metrics.
+
+**Priority 1 — SIRSI Circulation** (one file per month, all months Jan 2024 – present except Aug 2025)
+- File: `Checkouts by Branch and Shelving Location - {Month} {Year}.xlsx`
+- Writes: `Total Branch Circulation` and `Hotspots Circulation` per branch
+
+**Priority 2 — SIRSI Registration** (one file per month, all months Jan 2024 – present except Aug 2025)
+- File: `Number of New Library Users by Branch and Patron Type - {Month} {Year}.xlsx`
+- Writes: `New Library Card Registrations, Adult/Juvenile/Total` per branch
+
+**Priority 3 — Online Stats** (single upload covers multiple months)
+- File: `onlin423.xlsx` (covers Jul 2025 – early 2026)
+- For data before Jul 2025, use a one-time script insert if an older file exists
+- Writes: all Online Stats metrics system-wide
+
+**Priority 4 — Quarterly Reference Stats** (single upload covers multiple quarters)
+- File: `QRSver2.xlsx` (covers Q1 2025 – present)
+- Writes: `Total Transactions for the Week` per branch per quarter/month
+
+**Priority 5 — Princh Printing** (one file per month for any gaps)
+- File: `princh-export_{start}_{end}.xlsx`
+- Writes: `Total Prints per Month` per branch
 
 ---
 

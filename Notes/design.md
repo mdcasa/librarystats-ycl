@@ -21,6 +21,52 @@ Library Stats is a Flask web app (hosted on Railway, PostgreSQL in production) t
 
 All imports go through the `/upload` page. The system auto-detects the file type by reading the sheet name or header row. Files can be uploaded in any order — each importer upserts its specific metrics without overwriting data from other importers.
 
+For metrics not covered by uploaded files, staff use the **Manual Entry** form at `/enter/manual`.
+
+---
+
+## Manual Entry Form (`/enter/manual`)
+
+The manual entry form lets staff enter data for a selected month without uploading a file. It has three tabs:
+
+### Tab 1 — Branch Stats
+
+Shows all active Branch Stats metrics **except** those sourced from uploads. Metrics excluded from this tab (controlled by `_UPLOAD_SOURCED_METRICS` in `app.py`):
+
+| Metric | Source |
+|---|---|
+| Gate Count | Door counter upload |
+| New Library Card Registrations, Adult | SIRSI registration upload |
+| New Library Card Registrations, Juvenile | SIRSI registration upload |
+| New Library Card Registrations, Total | SIRSI registration upload |
+| Total Branch Circulation | SIRSI checkout upload |
+| Hotspots Circulation | SIRSI checkout upload |
+| ILL - Sent (Main ONLY) | ILL/ICL tab (see below) |
+| ILL - Received (Main ONLY) | ILL/ICL tab (see below) |
+| ICLs - Sent (Main ONLY) | ILL/ICL tab (see below) |
+| ICLs - Received (Main ONLY) | ILL/ICL tab (see below) |
+
+Each branch appears as an accordion panel. Panels that already have data for the selected month are automatically expanded.
+
+### Tab 2 — Online Stats
+
+System-wide online/social media metrics (not branch-specific). All active Online Stats metrics appear here.
+
+### Tab 3 — ILL / ICL (Main only)
+
+ILL and ICL data is entered only for the Rock Hill (Main) branch. The tab is split into two groups:
+
+- **Interlibrary Loans (ILL):** ILL - Sent (Main ONLY), ILL - Received (Main ONLY)
+- **Interlibrary Cooperative Loans (ICL):** ICLs - Sent (Main ONLY), ICLs - Received (Main ONLY)
+
+Input field names use the prefix `illicl_m{metric_id}`. On POST, these values are saved to the Rock Hill branch's Branch Stats entry for the selected month (upserted — existing values are overwritten, missing ones are created).
+
+**Why ILL/ICL live in Rock Hill's Branch Stats:** These metrics are collected only at the Main (Rock Hill) branch. Storing them in Branch Stats keeps all branch-level data in one category and avoids a separate entry type.
+
+### History
+
+Before April 2026, ILL and ICL had separate routes (`/enter/ill`, `/enter/icl`) using a dedicated `main_only_entry.html` template. These were removed and consolidated into the third tab of the main manual entry form. The `main_only_entry.html` template remains on disk but no route points to it.
+
 ---
 
 ## Import Procedure — File by File

@@ -347,6 +347,18 @@ The importer ignores which branch the card was registered at (Station Library) a
 
 **How detected:** Sheet named `Qrtly Ref Stats` or `Sheet1` containing a `Total # of Transactions for the Week` column
 
+**Current file contents (`QRSver2.xlsx`):** 26 data rows covering 3 quarters:
+
+| Quarter | Month | Year | Notes |
+|---|---|---|---|
+| Q1 | June | 2025 | 10 rows — Rock Hill Circulation has 3 separate submissions (1,244 + 166 + 2,117 = 3,527 when summed) |
+| Q2 | October | 2025 | 8 rows |
+| Q3 | January | 2026 | 8 rows |
+
+**Important:** Quarter labels in this file do not follow standard calendar quarters — Q1 = June, Q2 = October, Q3 = January. This is how staff labeled them when submitting via Google Forms. The importer stores whatever quarter value appears in the file without remapping.
+
+**Branches in this file:** Clover, Fort Mill, Lake Wylie, York, Outreach / Bookmobile, Rock Hill - Circulation, Rock Hill - Reference, Rock Hill - YA
+
 ---
 
 ## One-Time Historical Data Loads
@@ -436,7 +448,7 @@ Shows the most recent month with circulation data as the "current" month, so it 
 | SIRSI Registration | ⚠️ Partial | August 2025 only (6 values per metric) |
 | Princh Printing | ⚠️ Partial | Some months loaded (79 values), not full history |
 | Online Stats | ❌ Not loaded | 0 entries — `onlin423.xlsx` has not been uploaded |
-| Quarterly Reference Stats | ❌ Not loaded | 0 entries — `QRSver2.xlsx` has not been uploaded |
+| Quarterly Reference Stats | ❌ Not loaded | 0 entries — `QRSver2.xlsx` has not been uploaded (covers Q1/Jun 2025, Q2/Oct 2025, Q3/Jan 2026) |
 | Door Counter | ❌ Not loaded | Gate Count data in DB came from `non-SIRSI423.xlsx`, not door counter exports |
 
 ### Remaining uploads needed

@@ -74,38 +74,44 @@
 </div>
 
 {# ── Add new category ── #}
-<div class="card">
-  <div class="card-header-custom fw-semibold">Add New Category</div>
-  <div class="card-body">
-    <form method="post" action="{{ url_for('admin_categories') }}" class="row g-3">
-      <div class="col-md-4">
-        <label class="form-label">Name <span class="text-danger">*</span></label>
-        <input type="text" name="name" class="form-control" placeholder="e.g. Branch Stats" required>
-      </div>
-      <div class="col-md-4">
-        <label class="form-label">Description</label>
-        <input type="text" name="description" class="form-control" placeholder="Short description">
-      </div>
-      <div class="col-md-2">
-        <label class="form-label">Frequency</label>
-        <select name="frequency" class="form-select">
-          <option value="monthly">Monthly</option>
-          <option value="quarterly">Quarterly</option>
-          <option value="annual">Annual</option>
-        </select>
-      </div>
-      <div class="col-md-2 d-flex align-items-end">
-        <div class="form-check mb-2">
-          <input type="checkbox" name="has_branch" id="has_branch" class="form-check-input" checked>
-          <label for="has_branch" class="form-check-label">Per-branch</label>
+<button class="btn btn-outline-primary btn-sm mb-3" type="button"
+        data-bs-toggle="collapse" data-bs-target="#addCategoryForm" aria-expanded="false">
+  <i class="bi bi-plus-lg me-1"></i>Add New Category
+</button>
+<div class="collapse" id="addCategoryForm">
+  <div class="card mb-4">
+    <div class="card-header-custom fw-semibold">Add New Category</div>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('admin_categories') }}" class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label">Name <span class="text-danger">*</span></label>
+          <input type="text" name="name" class="form-control" placeholder="e.g. Branch Stats" required>
         </div>
-      </div>
-      <div class="col-12">
-        <button type="submit" class="btn btn-primary">
-          <i class="bi bi-plus-lg me-1"></i>Create Category
-        </button>
-      </div>
-    </form>
+        <div class="col-md-4">
+          <label class="form-label">Description</label>
+          <input type="text" name="description" class="form-control" placeholder="Short description">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Frequency</label>
+          <select name="frequency" class="form-select">
+            <option value="monthly">Monthly</option>
+            <option value="quarterly">Quarterly</option>
+            <option value="annual">Annual</option>
+          </select>
+        </div>
+        <div class="col-md-2 d-flex align-items-end">
+          <div class="form-check mb-2">
+            <input type="checkbox" name="has_branch" id="has_branch" class="form-check-input" checked>
+            <label for="has_branch" class="form-check-label">Per-branch</label>
+          </div>
+        </div>
+        <div class="col-12">
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-plus-lg me-1"></i>Create Category
+          </button>
+        </div>
+      </form>
+    </div>
   </div>
 </div>
 {% endblock %}

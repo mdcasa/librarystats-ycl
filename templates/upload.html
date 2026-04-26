@@ -88,7 +88,7 @@
           </thead>
           <tbody>
             {% for r in results %}
-            <tr>
+            <tr class="{{ 'warning-row' if r.warnings }}">
               <td class="fw-semibold">{{ r.sheet }}</td>
               <td class="text-center">
                 {% if r.created > 0 %}
@@ -109,7 +109,7 @@
                 <div class="text-muted small">{{ r.note }}</div>
                 {% endif %}
                 {% for w in r.warnings %}
-                <div class="text-warning small"><i class="bi bi-exclamation-triangle me-1"></i>{{ w }}</div>
+                <div class="small" style="color:#856404"><i class="bi bi-exclamation-triangle me-1"></i>{{ w }}</div>
                 {% endfor %}
               </td>
             </tr>

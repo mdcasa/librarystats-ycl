@@ -59,6 +59,27 @@ Pages that return no results use the `.empty-state` CSS class (defined in `base.
 ```
 Applied to: Monthly Summary, Fiscal Year Totals, Year-over-Year, Cross-tab Heat Map. The Browse Data page already had a similar pattern.
 
+### Warning row highlight
+Import results rows with warnings get the `.warning-row` CSS class (`border-left: 4px solid #ffc107`), defined in `base.html`. Warning text is rendered in `#856404` (dark amber) instead of Bootstrap's low-contrast `text-warning` yellow.
+
+### Metric group headers
+`.group-header td` in `base.html` styles group header rows in report tables. Uses sentence case (no `text-transform: uppercase`) at `.82rem` for readability. Background is `--ycl-blue-pale`, text is `--ycl-blue`.
+
+### Sidebar labels
+`.sidebar-label` (filter form labels, dropdown section headers) is `.8rem` — bumped from `.7rem` for WCAG AA legibility.
+
+### Password reset UI (admin)
+The Reset Password card on `/admin/users/<id>/edit` has a yellow left-border header (`border-left: 4px solid #ffc107`, `background: #fff8e1`) to visually distinguish it as a sensitive action. No email flow — admins set the new password directly.
+
+### Admin breadcrumbs
+`/admin/users` and `/admin/branches` include a breadcrumb trail (`Admin → [page]`) so admins can navigate back to the Categories & Metrics hub.
+
+### Collapsible Add Category form
+The "Add New Category" form on `/admin/categories` is hidden by default behind a Bootstrap collapse toggle. Keeps the page clean when managing existing categories.
+
+### Browse Data — Submitted column
+The entries list combines submitted date and username into one column: `DD Mon YYYY · username`. Time-of-day is omitted as it adds no value.
+
 ---
 
 ## Tech Stack

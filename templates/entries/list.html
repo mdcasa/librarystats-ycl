@@ -56,8 +56,7 @@
           <th>Category</th>
           <th>Branch / Location</th>
           <th>Period</th>
-          <th>Submitted by</th>
-          <th>Date Submitted</th>
+          <th>Submitted</th>
           <th class="text-end">Actions</th>
         </tr>
       </thead>
@@ -68,8 +67,7 @@
           <td>{{ entry.category.name }}</td>
           <td class="text-muted">{{ entry.branch_label }}</td>
           <td><span class="badge bg-light text-dark border">{{ entry.period_label }}</span></td>
-          <td class="text-muted small">{{ entry.submitted_by or '—' }}</td>
-          <td class="text-muted small">{{ entry.submitted_at.strftime('%d %b %Y %H:%M') }}</td>
+          <td class="text-muted small">{{ entry.submitted_at.strftime('%d %b %Y') }}{% if entry.submitted_by %} · {{ entry.submitted_by }}{% endif %}</td>
           <td class="text-end">
             <a href="{{ url_for('entry_view', entry_id=entry.id) }}"
                class="btn btn-sm btn-outline-primary btn-xs me-1">View</a>

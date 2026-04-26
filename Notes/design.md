@@ -6,6 +6,25 @@ Library Stats is a Flask web app (hosted on Railway, PostgreSQL in production) t
 
 ---
 
+## Branding & UI
+
+The app is branded as **YCL Statistics** (York County Library). All pages use the YCL royal blue color scheme.
+
+**Brand colors (CSS variables in `base.html`):**
+
+| Variable | Hex | Use |
+|---|---|---|
+| `--ycl-blue` | `#1a4f9e` | Navbar, primary buttons, links, accents |
+| `--ycl-blue-dark` | `#153f80` | Hover states |
+| `--ycl-blue-light` | `#2563b8` | Lighter accent |
+| `--ycl-blue-pale` | `#e8f0fb` | Section header backgrounds, accordion active state |
+
+**Logo:** `static/ycl-logo.png` — the full YCL logo file (`Data files/YCL Logo.png`) copied to `static/` for Flask to serve. Rendered white in the navbar via `filter: brightness(0) invert(1)`. Served via `url_for('static', filename='ycl-logo.png')`.
+
+**Static files:** Flask's default `static/` folder (project root). `Flask(__name__)` picks this up automatically with no configuration needed.
+
+---
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -26,6 +45,32 @@ Library Stats is a Flask web app (hosted on Railway, PostgreSQL in production) t
 - `export_excel.py` — Excel export
 - `seed_data.py` — initial categories, metrics, and branches (runs once on first boot when DB is empty)
 - `requirements.txt` — `Flask`, `Flask-SQLAlchemy`, `psycopg2-binary`, `gunicorn`, `openpyxl`, `python-dotenv`
+
+---
+
+## Git Branching Strategy
+
+| Branch | Purpose |
+|---|---|
+| `main` | Stable production branch — the version originally deployed to Railway |
+| `v2` | Archived copy of the v2-stable state (tagged `v2-stable`) |
+| `v3` | Active development branch — currently deployed to Railway |
+
+**Railway is pointed at the `v3` branch.** Auto-deploys on every push to `v3`.
+
+To roll back to v2: in the Railway dashboard, switch the deployment branch back to `main` or `v2`.
+
+To install the Railway CLI (not pre-installed in Codespaces):
+```bash
+npm install -g @railway/cli
+railway login       # opens browser auth
+railway link        # links the current directory to the Railway project
+```
+
+After linking, run one-time scripts against production:
+```bash
+railway run python3 import_annual.py
+```
 
 ---
 
@@ -572,6 +617,23 @@ Shows the most recent month with circulation data as the "current" month, so it 
 
 ---
 
+## Navigation Structure
+
+The navbar has 6 top-level items (condensed from 8 to reduce crowding):
+
+| Nav item | Type | Contents |
+|---|---|---|
+| Dashboard | Link | `/` |
+| Enter Data | Dropdown | Manual Entry, ILL Entry, ICL Entry, category entry links |
+| Data | Dropdown | Upload Data, Browse Data |
+| Dashboards | Dropdown | Director's Dashboard, Annual Survey |
+| Reports | Dropdown | All 11 report routes |
+| Admin | Dropdown | Categories & Metrics, Branches, Import, Export |
+
+Sign Out button is right-aligned (hidden on mobile).
+
+---
+
 ## All Routes
 
 ### Navigation / Auth
@@ -617,6 +679,15 @@ Shows the most recent month with circulation data as the "current" month, so it 
 | `/reports/programming` | `report_programming` | Programming Summary — all programming metrics |
 | `/reports/online` | `report_online` | Online Stats — all online/social metrics over time |
 | `/director` | `director_dashboard` | Director's Dashboard — high-level summary for leadership |
+
+### Annual Survey
+| Route | Function | Description |
+|---|---|---|
+| `/annual-survey` | `annual_survey_dashboard` | Dashboard with KPI cards, Trend Explorer, fixed charts, key metrics table, full section accordion |
+| `/annual-survey/<year>/enter` | `annual_survey_enter` | Entry/edit form for a specific fiscal year (16 sections, accordion) |
+| `/annual-survey/<year>/calculate` | `annual_survey_calculate` | POST — auto-calculates metrics from monthly data for the fiscal year |
+
+See `Notes/annual_comparables_design.md` for full documentation of the annual survey system.
 
 ### Admin
 | Route | Function | Description |

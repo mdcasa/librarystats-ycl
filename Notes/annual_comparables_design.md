@@ -133,6 +133,32 @@ Auto-calculated fields are shown as read-only in the entry form and are labelled
 
 ---
 
+## Trend Explorer
+
+The dashboard includes an interactive **Trend Explorer** above the fixed charts. It lets any numeric metric be charted across all fiscal years without writing new code.
+
+- **Section dropdown** — lists all 16 sections in canonical order
+- **Metric dropdown** — cascades from the section; lists only numeric (integer/decimal) metrics for that section
+- **Chart type toggle** — Line or Bar
+- All 132 numeric metric values are passed to the page as JSON at load time; chart renders instantly client-side (Chart.js 4.4, no AJAX)
+
+The backend change: `annual_survey_dashboard()` builds `chart_data` for every numeric metric (not just the 8 originally hardcoded). The template emits a `metricsBySectionRaw` JavaScript object keyed by section name, populated from the Jinja `sections` dict.
+
+---
+
+## Deployment on Railway
+
+When first deploying to a new Railway environment (or after a fresh DB):
+
+1. Push the `v3` branch — Railway auto-deploys and `db.create_all()` creates both tables
+2. Install Railway CLI if needed: `npm install -g @railway/cli`
+3. Link the project: `railway login && railway link`
+4. Run the historical import against production: `railway run python3 import_annual.py`
+
+The import is safe to re-run — it upserts on `(report_year, metric_id)`.
+
+---
+
 ## Historical Data Load
 
 **File:** `Data files/annual/Annual Comparables.xlsx`

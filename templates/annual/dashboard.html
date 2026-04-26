@@ -50,6 +50,38 @@
 </div>
 {% endif %}
 
+{# ── Interactive Chart Builder ── #}
+<div class="card mb-4">
+  <div class="card-header-custom fw-semibold d-flex align-items-center gap-3 flex-wrap">
+    <span><i class="bi bi-graph-up me-1 text-primary"></i>Trend Explorer</span>
+    <div class="d-flex gap-2 flex-wrap">
+      <select id="sectionPicker" class="form-select form-select-sm" style="width:auto">
+        <option value="">— Select section —</option>
+      </select>
+      <select id="metricPicker" class="form-select form-select-sm" style="width:auto" disabled>
+        <option value="">— Select metric —</option>
+      </select>
+    </div>
+    <div class="ms-auto d-flex gap-2">
+      <div class="form-check form-check-inline mb-0">
+        <input class="form-check-input" type="radio" name="chartTypeRadio" id="radioLine" value="line" checked>
+        <label class="form-check-label small" for="radioLine">Line</label>
+      </div>
+      <div class="form-check form-check-inline mb-0">
+        <input class="form-check-input" type="radio" name="chartTypeRadio" id="radioBar" value="bar">
+        <label class="form-check-label small" for="radioBar">Bar</label>
+      </div>
+    </div>
+  </div>
+  <div class="card-body">
+    <div id="explorerPlaceholder" class="text-center text-muted py-5">
+      <i class="bi bi-bar-chart-line fs-1 d-block mb-2 opacity-25"></i>
+      Pick a section and metric above to plot a trend
+    </div>
+    <canvas id="chartExplorer" style="display:none"></canvas>
+  </div>
+</div>
+
 {# ── Trend Charts ── #}
 <div class="row g-4 mb-4">
   <div class="col-lg-6">
@@ -284,5 +316,88 @@ makeChart('chartTotalCirc','Grand Total Circ',       'GRAND TOTAL ALL CIRC',    
     }
   });
 })();
+
+// ── Trend Explorer ──────────────────────────────────────────────────────────
+const sectionMeta = {{ sections | tojson(default=str) if false else '{}' }};
+
+// Build section → [metric names] map from chartData keys and section_order
+const sectionOrder = {{ section_order | tojson }};
+const metricsBySectionRaw = {};
+{% for section_name, mlist in sections.items() %}
+metricsBySectionRaw[{{ section_name | tojson }}] = [
+  {% for m in mlist %}{% if m.data_type in ['integer','decimal'] %}{{ m.name | tojson }},{% endif %}{% endfor %}
+];
+{% endfor %}
+
+// Populate section picker in section_order sequence
+const sectionPicker = document.getElementById('sectionPicker');
+const metricPicker  = document.getElementById('metricPicker');
+sectionOrder.forEach(sec => {
+  if (metricsBySectionRaw[sec] && metricsBySectionRaw[sec].length) {
+    const opt = document.createElement('option');
+    opt.value = sec; opt.textContent = sec;
+    sectionPicker.appendChild(opt);
+  }
+});
+
+sectionPicker.addEventListener('change', () => {
+  const sec = sectionPicker.value;
+  metricPicker.innerHTML = '<option value="">— Select metric —</option>';
+  metricPicker.disabled = !sec;
+  if (sec) {
+    (metricsBySectionRaw[sec] || []).forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name; opt.textContent = name;
+      metricPicker.appendChild(opt);
+    });
+  }
+  drawExplorer();
+});
+
+metricPicker.addEventListener('change', drawExplorer);
+document.querySelectorAll('input[name="chartTypeRadio"]').forEach(r => r.addEventListener('change', drawExplorer));
+
+let explorerChart = null;
+function drawExplorer() {
+  const metric = metricPicker.value;
+  const placeholder = document.getElementById('explorerPlaceholder');
+  const canvas = document.getElementById('chartExplorer');
+  if (!metric || !chartData[metric]) {
+    placeholder.style.display = '';
+    canvas.style.display = 'none';
+    if (explorerChart) { explorerChart.destroy(); explorerChart = null; }
+    return;
+  }
+  placeholder.style.display = 'none';
+  canvas.style.display = '';
+  const d = chartData[metric];
+  const chartType = document.querySelector('input[name="chartTypeRadio"]:checked').value;
+  const color = '#1a5276';
+  if (explorerChart) { explorerChart.destroy(); }
+  explorerChart = new Chart(canvas, {
+    type: chartType,
+    data: {
+      labels: d.labels.map(y => 'FY' + y),
+      datasets: [{
+        label: metric,
+        data: d.values,
+        borderColor: color,
+        backgroundColor: chartType === 'bar' ? color + '88' : color + '22',
+        fill: chartType === 'line',
+        tension: 0.3,
+        pointRadius: 4,
+        spanGaps: true,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false },
+                 tooltip: { callbacks: { label: ctx => ctx.parsed.y !== null ? ctx.parsed.y.toLocaleString() : 'no data' } } },
+      scales: {
+        y: { beginAtZero: false, ticks: { callback: v => v != null ? v.toLocaleString() : v } }
+      }
+    }
+  });
+}
 </script>
 {% endblock %}

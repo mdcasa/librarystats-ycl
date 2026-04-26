@@ -2000,13 +2000,14 @@ def annual_survey_dashboard():
             prev = _annual_get_value(prev_ym, metric_name)
             kpis.append({'label': label, 'value': cur, 'prev': prev})
 
-    # Chart data — all years for each chart metric
+    # Chart data — all years for every numeric metric (for interactive chart builder)
     chart_data = {}
-    for mname in _ANNUAL_CHART_METRICS:
-        chart_data[mname] = {
-            'labels': years,
-            'values': [_annual_get_value(by_year.get(y, {}), mname) for y in years],
-        }
+    for m in all_metrics:
+        if m.data_type in ('integer', 'decimal'):
+            chart_data[m.name] = {
+                'labels': years,
+                'values': [_annual_get_value(by_year.get(y, {}), m.name) for y in years],
+            }
 
     # Section summary table — group metrics by section, one col per year
     sections = {}

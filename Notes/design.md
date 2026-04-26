@@ -66,6 +66,7 @@ Applied to: Monthly Summary, Fiscal Year Totals, Year-over-Year, Cross-tab Heat 
 | Language | Python 3 |
 | Web framework | Flask ≥ 3.0 |
 | ORM | Flask-SQLAlchemy ≥ 3.1 |
+| Auth | Flask-Login ≥ 0.6.3 |
 | Database (production) | PostgreSQL via Railway |
 | Database (local dev) | SQLite (`librarystats.db`) |
 | WSGI server | gunicorn |
@@ -74,11 +75,11 @@ Applied to: Monthly Summary, Fiscal Year Totals, Year-over-Year, Cross-tab Heat 
 
 **Key files:**
 - `app.py` — Flask app, all routes, business logic
-- `models.py` — SQLAlchemy models
+- `models.py` — SQLAlchemy models (includes `User`)
 - `import_excel.py` — all file importers
 - `export_excel.py` — Excel export
 - `seed_data.py` — initial categories, metrics, and branches (runs once on first boot when DB is empty)
-- `requirements.txt` — `Flask`, `Flask-SQLAlchemy`, `psycopg2-binary`, `gunicorn`, `openpyxl`, `python-dotenv`
+- `requirements.txt` — `Flask`, `Flask-SQLAlchemy`, `Flask-Login`, `psycopg2-binary`, `gunicorn`, `openpyxl`, `python-dotenv`
 
 ---
 
@@ -88,11 +89,12 @@ Applied to: Monthly Summary, Fiscal Year Totals, Year-over-Year, Cross-tab Heat 
 |---|---|
 | `main` | Stable production branch — the version originally deployed to Railway |
 | `v2` | Archived copy of the v2-stable state (tagged `v2-stable`) |
-| `v3` | Active development branch — currently deployed to Railway |
+| `v3` | Previous active branch (archived) |
+| `v4` | Active development branch — currently deployed to Railway |
 
-**Railway is pointed at the `v3` branch.** Auto-deploys on every push to `v3`.
+**Railway is pointed at the `v4` branch.** Auto-deploys on every push to `v4`.
 
-To roll back to v2: in the Railway dashboard, switch the deployment branch back to `main` or `v2`.
+To roll back: in the Railway dashboard, switch the deployment branch back to `v3` or `main`.
 
 To install the Railway CLI (not pre-installed in Codespaces):
 ```bash
@@ -118,8 +120,8 @@ The app is deployed on Railway. On startup, `db.create_all()` runs automatically
 |---|---|
 | `DATABASE_URL` | PostgreSQL connection string (Railway sets this automatically). Must start with `postgresql://` — the app rewrites `postgres://` automatically. |
 | `SECRET_KEY` | Flask session signing key |
-| `LOGIN_USERNAME` | Single shared login username |
-| `LOGIN_PASSWORD` | Single shared login password |
+| `LOGIN_PASSWORD` | Password for the bootstrap admin account (used only on first boot if no users exist) |
+| `LOGIN_USERNAME` | *(Optional)* Username for the bootstrap admin — defaults to `admin` if not set |
 
 **Local development:** Create a `.env` file in the project root with the same variables pointing at the Railway PostgreSQL instance (or omit `DATABASE_URL` to use local SQLite).
 
@@ -127,16 +129,31 @@ The app is deployed on Railway. On startup, `db.create_all()` runs automatically
 
 ## Authentication
 
-Single shared username/password — no user accounts or roles. Credentials are stored as environment variables (`LOGIN_USERNAME`, `LOGIN_PASSWORD`). All routes require login except `/login` and `/logout`. Comparison uses `hmac.compare_digest` to prevent timing attacks. Session is permanent (browser session cookie).
+Individual user accounts managed via Flask-Login. Passwords are hashed with `werkzeug` (`generate_password_hash` / `check_password_hash`). All routes require login except `/login` and `/logout` (enforced by a `before_request` hook).
+
+**User model fields:** `username`, `email`, `password_hash`, `is_active`, `is_admin`
+
+**Roles:**
+- `is_admin=True` — full access including user management (`/admin/users`)
+- `is_admin=False` — all data entry and reporting routes; no admin panel
+
+**Bootstrap admin:** On first boot, if the `users` table is empty, the app auto-creates one admin account using:
+- Username: `LOGIN_USERNAME` env var (defaults to `admin` if not set)
+- Password: `LOGIN_PASSWORD` env var
+
+`LOGIN_USERNAME` can be omitted from Railway env vars — the default is `admin`. `LOGIN_PASSWORD` must be set.
+
+After the first user is created, additional accounts are managed via Admin → Users in the nav.
 
 ---
 
 ## Data Model
 
-Six tables:
+Seven tables:
 
 | Table | Purpose |
 |---|---|
+| `users` | Login accounts — username, hashed password, is_admin, is_active |
 | `categories` | Types of stats (Branch Stats, Online Stats, etc.) |
 | `metrics` | Individual fields within a category, with group_name for display grouping |
 | `branches` | Physical locations; `is_desk=True` for sub-desks like Rock Hill - Circulation |
@@ -682,7 +699,7 @@ The navbar has 6 top-level items (condensed from 8 to reduce crowding):
 | Data | Dropdown | Upload Data, Browse Data |
 | Dashboards | Dropdown | Director's Dashboard, Annual Survey |
 | Reports | Dropdown | All 11 report routes |
-| Admin | Dropdown | Categories & Metrics, Branches, Import, Export |
+| Admin | Dropdown | Categories & Metrics, Branches, Users, Import, Export |
 
 Sign Out button is right-aligned (hidden on mobile).
 
@@ -693,8 +710,8 @@ Sign Out button is right-aligned (hidden on mobile).
 ### Navigation / Auth
 | Route | Function | Description |
 |---|---|---|
-| `/login` | `login` | Single shared login form |
-| `/logout` | `logout` | Clears session |
+| `/login` | `login` | Login form (username + password) |
+| `/logout` | `logout` | Logs out current user |
 | `/` | `index` | Main dashboard |
 
 ### Data Entry
@@ -759,6 +776,11 @@ See `Notes/annual_comparables_design.md` for full documentation of the annual su
 | `/admin/branches/<id>/delete` | — | Delete a branch |
 | `/admin/import` | `admin_import` | Legacy import page (admin-only upload) |
 | `/admin/export` | `admin_export` | Export all data to Excel |
+| `/admin/users` | `admin_users` | List all user accounts (admin only) |
+| `/admin/users/new` | `admin_users_new` | Create a new user account |
+| `/admin/users/<id>/edit` | `admin_user_edit` | Edit user — username, email, role, reset password |
+| `/admin/users/<id>/toggle` | — | Activate or deactivate a user account |
+| `/admin/users/<id>/delete` | — | Delete a user account |
 
 ---
 

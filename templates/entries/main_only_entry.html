@@ -1,0 +1,86 @@
+{% extends 'base.html' %}
+{% block title %}{{ form_title }} – Library Stats{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb small">
+    <li class="breadcrumb-item"><a href="{{ url_for('index') }}">Dashboard</a></li>
+    <li class="breadcrumb-item active">{{ form_title }}</li>
+  </ol>
+</nav>
+
+<h1 class="h4 fw-bold mb-1">
+  <i class="bi bi-pencil-square me-2 text-primary"></i>{{ form_title }}
+</h1>
+<p class="text-muted mb-4">
+  <i class="bi bi-building me-1"></i>{{ branch.name }} only
+</p>
+
+<form method="post" action="{{ url_for(redirect_endpoint) }}">
+
+  <div class="card mb-4">
+    <div class="card-header-custom fw-semibold">Period</div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-sm-2">
+          <label class="form-label fw-semibold">Year <span class="text-danger">*</span></label>
+          <select name="year" class="form-select" required>
+            {% for y in year_range %}
+            <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-sm-3">
+          <label class="form-label fw-semibold">Month <span class="text-danger">*</span></label>
+          <select name="month" class="form-select" required>
+            {% for m in months %}
+            <option value="{{ loop.index }}" {% if loop.index == month %}selected{% endif %}>{{ m }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-sm-3">
+          <label class="form-label fw-semibold">Submitted by</label>
+          <input type="text" name="submitted_by" class="form-control" placeholder="Name or email">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header-custom fw-semibold">Values</div>
+    <div class="table-responsive">
+      <table class="table mb-0 align-middle">
+        <colgroup>
+          <col style="width: 65%">
+          <col style="width: 35%">
+        </colgroup>
+        <thead class="table-light">
+          <tr>
+            <th>Metric</th>
+            <th>Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in metrics %}
+          {% set ev = values.get(m.id) %}
+          <tr>
+            <td>{{ m.name }}</td>
+            <td>
+              <input type="number" name="m{{ m.id }}"
+                     class="form-control form-control-sm"
+                     step="1" min="0"
+                     value="{{ ev.display_value if ev else '' }}">
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <button type="submit" class="btn btn-primary px-4">
+    <i class="bi bi-check-lg me-1"></i>Save
+  </button>
+
+</form>
+{% endblock %}

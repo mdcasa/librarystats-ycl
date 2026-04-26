@@ -1472,6 +1472,96 @@ def manual_entry():
                            year_range=year_range)
 
 
+def _main_only_entry(metric_names, form_title, redirect_endpoint):
+    """Shared logic for ILL and ICL single-branch entry forms."""
+    branch_cat = Category.query.filter_by(name='Branch Stats').first()
+    if not branch_cat:
+        flash('Branch Stats category not found.', 'danger')
+        return redirect(url_for('index'))
+
+    metrics = [m for m in branch_cat.active_metrics if m.name in metric_names]
+    rock_hill = Branch.query.filter(Branch.name.ilike('%rock hill%'),
+                                    Branch.is_desk == False).first()
+    if not rock_hill:
+        flash('Rock Hill branch not found.', 'danger')
+        return redirect(url_for('index'))
+
+    year  = request.args.get('year',  type=int) or datetime.now().year
+    month = request.args.get('month', type=int) or datetime.now().month
+
+    if request.method == 'POST':
+        year         = request.form.get('year',  type=int)
+        month        = request.form.get('month', type=int)
+        submitted_by = request.form.get('submitted_by', '').strip()
+
+        vals = {}
+        for m in metrics:
+            raw = request.form.get(f'm{m.id}', '').strip()
+            if raw:
+                try:
+                    vals[m.id] = float(raw)
+                except ValueError:
+                    pass
+
+        if vals:
+            entry = Entry.query.filter_by(category_id=branch_cat.id,
+                                          branch_id=rock_hill.id,
+                                          year=year, month=month).first()
+            if not entry:
+                entry = Entry(category_id=branch_cat.id, branch_id=rock_hill.id,
+                              year=year, month=month, submitted_by=submitted_by)
+                db.session.add(entry)
+                db.session.flush()
+
+            for metric_id, val in vals.items():
+                ev = EntryValue.query.filter_by(entry_id=entry.id,
+                                                metric_id=metric_id).first()
+                if ev:
+                    ev.value_number = val
+                else:
+                    db.session.add(EntryValue(entry_id=entry.id,
+                                              metric_id=metric_id,
+                                              value_number=val))
+            db.session.commit()
+            flash(f'{form_title} saved for {MONTHS[month - 1]} {year}.', 'success')
+
+        return redirect(url_for(redirect_endpoint, year=year, month=month))
+
+    entry = Entry.query.filter_by(category_id=branch_cat.id,
+                                   branch_id=rock_hill.id,
+                                   year=year, month=month).first()
+    values = {ev.metric_id: ev for ev in entry.values} if entry else {}
+
+    year_range = range(datetime.now().year - 5, datetime.now().year + 2)
+    return render_template('entries/main_only_entry.html',
+                           form_title=form_title,
+                           metrics=metrics,
+                           values=values,
+                           branch=rock_hill,
+                           year=year, month=month,
+                           months=MONTHS,
+                           year_range=year_range,
+                           redirect_endpoint=redirect_endpoint)
+
+
+@app.route('/enter/ill', methods=['GET', 'POST'])
+def ill_entry():
+    return _main_only_entry(
+        metric_names={'ILL - Sent (Main ONLY)', 'ILL - Received (Main ONLY)'},
+        form_title='ILL Entry',
+        redirect_endpoint='ill_entry',
+    )
+
+
+@app.route('/enter/icl', methods=['GET', 'POST'])
+def icl_entry():
+    return _main_only_entry(
+        metric_names={'ICLs - Sent (Main ONLY)', 'ICLs - Received (Main ONLY)'},
+        form_title='ICL Entry',
+        redirect_endpoint='icl_entry',
+    )
+
+
 @app.route('/admin/export')
 def admin_export():
     import io

@@ -50,6 +50,16 @@
                 <i class="bi bi-pencil-square me-2 text-primary"></i>Manual Entry (Staff)
               </a>
             </li>
+            <li>
+              <a class="dropdown-item" href="{{ url_for('ill_entry') }}">
+                <i class="bi bi-arrow-left-right me-2 text-secondary"></i>ILL Entry (Main only)
+              </a>
+            </li>
+            <li>
+              <a class="dropdown-item" href="{{ url_for('icl_entry') }}">
+                <i class="bi bi-arrow-left-right me-2 text-secondary"></i>ICL Entry (Main only)
+              </a>
+            </li>
             <li><hr class="dropdown-divider"></li>
             {% for cat in nav_categories %}
             <li>

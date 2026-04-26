@@ -726,15 +726,35 @@ def report_trend():
                     '#16a085','#d35400','#2980b9','#c0392b','#1abc9c']
 
         if category.has_branch:
-            all_branches = Branch.query.filter_by(is_active=True).order_by(Branch.name).all()
-            selected = [b for b in all_branches if b.id in branch_ids] if branch_ids else all_branches
+            real_branches = Branch.query.filter(
+                Branch.is_active == True,
+                Branch.is_desk == False,
+                ~Branch.name.ilike('%locker%'),
+                Branch.name != 'YCL (System Wide)',
+            ).order_by(Branch.name).all()
+            locker_branches = Branch.query.filter(
+                Branch.is_active == True,
+                Branch.name.ilike('%locker%'),
+            ).all()
+            selected = [b for b in real_branches if b.id in branch_ids] if branch_ids else real_branches
             for i, b in enumerate(selected):
+                lockers = [lb for lb in locker_branches
+                           if lb.name.lower().startswith(b.name.lower())]
                 pts = []
                 for mo in range(1, 13):
+                    total = None
                     e = Entry.query.filter_by(category_id=cat_id, branch_id=b.id,
                                               year=year, month=mo).first()
                     ev = EntryValue.query.filter_by(entry_id=e.id, metric_id=metric_id).first() if e else None
-                    pts.append(ev.value_number if ev else None)
+                    if ev and ev.value_number is not None:
+                        total = ev.value_number
+                    for lb in lockers:
+                        le = Entry.query.filter_by(category_id=cat_id, branch_id=lb.id,
+                                                   year=year, month=mo).first()
+                        lev = EntryValue.query.filter_by(entry_id=le.id, metric_id=metric_id).first() if le else None
+                        if lev and lev.value_number is not None:
+                            total = (total or 0) + lev.value_number
+                    pts.append(total)
                 datasets.append({'label': b.name, 'data': pts, 'tension': 0.3,
                                  'spanGaps': True, 'borderColor': colors[i % len(colors)],
                                  'backgroundColor': colors[i % len(colors)] + '22'})
@@ -750,7 +770,12 @@ def report_trend():
 
         chart_data = {'labels': labels, 'datasets': datasets}
 
-    all_branches = Branch.query.filter_by(is_active=True).order_by(Branch.name).all()
+    all_branches = Branch.query.filter(
+        Branch.is_active == True,
+        Branch.is_desk == False,
+        ~Branch.name.ilike('%locker%'),
+        Branch.name != 'YCL (System Wide)',
+    ).order_by(Branch.name).all()
     return render_template('reports/trend.html',
                            categories=categories, available_years=available_years,
                            all_branches=all_branches, metrics_json=metrics_json,
@@ -868,7 +893,12 @@ def report_yoy():
     available_years = [r[0] for r in db.session.query(Entry.year).distinct().order_by(Entry.year).all()]
     metrics_json    = metrics_by_category_json()
 
-    all_branches = Branch.query.filter_by(is_active=True).order_by(Branch.name).all()
+    all_branches = Branch.query.filter(
+        Branch.is_active == True,
+        Branch.is_desk == False,
+        ~Branch.name.ilike('%locker%'),
+        Branch.name != 'YCL (System Wide)',
+    ).order_by(Branch.name).all()
     table = col_headers = chart_data = category = metric = None
 
     if cat_id and len(years) >= 2:

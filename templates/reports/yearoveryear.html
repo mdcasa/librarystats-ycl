@@ -166,7 +166,9 @@
 
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 <script>
+Chart.register(ChartDataLabels);
 const metricsByCat = {{ metrics_json | tojson }};
 const selMetric    = {{ sel_metric or 'null' }};
 const chartData    = {{ chart_data | tojson if chart_data else 'null' }};
@@ -214,11 +216,28 @@ if (chartData) {
       data: chartData,
       options: {
         responsive: true,
+        layout: { padding: { right: 16 } },
         plugins: {
-          legend: { position: 'top' }
+          legend: { position: 'top' },
+          datalabels: {
+            display: ctx => {
+              const data = ctx.dataset.data;
+              const first = data.findIndex(v => v !== null && v !== undefined);
+              return ctx.dataIndex === first;
+            },
+            formatter: (_, ctx) => ctx.dataset.label,
+            anchor: 'center',
+            align: 'top',
+            offset: 4,
+            font: { size: 10, weight: 'bold' },
+            color: ctx => ctx.dataset.borderColor,
+            backgroundColor: 'rgba(255,255,255,0.8)',
+            borderRadius: 3,
+            padding: { left: 4, right: 4, top: 2, bottom: 2 },
+          }
         },
         scales: {
-          y: { beginAtZero: true }
+          y: { beginAtZero: true, ticks: { callback: v => v.toLocaleString() } }
         }
       }
     });

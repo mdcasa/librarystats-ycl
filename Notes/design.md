@@ -680,6 +680,8 @@ This returns 6 — the five branches plus bookmobile.
 
 **Locker branches** (`YCL-CL-LOC`, `YCL-FM-LOC`, `YCL-LW-LOC`, `YCL-RH-LOC`, `YCL-YK-LOC`) are kept as separate DB branches so their circulation can be tracked independently without being double-counted into the parent branch totals. They are excluded from Branch Stats entry forms, manual entry forms, and branch-count displays. The annual survey auto-calculator also excludes locker branches when summing gate count and other metrics.
 
+**Locker data in line charts (Trend Over Time report):** Locker branch data is merged into the parent branch line. For each real branch, the chart queries both the branch entry and any locker branch whose name starts with the same string (e.g. "Rock Hill Lockers" rolls into "Rock Hill"), summing them for each month. This means the Trend chart always shows 6 lines (the real service locations) with locker circulation already included. Locker branches are also excluded from the branch checkbox selector in the Trend report filter form.
+
 ---
 
 ## Dashboard
@@ -736,6 +738,12 @@ Sign Out button is right-aligned (hidden on mobile).
 | `/upload` | `upload_data` | Upload any supported Excel file; auto-detects format |
 
 ### Reports
+
+**Line chart conventions (Trend Over Time, Year-over-Year monthly mode):**
+- Both use Chart.js v4 with `chartjs-plugin-datalabels`. The plugin is registered globally (`Chart.register(ChartDataLabels)`).
+- Each line is labeled at its first non-null data point (branch name for Trend, year for YOY). Labels appear above the point with a white pill background and the line's color as font color.
+- Trend report branch selector and chart both exclude locker branches and desk sub-locations — only the 6 real service locations appear.
+
 | Route | Function | Description |
 |---|---|---|
 | `/reports/monthlystats` | `report_monthly_stats` | Monthly Board Report — key metrics for a selected month |

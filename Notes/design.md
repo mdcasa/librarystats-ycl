@@ -192,6 +192,7 @@ To deploy this app for a new library from scratch:
 - Update branch names via Admin → Branches
 - Update categories/metrics via Admin → Categories if the new library tracks different stats
 - Update branding (`static/ycl-logo.png`, CSS variables in `base.html`) for the new library's colours and logo
+- **Adapt the ILS importers** — YCL uses SIRSI, but every library uses a different ILS (Polaris, Koha, Symphony, etc.). The functions `import_sirsi_checkouts` and `import_sirsi_registrations` in `import_excel.py`, and the `SirsiCheckout` model, are SIRSI-specific. For a new library, replace these with importers that parse that library's ILS export format. The target metrics (Total Branch Circulation, Hotspot Circulation, New Library Card Registrations) and their location in Branch Stats stay the same — only the parsing logic changes. All other importers (Princh, door counter, Online Stats, QRS) are not ILS-dependent and transfer as-is.
 
 ---
 

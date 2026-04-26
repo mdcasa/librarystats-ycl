@@ -50,7 +50,9 @@ Flask 3, Flask-SQLAlchemy, Flask-Login, PostgreSQL (Supabase), gunicorn, openpyx
 - Desk sub-locations (`is_desk=True`): Rock Hill - Circulation, Rock Hill - YA — QRS only
 - System-wide placeholder: `YCL (System Wide)` — always excluded from counts and forms
 
-**SIRSI data goes into Branch Stats, not a separate category.** Total Branch Circulation, Hotspot Circulation, and registrations are stored as metrics within Branch Stats entries. The "Circulation" category in the DB is an empty alias — the dashboard Data Status widget falls back to Branch Stats SIRSI data to show the correct date for it.
+**SIRSI is YCL's ILS (Integrated Library System) — not a universal standard.** "SIRSI" throughout this codebase means "ILS circulation data." Every library uses a different ILS (SIRSI, Polaris, Koha, Symphony, etc.). When deploying for another library, the SIRSI-specific importers (`import_excel.py` functions `import_sirsi_checkouts`, `import_sirsi_registrations`) and the `SirsiCheckout` model would need to be adapted or replaced to match that library's ILS export format. The metric names (Total Branch Circulation, Hotspot Circulation, registrations) and where they land in Branch Stats can stay the same — only the importer parsing logic changes.
+
+**ILS/circulation data goes into Branch Stats, not a separate category.** Total Branch Circulation, Hotspot Circulation, and registrations are stored as metrics within Branch Stats entries. The "Circulation" category in the DB is an empty alias — the dashboard Data Status widget falls back to Branch Stats ILS data to show the correct date for it.
 
 **Importers upsert — never skip.** Each importer finds-or-creates the entry then adds/overwrites only its own metrics. Safe to upload the same file twice.
 

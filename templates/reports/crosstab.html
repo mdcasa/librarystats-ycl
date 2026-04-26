@@ -121,7 +121,13 @@
 </div>
 
 {% elif sel_cat and sel_metric and sel_fy %}
-<div class="alert alert-info">No data found for this combination.</div>
+<div class="empty-state">
+  <i class="bi bi-grid-3x3-gap empty-icon"></i>
+  <p>No data found for this metric, fiscal year, and category combination.</p>
+  <a href="{{ url_for('upload_data') }}" class="btn btn-outline-primary btn-sm">
+    <i class="bi bi-upload me-1"></i>Upload Data
+  </a>
+</div>
 {% endif %}
 {% endblock %}
 

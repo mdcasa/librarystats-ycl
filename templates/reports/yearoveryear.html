@@ -152,7 +152,13 @@
   </div>
 
   {% else %}
-  <div class="alert alert-info">No data found for the selected combination.</div>
+  <div class="empty-state">
+    <i class="bi bi-bar-chart-line empty-icon"></i>
+    <p>No data found for this metric and branch combination.</p>
+    <a href="{{ url_for('upload_data') }}" class="btn btn-outline-primary btn-sm">
+      <i class="bi bi-upload me-1"></i>Upload Data
+    </a>
+  </div>
   {% endif %}
 {% endif %}
 

@@ -23,6 +23,40 @@ The app is branded as **YCL Statistics** (York County Library). All pages use th
 
 **Static files:** Flask's default `static/` folder (project root). `Flask(__name__)` picks this up automatically with no configuration needed.
 
+**Favicon:** `static/ycl-logo.png` is also referenced as the browser tab favicon via `<link rel="icon" type="image/png">`. Modern browsers handle PNG favicons natively — no `.ico` conversion needed.
+
+---
+
+## UI Patterns
+
+### Active nav highlighting
+`base.html` sets `request.endpoint` into `ep` and compares against pre-defined endpoint lists (`_enter`, `_data`, `_dash`, `_reports`, `_admin`). The current page's top-level nav item gets `.active-parent` (subtle white tint); the matching dropdown item gets Bootstrap's `.active` class.
+
+### Sticky navbar
+The navbar has Bootstrap's `sticky-top` class. It stays visible during scrolling, which matters on long pages like the Annual Survey entry form (16 accordion sections).
+
+### Back-to-top button
+A fixed circular button (`#backToTop`) in the bottom-right corner appears after scrolling 400px and scrolls smoothly to the top. Styled with `--ycl-blue`, hidden at page load, toggled by a `scroll` event listener in `base.html`.
+
+### Card hover effect
+`.card` has `transition: box-shadow .15s ease` and lifts on hover (`0 4px 14px rgba(0,0,0,.12)`). Applies site-wide automatically.
+
+### Print stylesheet
+`@media print` block in `base.html` hides the navbar, footer, buttons, flash alerts, and back-to-top button. Sets body background to white, removes card box-shadows, adds a border, shrinks table font, and colors headings in YCL blue. Used when printing board reports or any page via browser print.
+
+### Empty states
+Pages that return no results use the `.empty-state` CSS class (defined in `base.html`) instead of a plain alert. Pattern:
+```html
+<div class="empty-state">
+  <i class="bi bi-calendar-x empty-icon"></i>
+  <p>Descriptive message about why there's no data.</p>
+  <a href="{{ url_for('upload_data') }}" class="btn btn-outline-primary btn-sm">
+    <i class="bi bi-upload me-1"></i>Upload Data
+  </a>
+</div>
+```
+Applied to: Monthly Summary, Fiscal Year Totals, Year-over-Year, Cross-tab Heat Map. The Browse Data page already had a similar pattern.
+
 ---
 
 ## Tech Stack

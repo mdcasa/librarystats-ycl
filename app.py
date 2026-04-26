@@ -55,6 +55,21 @@ with app.app_context():
         from seed_data import seed
         seed(db)
 
+    # Ensure 'New Library Card Registrations, Total' exists in Branch Stats
+    # (missing from early seed data; the SIRSI importer writes to it)
+    _bs = Category.query.filter_by(name='Branch Stats').first()
+    if _bs and not any(m.name == 'New Library Card Registrations, Total' for m in _bs.metrics):
+        _max_sort = max((m.sort_order for m in _bs.metrics), default=0)
+        _juv = next((m for m in _bs.metrics if m.name == 'New Library Card Registrations, Juvenile'), None)
+        db.session.add(Metric(
+            category_id=_bs.id,
+            name='New Library Card Registrations, Total',
+            group_name='Registrations',
+            data_type='integer',
+            sort_order=(_juv.sort_order + 1) if _juv else _max_sort + 1,
+        ))
+        db.session.commit()
+
     # Bootstrap: create default admin from env vars if no users exist yet
     if User.query.count() == 0:
         _admin = User(

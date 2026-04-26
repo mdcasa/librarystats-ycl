@@ -22,6 +22,7 @@ def seed(db):
         # (name, group_name, data_type)
         ('New Library Card Registrations, Adult',           'Registrations',       'integer'),
         ('New Library Card Registrations, Juvenile',        'Registrations',       'integer'),
+        ('New Library Card Registrations, Total',           'Registrations',       'integer'),
         ('Gate Count',                                       'Access & Usage',      'integer'),
         ('PC Reservations',                                  'Access & Usage',      'integer'),
         ('WiFi - Unique Sessions',                           'Access & Usage',      'integer'),

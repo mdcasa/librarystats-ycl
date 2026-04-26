@@ -639,9 +639,29 @@ To verify a specific entry, go to `/entries`, filter by month and branch, and co
 
 ---
 
-## Locker Branches
+## Branch Taxonomy
 
-Locker circulation (`YCL-CL-LOC`, `YCL-FM-LOC`, `YCL-LW-LOC`, `YCL-RH-LOC`, `YCL-YK-LOC`) are treated as **separate branches** in the DB, not rolled into the parent branch totals. This prevents double-counting.
+YCL has **6 real service locations**: Rock Hill (Main), Clover, Fort Mill, Lake Wylie, York, and Outreach/Bookmobile. Everything else in the `branches` table is either a desk sub-location, a locker pickup point, or a system-wide placeholder.
+
+| Type | Examples | `is_desk` | Counted as a branch? |
+|---|---|---|---|
+| Service location | Rock Hill, Clover, Fort Mill, Lake Wylie, York, Outreach/Bookmobile | No | ✅ Yes |
+| Locker pickup | Rock Hill Lockers, Clover Lockers, Fort Mill Lockers, Lake Wylie Lockers, York Lockers | No | ❌ No — filtered out |
+| Desk sub-location | Rock Hill - Circulation, Rock Hill - YA | Yes | ❌ No — `is_desk=True` excludes them |
+| System-wide placeholder | YCL (System Wide) | No | ❌ No — excluded by name |
+
+**Dashboard branch count** (`total_branches` in the index route) uses:
+```python
+Branch.query.filter(
+    Branch.is_active == True,
+    Branch.is_desk == False,
+    ~Branch.name.ilike('%locker%'),
+    Branch.name != 'YCL (System Wide)',
+).count()
+```
+This returns 6 — the five branches plus bookmobile.
+
+**Locker branches** (`YCL-CL-LOC`, `YCL-FM-LOC`, `YCL-LW-LOC`, `YCL-RH-LOC`, `YCL-YK-LOC`) are kept as separate DB branches so their circulation can be tracked independently without being double-counted into the parent branch totals. They are excluded from Branch Stats entry forms, manual entry forms, and branch-count displays. The annual survey auto-calculator also excludes locker branches when summing gate count and other metrics.
 
 ---
 

@@ -218,7 +218,12 @@ def index():
     return render_template('index.html',
                            total_entries=Entry.query.count(),
                            total_categories=Category.query.filter_by(is_active=True).count(),
-                           total_branches=Branch.query.filter_by(is_active=True, is_desk=False).count(),
+                           total_branches=Branch.query.filter(
+                               Branch.is_active == True,
+                               Branch.is_desk == False,
+                               ~Branch.name.ilike('%locker%'),
+                               Branch.name != 'YCL (System Wide)',
+                           ).count(),
                            latest_year=latest_year,
                            latest_month=latest_month,
                            kpi=kpi,

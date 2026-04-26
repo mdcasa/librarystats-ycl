@@ -71,6 +71,30 @@ with app.app_context():
         ))
         db.session.commit()
 
+    # Backfill Total for entries imported before the Total metric existed
+    _bs = Category.query.filter_by(name='Branch Stats').first()
+    if _bs:
+        _total_m = next((m for m in _bs.metrics if m.name == 'New Library Card Registrations, Total'), None)
+        _adult_m = next((m for m in _bs.metrics if m.name == 'New Library Card Registrations, Adult'), None)
+        _juv_m   = next((m for m in _bs.metrics if m.name == 'New Library Card Registrations, Juvenile'), None)
+        if _total_m and _adult_m and _juv_m:
+            _backfilled = 0
+            for _entry in Entry.query.filter_by(category_id=_bs.id).all():
+                if EntryValue.query.filter_by(entry_id=_entry.id, metric_id=_total_m.id).first():
+                    continue
+                _a = EntryValue.query.filter_by(entry_id=_entry.id, metric_id=_adult_m.id).first()
+                _j = EntryValue.query.filter_by(entry_id=_entry.id, metric_id=_juv_m.id).first()
+                if not _a and not _j:
+                    continue
+                _av = _a.value_number if _a else 0
+                _jv = _j.value_number if _j else 0
+                if _av or _jv:
+                    db.session.add(EntryValue(entry_id=_entry.id, metric_id=_total_m.id,
+                                              value_number=(_av or 0) + (_jv or 0)))
+                    _backfilled += 1
+            if _backfilled:
+                db.session.commit()
+
     # Bootstrap: create default admin from env vars if no users exist yet
     if User.query.count() == 0:
         _admin = User(

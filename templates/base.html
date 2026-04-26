@@ -99,7 +99,8 @@
                    'report_yoy','report_quarterly_ref','report_annual','report_crosstab',
                    'report_programming_age','report_programming','report_online'] %}
 {% set _admin   = ['admin_categories','admin_category_edit','admin_branches',
-                   'admin_import','admin_export','admin_metric_edit'] %}
+                   'admin_import','admin_export','admin_metric_edit',
+                   'admin_users','admin_user_new','admin_user_edit'] %}
 
 <body>
 
@@ -247,6 +248,14 @@
             <i class="bi bi-gear me-1"></i>Admin
           </a>
           <ul class="dropdown-menu shadow-sm">
+            {% if current_user.is_admin %}
+            <li>
+              <a class="dropdown-item {% if ep in ['admin_users','admin_user_new','admin_user_edit'] %}active{% endif %}"
+                 href="{{ url_for('admin_users') }}">
+                <i class="bi bi-people me-2 text-primary"></i>Users
+              </a>
+            </li>
+            <li><hr class="dropdown-divider"></li>
             <li>
               <a class="dropdown-item {% if ep in ['admin_categories','admin_category_edit'] %}active{% endif %}"
                  href="{{ url_for('admin_categories') }}">
@@ -272,13 +281,21 @@
                 <i class="bi bi-download me-2 text-success"></i>Export to Excel
               </a>
             </li>
+            {% else %}
+            <li><span class="dropdown-item text-muted fst-italic small">No admin access</span></li>
+            {% endif %}
           </ul>
         </li>
 
       </ul>
-      <a href="{{ url_for('logout') }}" class="btn btn-outline-light btn-sm d-none d-lg-inline-flex align-items-center gap-1">
-        <i class="bi bi-box-arrow-right"></i> Sign Out
-      </a>
+      <div class="d-none d-lg-flex align-items-center gap-2">
+        <span class="text-white-50 small">
+          <i class="bi bi-person-circle me-1"></i>{{ current_user.username }}
+        </span>
+        <a href="{{ url_for('logout') }}" class="btn btn-outline-light btn-sm d-inline-flex align-items-center gap-1">
+          <i class="bi bi-box-arrow-right"></i> Sign Out
+        </a>
+      </div>
     </div>
   </div>
 </nav>

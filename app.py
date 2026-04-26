@@ -1,6 +1,8 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, session
-from models import db, Category, Metric, Branch, Entry, EntryValue
+from flask_login import LoginManager, login_user, logout_user, current_user
+from models import db, Category, Metric, Branch, Entry, EntryValue, User
 from datetime import datetime
+from functools import wraps
 import hmac
 import os
 
@@ -16,6 +18,14 @@ app.config['SQLALCHEMY_DATABASE_URI'] = _db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+@login_manager.user_loader
+def load_user(user_id):
+    return db.session.get(User, int(user_id))
 
 # Runs for both `python app.py` and gunicorn
 with app.app_context():
@@ -45,6 +55,18 @@ with app.app_context():
         from seed_data import seed
         seed(db)
 
+    # Bootstrap: create default admin from env vars if no users exist yet
+    if User.query.count() == 0:
+        _admin = User(
+            username=os.environ.get('LOGIN_USERNAME', 'admin'),
+            email=None,
+            is_active=True,
+            is_admin=True,
+        )
+        _admin.set_password(os.environ.get('LOGIN_PASSWORD', ''))
+        db.session.add(_admin)
+        db.session.commit()
+
 MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
           'July', 'August', 'September', 'October', 'November', 'December']
 
@@ -62,24 +84,31 @@ _PUBLIC_ENDPOINTS = {'login', 'logout', 'static'}
 
 @app.before_request
 def require_login():
-    if request.endpoint not in _PUBLIC_ENDPOINTS and not session.get('logged_in'):
+    if request.endpoint not in _PUBLIC_ENDPOINTS and not current_user.is_authenticated:
         return redirect(url_for('login', next=request.path))
+
+
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_admin:
+            flash('Admin access required.', 'danger')
+            return redirect(url_for('index'))
+        return f(*args, **kwargs)
+    return decorated
 
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    if session.get('logged_in'):
+    if current_user.is_authenticated:
         return redirect(url_for('index'))
     error = None
     if request.method == 'POST':
-        username = request.form.get('username', '')
+        username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
-        valid_user = os.environ.get('LOGIN_USERNAME', 'admin')
-        valid_pass = os.environ.get('LOGIN_PASSWORD', '')
-        if (hmac.compare_digest(username, valid_user) and
-                hmac.compare_digest(password, valid_pass) and valid_pass):
-            session.permanent = True
-            session['logged_in'] = True
+        user = User.query.filter_by(username=username).first()
+        if user and user.is_active and user.check_password(password):
+            login_user(user, remember=True)
             next_url = request.args.get('next') or url_for('index')
             return redirect(next_url)
         error = 'Invalid username or password.'
@@ -88,7 +117,7 @@ def login():
 
 @app.route('/logout')
 def logout():
-    session.clear()
+    logout_user()
     return redirect(url_for('login'))
 
 
@@ -298,7 +327,7 @@ def entry_create(category_id):
                 year=year,
                 month=request.form.get('month', type=int) or None,
                 quarter=request.form.get('quarter', type=int) or None,
-                submitted_by=request.form.get('submitted_by', '').strip(),
+                submitted_by=current_user.username,
                 notes=request.form.get('notes', '').strip(),
             )
             db.session.add(entry)
@@ -364,7 +393,7 @@ def entry_edit(entry_id):
         entry.year = request.form.get('year', type=int)
         entry.month = request.form.get('month', type=int) or None
         entry.quarter = request.form.get('quarter', type=int) or None
-        entry.submitted_by = request.form.get('submitted_by', '').strip()
+        entry.submitted_by = current_user.username
         entry.notes = request.form.get('notes', '').strip()
 
         for m in metrics:
@@ -1373,7 +1402,7 @@ def manual_entry():
     if request.method == 'POST':
         year          = request.form.get('year',  type=int)
         month         = request.form.get('month', type=int)
-        submitted_by  = request.form.get('submitted_by', '').strip()
+        submitted_by  = current_user.username
 
         # ── Branch Stats ──────────────────────────────────────────────────
         for branch in branches:
@@ -1509,7 +1538,7 @@ def _ill_icl_entry(metric_names_set, form_title, endpoint):
     if request.method == 'POST':
         year         = request.form.get('year',  type=int)
         month        = request.form.get('month', type=int)
-        submitted_by = request.form.get('submitted_by', '').strip()
+        submitted_by = current_user.username
 
         vals = {}
         for m in metrics:
@@ -1944,6 +1973,109 @@ def report_quarterly_ref():
                            open_days=open_days,
                            open_weeks=open_weeks,
                            annual_estimate=annual_estimate)
+
+
+# ── User Management ──────────────────────────────────────────────────────────
+
+@app.route('/admin/users')
+@admin_required
+def admin_users():
+    users = User.query.order_by(User.username).all()
+    return render_template('admin/users.html', users=users)
+
+
+@app.route('/admin/users/new', methods=['GET', 'POST'])
+@admin_required
+def admin_user_new():
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        email    = request.form.get('email', '').strip() or None
+        password = request.form.get('password', '')
+        is_admin = bool(request.form.get('is_admin'))
+
+        if not username or not password:
+            flash('Username and password are required.', 'danger')
+            return render_template('admin/user_form.html', editing=False)
+
+        if User.query.filter_by(username=username).first():
+            flash(f'Username "{username}" is already taken.', 'danger')
+            return render_template('admin/user_form.html', editing=False)
+
+        user = User(username=username, email=email, is_admin=is_admin, is_active=True)
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+        flash(f'User "{username}" created.', 'success')
+        return redirect(url_for('admin_users'))
+
+    return render_template('admin/user_form.html', editing=False)
+
+
+@app.route('/admin/users/<int:user_id>/edit', methods=['GET', 'POST'])
+@admin_required
+def admin_user_edit(user_id):
+    user = db.session.get(User, user_id)
+    if not user:
+        flash('User not found.', 'danger')
+        return redirect(url_for('admin_users'))
+
+    if request.method == 'POST':
+        action = request.form.get('action')
+
+        if action == 'reset_password':
+            new_pw = request.form.get('new_password', '')
+            if not new_pw:
+                flash('New password cannot be blank.', 'danger')
+            else:
+                user.set_password(new_pw)
+                db.session.commit()
+                flash(f'Password for "{user.username}" updated.', 'success')
+            return redirect(url_for('admin_user_edit', user_id=user_id))
+
+        username  = request.form.get('username', '').strip()
+        email     = request.form.get('email', '').strip() or None
+        is_admin  = bool(request.form.get('is_admin'))
+        is_active = bool(request.form.get('is_active'))
+
+        if not username:
+            flash('Username cannot be blank.', 'danger')
+            return render_template('admin/user_form.html', editing=True, user=user)
+
+        existing = User.query.filter_by(username=username).first()
+        if existing and existing.id != user_id:
+            flash(f'Username "{username}" is already taken.', 'danger')
+            return render_template('admin/user_form.html', editing=True, user=user)
+
+        # Prevent locking yourself out
+        if user.id == current_user.id:
+            is_admin  = True
+            is_active = True
+
+        user.username  = username
+        user.email     = email
+        user.is_admin  = is_admin
+        user.is_active = is_active
+        db.session.commit()
+        flash(f'User "{username}" updated.', 'success')
+        return redirect(url_for('admin_users'))
+
+    return render_template('admin/user_form.html', editing=True, user=user)
+
+
+@app.route('/admin/users/<int:user_id>/toggle', methods=['POST'])
+@admin_required
+def admin_user_toggle(user_id):
+    user = db.session.get(User, user_id)
+    if not user:
+        flash('User not found.', 'danger')
+        return redirect(url_for('admin_users'))
+    if user.id == current_user.id:
+        flash('You cannot deactivate your own account.', 'warning')
+        return redirect(url_for('admin_users'))
+    user.is_active = not user.is_active
+    db.session.commit()
+    flash(f'User "{user.username}" {"activated" if user.is_active else "deactivated"}.', 'success')
+    return redirect(url_for('admin_users'))
 
 
 # ── Annual Survey Dashboard ───────────────────────────────────────────────────

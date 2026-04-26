@@ -119,6 +119,49 @@ class SirsiCheckout(db.Model):
     )
 
 
+class AnnualSurveyMetric(db.Model):
+    """Defines a metric tracked in the annual SC State Library survey report."""
+    __tablename__ = 'annual_survey_metrics'
+    id              = db.Column(db.Integer, primary_key=True)
+    section         = db.Column(db.String(100), nullable=False)   # matches sheet name
+    name            = db.Column(db.String(500), nullable=False)
+    data_type       = db.Column(db.String(20), default='integer')  # integer, decimal, text
+    sort_order      = db.Column(db.Integer, default=0)
+    is_auto_calculated = db.Column(db.Boolean, default=False)
+    auto_calc_note  = db.Column(db.String(300))  # human-readable description of the source
+
+    values = db.relationship('AnnualSurveyValue', back_populates='metric',
+                              cascade='all, delete-orphan')
+
+
+class AnnualSurveyValue(db.Model):
+    """One value per metric per fiscal year (report_year = FY end year)."""
+    __tablename__ = 'annual_survey_values'
+    id            = db.Column(db.Integer, primary_key=True)
+    report_year   = db.Column(db.Integer, nullable=False)
+    metric_id     = db.Column(db.Integer, db.ForeignKey('annual_survey_metrics.id'), nullable=False)
+    value         = db.Column(db.Float, nullable=True)
+    value_text    = db.Column(db.Text, nullable=True)
+    is_adjusted   = db.Column(db.Boolean, default=False)
+    adjustment_note = db.Column(db.Text)
+
+    metric = db.relationship('AnnualSurveyMetric', back_populates='values')
+
+    __table_args__ = (
+        db.UniqueConstraint('report_year', 'metric_id', name='uq_annual_year_metric'),
+    )
+
+    @property
+    def display_value(self):
+        if self.metric.data_type == 'text':
+            return self.value_text or '—'
+        if self.value is None:
+            return '—'
+        if self.value == int(self.value):
+            return f'{int(self.value):,}'
+        return f'{self.value:,.2f}'.rstrip('0').rstrip('.')
+
+
 class EntryValue(db.Model):
     __tablename__ = 'entry_values'
     id = db.Column(db.Integer, primary_key=True)

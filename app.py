@@ -1941,5 +1941,290 @@ def report_quarterly_ref():
                            annual_estimate=annual_estimate)
 
 
+# ── Annual Survey Dashboard ───────────────────────────────────────────────────
+
+from models import AnnualSurveyMetric, AnnualSurveyValue
+
+_ANNUAL_CHART_METRICS = [
+    'Annual Library Visits (gate count)',
+    'TOTAL CIRC ALL PHYSICAL',
+    'GRAND TOTAL ALL CIRC',
+    'Total of all programs',
+    'Total Attendance all programs and all ages',
+    'Total operating revenue',
+    'Expenditures: Total operating',
+    'Grand total library staff FTE',
+]
+
+_ANNUAL_KPI_METRICS = [
+    ('Annual Library Visits (gate count)',       'Gate Count'),
+    ('TOTAL CIRC ALL PHYSICAL',                  'Physical Circ'),
+    ('GRAND TOTAL ALL CIRC',                     'Total Circ'),
+    ('Total of all programs',                    'Programs'),
+    ('Total Attendance all programs and all ages','Attendance'),
+    ('Total operating revenue',                  'Revenue'),
+    ('Expenditures: Total operating',            'Expenses'),
+    ('Grand total library staff FTE',            'Staff FTE'),
+]
+
+
+def _annual_get_value(year_map, metric_name):
+    sv = year_map.get(metric_name)
+    return int(sv.value) if sv and sv.value is not None else None
+
+
+@app.route('/annual-survey')
+def annual_survey_dashboard():
+    all_metrics  = AnnualSurveyMetric.query.order_by(AnnualSurveyMetric.sort_order).all()
+    all_values   = AnnualSurveyValue.query.all()
+    metric_by_id = {m.id: m for m in all_metrics}
+
+    # Build: {year: {metric_name: AnnualSurveyValue}}
+    by_year = {}
+    for v in all_values:
+        m = metric_by_id.get(v.metric_id)
+        if not m:
+            continue
+        by_year.setdefault(v.report_year, {})[m.name] = v
+
+    years = sorted(by_year.keys())
+    latest_year = years[-1] if years else None
+
+    # KPI cards for latest year
+    kpis = []
+    if latest_year:
+        ym = by_year[latest_year]
+        prev_ym = by_year.get(latest_year - 1, {})
+        for metric_name, label in _ANNUAL_KPI_METRICS:
+            cur  = _annual_get_value(ym, metric_name)
+            prev = _annual_get_value(prev_ym, metric_name)
+            kpis.append({'label': label, 'value': cur, 'prev': prev})
+
+    # Chart data — all years for each chart metric
+    chart_data = {}
+    for mname in _ANNUAL_CHART_METRICS:
+        chart_data[mname] = {
+            'labels': years,
+            'values': [_annual_get_value(by_year.get(y, {}), mname) for y in years],
+        }
+
+    # Section summary table — group metrics by section, one col per year
+    sections = {}
+    for m in all_metrics:
+        sections.setdefault(m.section, []).append(m)
+
+    section_order = [
+        'USERS GATE COUNT', 'CIRC', 'PROGRAMMING', 'OUTREACH',
+        'TECH USE', 'REF MTG RM', 'ILL',
+        'OPERATIONS', 'STAFFING', 'REVENUE',
+        'EXPENSES STAFF', 'EXPENSES COLLECTION', 'EXPENSES OPERATIONS',
+        'EXPENSES CAPITAL', 'EXPENSES TOTAL', 'COLLECTION SIZE',
+    ]
+
+    return render_template('annual/dashboard.html',
+                           years=years,
+                           latest_year=latest_year,
+                           kpis=kpis,
+                           chart_data=chart_data,
+                           sections=sections,
+                           section_order=section_order,
+                           by_year=by_year,
+                           all_metrics=all_metrics)
+
+
+@app.route('/annual-survey/<int:year>/enter', methods=['GET', 'POST'])
+def annual_survey_enter(year):
+    all_metrics = AnnualSurveyMetric.query.order_by(AnnualSurveyMetric.sort_order).all()
+    existing    = {v.metric_id: v for v in AnnualSurveyValue.query.filter_by(report_year=year).all()}
+
+    section_order = [
+        'USERS GATE COUNT', 'CIRC', 'PROGRAMMING', 'OUTREACH',
+        'TECH USE', 'REF MTG RM', 'ILL',
+        'OPERATIONS', 'STAFFING', 'REVENUE',
+        'EXPENSES STAFF', 'EXPENSES COLLECTION', 'EXPENSES OPERATIONS',
+        'EXPENSES CAPITAL', 'EXPENSES TOTAL', 'COLLECTION SIZE',
+    ]
+    sections = {}
+    for m in all_metrics:
+        sections.setdefault(m.section, []).append(m)
+
+    if request.method == 'POST':
+        saved = 0
+        for m in all_metrics:
+            if m.is_auto_calculated:
+                continue
+            raw = request.form.get(f'm{m.id}', '').strip()
+            sv  = existing.get(m.id)
+            if m.data_type == 'text':
+                val_num, val_text = None, raw or None
+            else:
+                try:
+                    val_num, val_text = float(raw), None
+                except ValueError:
+                    val_num, val_text = None, None
+
+            if sv:
+                sv.value      = val_num
+                sv.value_text = val_text
+            else:
+                if val_num is not None or val_text is not None:
+                    db.session.add(AnnualSurveyValue(
+                        report_year=year, metric_id=m.id,
+                        value=val_num, value_text=val_text
+                    ))
+            saved += 1
+
+        db.session.commit()
+        flash(f'Annual survey data saved for Report Year {year}.', 'success')
+        return redirect(url_for('annual_survey_enter', year=year))
+
+    available_years = sorted({v.report_year for v in AnnualSurveyValue.query.all()}, reverse=True)
+    all_years = sorted(set(list(available_years) + [year]), reverse=True)
+
+    return render_template('annual/entry.html',
+                           year=year,
+                           all_years=all_years,
+                           sections=sections,
+                           section_order=section_order,
+                           existing=existing)
+
+
+@app.route('/annual-survey/<int:year>/calculate', methods=['POST'])
+def annual_survey_calculate(year):
+    """Auto-calculate metrics that can be derived from the monthly Branch Stats / Online Stats data."""
+    from sqlalchemy import or_, and_
+
+    bs_cat     = Category.query.filter_by(name='Branch Stats').first()
+    online_cat = Category.query.filter_by(name='Online Stats').first()
+    metrics_map = {m.name: m for m in AnnualSurveyMetric.query.all()}
+
+    # FY months: Jul–Dec of year-1, Jan–Jun of year
+    def fy_entries(cat):
+        if not cat:
+            return []
+        return Entry.query.filter_by(category_id=cat.id).filter(
+            or_(
+                and_(Entry.year == year - 1, Entry.month >= 7),
+                and_(Entry.year == year,     Entry.month <= 6)
+            )
+        ).all()
+
+    def sum_metric(entries, metric_name):
+        m = Metric.query.filter_by(name=metric_name).first()
+        if not m:
+            return None
+        total = 0
+        found = False
+        for e in entries:
+            for ev in e.values:
+                if ev.metric_id == m.id and ev.value_number is not None:
+                    total += ev.value_number
+                    found = True
+        return round(total) if found else None
+
+    bs_entries     = fy_entries(bs_cat)
+    online_entries = fy_entries(online_cat)
+
+    # Exclude locker branches from branch-level sums
+    locker_ids = {b.id for b in Branch.query.filter(Branch.name.ilike('%locker%')).all()}
+    bs_entries_no_locker = [e for e in bs_entries if e.branch_id not in locker_ids]
+
+    PROG_TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
+
+    calculated = {}
+
+    def _save(metric_name, value, note):
+        if value is None:
+            return
+        am = metrics_map.get(metric_name)
+        if not am:
+            return
+        sv = AnnualSurveyValue.query.filter_by(report_year=year, metric_id=am.id).first()
+        if sv:
+            sv.value = value
+            sv.is_adjusted = False
+            sv.adjustment_note = note
+        else:
+            db.session.add(AnnualSurveyValue(
+                report_year=year, metric_id=am.id,
+                value=value, adjustment_note=note
+            ))
+        calculated[metric_name] = value
+
+    note = f'Auto-calculated from monthly data for FY{year} (Jul {year-1} – Jun {year})'
+
+    _save('Annual Library Visits (gate count)',
+          sum_metric(bs_entries_no_locker, 'Gate Count'), note)
+    _save('Number of wireless sessions',
+          sum_metric(bs_entries_no_locker, 'WiFi - Unique Sessions'), note)
+    _save('Number of website visits',
+          sum_metric(online_entries, 'yclibrary.org - Web Sessions'), note)
+    _save('TOTAL CIRC ALL PHYSICAL',
+          sum_metric(bs_entries_no_locker, 'Total Branch Circulation'), note)
+
+    # Programming sessions by age group
+    for age, label in [('0-5', 'Synchronous Pgm Sessions Kids 0-5'),
+                        ('6-11', 'Synchronous Pgm Sessions Kids 6-11'),
+                        ('12-18', 'Total YA Programs for ages 12-18'),
+                        ('19+', 'Total Adult Programs for 18+'),
+                        ('General Interest', 'Total Gen Audience')]:
+        total = 0
+        found = False
+        for t in PROG_TYPES:
+            v = sum_metric(bs_entries_no_locker, f'{t} Sessions {age}')
+            if v is not None:
+                total += v
+                found = True
+        _save(label, round(total) if found else None, note)
+
+    # Derived totals
+    kids05  = calculated.get('Synchronous Pgm Sessions Kids 0-5', 0) or 0
+    kids611 = calculated.get('Synchronous Pgm Sessions Kids 6-11', 0) or 0
+    ya      = calculated.get('Total YA Programs for ages 12-18', 0) or 0
+    adult   = calculated.get('Total Adult Programs for 18+', 0) or 0
+    gen     = calculated.get('Total Gen Audience', 0) or 0
+    if any([kids05, kids611, ya, adult, gen]):
+        _save('Total Programs 0-11', kids05 + kids611, note)
+        _save('Total of all programs', kids05 + kids611 + ya + adult + gen, note)
+
+    # Programming attendance
+    for age, label in [('0-5',  'children_05'), ('6-11', 'children_611'),
+                        ('12-18', 'ya'), ('19+', 'adult'), ('General Interest', 'gen')]:
+        total = 0
+        found = False
+        for t in PROG_TYPES:
+            v = sum_metric(bs_entries_no_locker, f'{t} Attendance {age}')
+            if v is not None:
+                total += v
+                found = True
+        calculated[f'att_{label}'] = round(total) if found else None
+
+    c05  = calculated.get('att_children_05', 0) or 0
+    c611 = calculated.get('att_children_611', 0) or 0
+    ya_a = calculated.get('att_ya', 0) or 0
+    ad_a = calculated.get('att_adult', 0) or 0
+    ge_a = calculated.get('att_gen', 0) or 0
+
+    _save('Children 0 to 11 programs attendance', c05 + c611, note)
+    _save('YA 12-18 programs attendance', ya_a, note)
+    _save('Adult programs attendance', ad_a, note)
+    _save('Total General attendance', ge_a, note)
+    if any([c05, c611, ya_a, ad_a, ge_a]):
+        _save('Total Attendance all programs and all ages',
+              c05 + c611 + ya_a + ad_a + ge_a, note)
+
+    # Outreach / training
+    _save('Number of staff trained',
+          sum_metric(bs_entries_no_locker, 'Number of Staff Taking Training'), note)
+    _save('Number of hours of training attended by staff',
+          sum_metric(bs_entries_no_locker, 'Number of Hours Staff Attended Training'), note)
+    _save('Number of items distributed as take-and-makes',
+          sum_metric(bs_entries_no_locker, 'Take & Makes / Other Passive Program Participants'), note)
+
+    db.session.commit()
+    flash(f'{len(calculated)} metrics auto-calculated for FY{year} from monthly data.', 'success')
+    return redirect(url_for('annual_survey_enter', year=year))
+
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

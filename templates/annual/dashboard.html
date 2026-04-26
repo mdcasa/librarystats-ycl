@@ -1,0 +1,288 @@
+{% extends 'base.html' %}
+{% block title %}Annual Survey Dashboard – Library Stats{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <div>
+    <h1 class="h4 fw-bold mb-0"><i class="bi bi-bar-chart-steps me-2 text-primary"></i>Annual Survey Dashboard</h1>
+    <p class="text-muted small mb-0">SC State Library annual report data — fiscal year July–June</p>
+  </div>
+  <div class="d-flex gap-2">
+    {% if latest_year %}
+    <a href="{{ url_for('annual_survey_enter', year=latest_year) }}" class="btn btn-outline-primary btn-sm">
+      <i class="bi bi-pencil-square me-1"></i>Enter / Edit FY{{ latest_year }}
+    </a>
+    <a href="{{ url_for('annual_survey_enter', year=latest_year + 1) }}" class="btn btn-primary btn-sm">
+      <i class="bi bi-plus-circle me-1"></i>Add FY{{ latest_year + 1 }}
+    </a>
+    {% endif %}
+  </div>
+</div>
+
+{# ── KPI Cards ── #}
+{% if latest_year %}
+<p class="text-muted small mb-2">Most recent: <strong>FY{{ latest_year }}</strong> (Jul {{ latest_year - 1 }} – Jun {{ latest_year }})</p>
+<div class="row g-3 mb-4">
+  {% for kpi in kpis %}
+  <div class="col-6 col-md-3">
+    <div class="card h-100">
+      <div class="card-body py-3">
+        <div class="text-muted small mb-1">{{ kpi.label }}</div>
+        <div class="fw-bold fs-5">
+          {% if kpi.value is not none %}
+            {{ kpi.value | commas }}
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
+        </div>
+        {% if kpi.value is not none and kpi.prev is not none %}
+          {% set diff = kpi.value - kpi.prev %}
+          {% set pct = ((diff / kpi.prev) * 100) | round(1) %}
+          <div class="small mt-1 {% if diff >= 0 %}text-success{% else %}text-danger{% endif %}">
+            <i class="bi bi-arrow-{% if diff >= 0 %}up{% else %}down{% endif %}"></i>
+            {{ pct }}% vs FY{{ latest_year - 1 }}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ── Trend Charts ── #}
+<div class="row g-4 mb-4">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header-custom fw-semibold">Gate Count — Annual Library Visits</div>
+      <div class="card-body"><canvas id="chartGate" height="220"></canvas></div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header-custom fw-semibold">Total Physical Circulation</div>
+      <div class="card-body"><canvas id="chartCirc" height="220"></canvas></div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header-custom fw-semibold">Total Programming Sessions</div>
+      <div class="card-body"><canvas id="chartPgmSess" height="220"></canvas></div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header-custom fw-semibold">Total Programming Attendance</div>
+      <div class="card-body"><canvas id="chartPgmAtt" height="220"></canvas></div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header-custom fw-semibold">Total Operating Revenue vs Expenses</div>
+      <div class="card-body"><canvas id="chartFinance" height="220"></canvas></div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header-custom fw-semibold">Grand Total All Circulation (Physical + Electronic)</div>
+      <div class="card-body"><canvas id="chartTotalCirc" height="220"></canvas></div>
+    </div>
+  </div>
+</div>
+
+{# ── Year-over-Year Table (key metrics only) ── #}
+<div class="card mb-4">
+  <div class="card-header-custom fw-semibold d-flex justify-content-between align-items-center">
+    Key Metrics — All Years
+    <span class="text-muted fw-normal small">
+      <i class="bi bi-exclamation-triangle-fill text-warning me-1"></i>= adjusted value
+    </span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0 align-middle" style="font-size:.85rem">
+      <thead class="table-light">
+        <tr>
+          <th style="min-width:280px">Metric</th>
+          {% for y in years | reverse %}
+          <th class="text-end">FY{{ y }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% set key_sections = ['USERS GATE COUNT','CIRC','PROGRAMMING','OUTREACH','TECH USE','ILL','EXPENSES TOTAL','REVENUE'] %}
+        {% set key_metrics = [
+          'Annual Library Visits (gate count)',
+          'Total registered users',
+          'TOTAL CIRC ALL PHYSICAL',
+          'GRAND TOTAL ALL CIRC',
+          'Total of all programs',
+          'Total Attendance all programs and all ages',
+          'Number of staff trained',
+          'Number of wireless sessions',
+          'Number of website visits',
+          'Interlibrary loans provided to another library',
+          'Interlibrary loans received from another library',
+          'Expenditures: GRAND TOTAL Operating + Capital',
+          'Grand total operating + capital revenue',
+        ] %}
+        {% for mname in key_metrics %}
+          {% set ns = namespace(found=false) %}
+          {% for m in all_metrics %}
+            {% if m.name == mname and not ns.found %}
+              {% set ns.found = true %}
+              <tr>
+                <td>
+                  {{ m.name }}
+                  {% if m.is_auto_calculated %}
+                  <span class="badge bg-light text-secondary border ms-1" style="font-size:.65rem">auto</span>
+                  {% endif %}
+                </td>
+                {% for y in years | reverse %}
+                  {% set sv = by_year.get(y, {}).get(m.name) %}
+                  <td class="text-end">
+                    {% if sv %}
+                      {% if sv.is_adjusted %}
+                        <span class="text-warning fw-semibold" title="{{ sv.adjustment_note }}">
+                          <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ sv.display_value }}
+                        </span>
+                      {% else %}
+                        {{ sv.display_value }}
+                      {% endif %}
+                    {% else %}
+                      <span class="text-muted">—</span>
+                    {% endif %}
+                  </td>
+                {% endfor %}
+              </tr>
+            {% endif %}
+          {% endfor %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ── Full Data by Section ── #}
+<h5 class="fw-semibold mb-3">Full Data by Section</h5>
+<div class="accordion mb-4" id="sectionAccordion">
+  {% for section_name in section_order %}
+  {% set sec_metrics = sections.get(section_name, []) %}
+  {% if sec_metrics %}
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button"
+              data-bs-toggle="collapse" data-bs-target="#sec-{{ loop.index }}">
+        {{ section_name }}
+        <span class="badge bg-secondary ms-2 fw-normal">{{ sec_metrics | length }} metrics</span>
+      </button>
+    </h2>
+    <div id="sec-{{ loop.index }}" class="accordion-collapse collapse" data-bs-parent="#sectionAccordion">
+      <div class="accordion-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm mb-0 align-middle" style="font-size:.82rem">
+            <thead class="table-light">
+              <tr>
+                <th style="min-width:280px">Metric</th>
+                {% for y in years | reverse %}<th class="text-end">FY{{ y }}</th>{% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for m in sec_metrics %}
+              <tr>
+                <td>
+                  {{ m.name }}
+                  {% if m.is_auto_calculated %}
+                  <span class="badge bg-light text-secondary border ms-1" style="font-size:.65rem">auto</span>
+                  {% endif %}
+                </td>
+                {% for y in years | reverse %}
+                  {% set sv = by_year.get(y, {}).get(m.name) %}
+                  <td class="text-end">
+                    {% if sv %}
+                      {% if sv.is_adjusted %}
+                        <span class="text-warning fw-semibold" title="{{ sv.adjustment_note }}">
+                          <i class="bi bi-exclamation-triangle-fill"></i> {{ sv.display_value }}
+                        </span>
+                      {% else %}
+                        {{ sv.display_value }}
+                      {% endif %}
+                    {% else %}
+                      <span class="text-muted">—</span>
+                    {% endif %}
+                  </td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+const chartData = {{ chart_data | tojson }};
+const years = {{ years | tojson }};
+
+function makeChart(id, label, metricKey, color) {
+  const d = chartData[metricKey] || {labels: [], values: []};
+  new Chart(document.getElementById(id), {
+    type: 'line',
+    data: {
+      labels: d.labels.map(y => 'FY' + y),
+      datasets: [{
+        label: label,
+        data: d.values,
+        borderColor: color,
+        backgroundColor: color + '22',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 4,
+        spanGaps: true,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: false, ticks: { callback: v => v ? v.toLocaleString() : v } }
+      }
+    }
+  });
+}
+
+makeChart('chartGate',     'Gate Count',             'Annual Library Visits (gate count)', '#1a5276');
+makeChart('chartCirc',     'Physical Circ',          'TOTAL CIRC ALL PHYSICAL',            '#117a65');
+makeChart('chartPgmSess',  'Program Sessions',       'Total of all programs',              '#6c3483');
+makeChart('chartPgmAtt',   'Program Attendance',     'Total Attendance all programs and all ages', '#b7950b');
+makeChart('chartTotalCirc','Grand Total Circ',       'GRAND TOTAL ALL CIRC',               '#1a5276');
+
+// Finance chart — two datasets
+(function() {
+  const rev = chartData['Total operating revenue'] || {labels:[], values:[]};
+  const exp = chartData['Expenditures: Total operating'] || {labels:[], values:[]};
+  new Chart(document.getElementById('chartFinance'), {
+    type: 'bar',
+    data: {
+      labels: rev.labels.map(y => 'FY' + y),
+      datasets: [
+        { label: 'Revenue', data: rev.values, backgroundColor: '#117a6588' },
+        { label: 'Expenses', data: exp.values, backgroundColor: '#c0392b88' },
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'top' } },
+      scales: { y: { beginAtZero: false, ticks: { callback: v => v ? '$' + v.toLocaleString() : v } } }
+    }
+  });
+})();
+</script>
+{% endblock %}

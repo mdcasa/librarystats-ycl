@@ -1,0 +1,120 @@
+{% extends 'base.html' %}
+{% block title %}Annual Survey Entry FY{{ year }} – Library Stats{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <div>
+    <h1 class="h4 fw-bold mb-0">
+      <i class="bi bi-pencil-square me-2 text-primary"></i>Annual Survey Entry
+    </h1>
+    <p class="text-muted small mb-0">FY{{ year }} — July {{ year - 1 }} through June {{ year }}</p>
+  </div>
+  <div class="d-flex gap-2 align-items-center">
+    <select class="form-select form-select-sm" style="width:auto"
+            onchange="window.location='/annual-survey/'+this.value+'/enter'">
+      {% for y in all_years %}
+      <option value="{{ y }}" {% if y == year %}selected{% endif %}>FY{{ y }}</option>
+      {% endfor %}
+      <option value="{{ (all_years[0] if all_years else year) + 1 }}">+ New Year</option>
+    </select>
+    <a href="{{ url_for('annual_survey_dashboard') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-bar-chart-steps me-1"></i>Dashboard
+    </a>
+  </div>
+</div>
+
+{# Auto-calculate banner #}
+<div class="alert alert-info py-2 d-flex align-items-center justify-content-between gap-3">
+  <span>
+    <i class="bi bi-magic me-1"></i>
+    <strong>Auto-calculate from monthly data</strong> — fills Gate Count, WiFi, Circulation,
+    Programming sessions &amp; attendance, and Outreach/Training from the monthly system for this fiscal year.
+  </span>
+  <form method="post" action="{{ url_for('annual_survey_calculate', year=year) }}" class="flex-shrink-0">
+    <button class="btn btn-info btn-sm text-white">
+      <i class="bi bi-lightning-fill me-1"></i>Calculate FY{{ year }}
+    </button>
+  </form>
+</div>
+
+<form method="post" action="{{ url_for('annual_survey_enter', year=year) }}">
+
+  <div class="accordion mb-4" id="entryAccordion">
+    {% for section_name in section_order %}
+    {% set sec_metrics = sections.get(section_name, []) %}
+    {% if sec_metrics %}
+    <div class="accordion-item">
+      <h2 class="accordion-header">
+        <button class="accordion-button {% if not loop.first %}collapsed{% endif %}"
+                type="button" data-bs-toggle="collapse"
+                data-bs-target="#esec-{{ loop.index }}">
+          {{ section_name }}
+          {% set filled = namespace(n=0) %}
+          {% for m in sec_metrics %}
+            {% if existing.get(m.id) and (existing[m.id].value is not none or existing[m.id].value_text) %}
+              {% set filled.n = filled.n + 1 %}
+            {% endif %}
+          {% endfor %}
+          <span class="badge {% if filled.n == sec_metrics|length %}bg-success{% elif filled.n > 0 %}bg-warning text-dark{% else %}bg-secondary{% endif %} ms-2 fw-normal">
+            {{ filled.n }}/{{ sec_metrics|length }}
+          </span>
+        </button>
+      </h2>
+      <div id="esec-{{ loop.index }}"
+           class="accordion-collapse collapse {% if loop.first %}show{% endif %}"
+           data-bs-parent="#entryAccordion">
+        <div class="accordion-body p-0">
+          <table class="table table-sm table-hover mb-0 align-middle">
+            <colgroup><col style="width:60%"><col style="width:40%"></colgroup>
+            <tbody>
+              {% for m in sec_metrics %}
+              {% set sv = existing.get(m.id) %}
+              <tr {% if sv and sv.is_adjusted %}class="table-warning"{% endif %}>
+                <td class="ps-3">
+                  {{ m.name }}
+                  {% if m.is_auto_calculated %}
+                  <span class="badge bg-light text-secondary border ms-1" style="font-size:.65rem"
+                        title="{{ m.auto_calc_note }}">auto</span>
+                  {% endif %}
+                  {% if sv and sv.is_adjusted %}
+                  <i class="bi bi-exclamation-triangle-fill text-warning ms-1"
+                     title="{{ sv.adjustment_note }}"></i>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if m.is_auto_calculated %}
+                  <input type="text" class="form-control form-control-sm bg-light"
+                         value="{{ sv.display_value if sv else '—' }}" readonly
+                         title="Use the Calculate button to update this value">
+                  {% elif m.data_type == 'text' %}
+                  <input type="text" name="m{{ m.id }}"
+                         class="form-control form-control-sm"
+                         value="{{ sv.value_text if sv and sv.value_text else '' }}">
+                  {% else %}
+                  <input type="number" name="m{{ m.id }}"
+                         class="form-control form-control-sm"
+                         step="{{ '0.01' if m.data_type == 'decimal' else '1' }}"
+                         value="{{ sv.display_value | replace(',', '') if sv and sv.value is not none else '' }}"
+                         placeholder="—">
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+
+  <div class="d-flex gap-2">
+    <button type="submit" class="btn btn-primary px-4">
+      <i class="bi bi-check-lg me-1"></i>Save FY{{ year }} Data
+    </button>
+    <a href="{{ url_for('annual_survey_dashboard') }}" class="btn btn-outline-secondary">Cancel</a>
+  </div>
+
+</form>
+{% endblock %}

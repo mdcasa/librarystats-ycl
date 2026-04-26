@@ -297,7 +297,60 @@ The importer ignores which branch the card was registered at (Station Library) a
 
 ---
 
-## Verifying an Import
+## One-Time Historical Data Loads
+
+Some files are not meant to be uploaded through the web UI — they are run once via a Python script to seed historical data directly into the production database.
+
+### How to run a one-time import
+
+From the project root (with `.env` loaded so it hits the production PostgreSQL database):
+
+```bash
+python3 -c "
+from dotenv import load_dotenv
+load_dotenv()
+import openpyxl
+from app import app, db
+from import_excel import do_import
+
+wb = openpyxl.load_workbook('Data files/manual/your_file.xlsx', data_only=True)
+with app.app_context():
+    results = do_import(wb)
+    for r in results:
+        print(r['sheet'], r.get('created',0), 'created', r.get('updated',0), 'updated')
+        for w in r.get('warnings', []): print('  WARNING:', w)
+"
+```
+
+### Historical loads completed
+
+| File | Date Loaded | Result |
+|---|---|---|
+| `Data files/manual/non-SIRSI423.xlsx` | 2026-04-26 | 165 Branch Stats entries created, covering Jan 2024 – Mar 2026 (all branches, all non-SIRSI metrics) |
+
+### Verifying after a one-time load
+
+Query the database directly:
+
+```bash
+python3 -c "
+from dotenv import load_dotenv
+load_dotenv()
+from app import app, db
+from models import Entry, Category
+with app.app_context():
+    cat = Category.query.filter_by(name='Branch Stats').first()
+    entries = Entry.query.filter_by(category_id=cat.id).all()
+    print(f'Total entries: {len(entries)}')
+    from collections import Counter
+    for (y,m), n in sorted(Counter((e.year,e.month) for e in entries).items()):
+        print(f'  {y}-{m:02d}: {n}')
+"
+```
+
+---
+
+## Verifying an Upload
 
 After each upload the results page shows:
 - **Created** — new entries added

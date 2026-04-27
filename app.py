@@ -1523,6 +1523,7 @@ _UPLOAD_SOURCED_METRICS = {
     'Total Branch Circulation',
     'Hotspots Circulation',
     'Locker Circulation',
+    'Total Prints per Month',
     'ILL - Sent (Main ONLY)',
     'ILL - Received (Main ONLY)',
     'ICLs - Sent (Main ONLY)',

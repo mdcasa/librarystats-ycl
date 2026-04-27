@@ -27,11 +27,11 @@
         </select>
       </div>
       <div class="col-sm-2">
-        <label class="sidebar-label mb-1">Year</label>
+        <label class="sidebar-label mb-1">Fiscal Year</label>
         <select name="year" class="form-select form-select-sm" required>
           <option value="">— select —</option>
           {% for y in available_years %}
-          <option value="{{ y }}" {% if sel_year == y %}selected{% endif %}>{{ y }}</option>
+          <option value="{{ y }}" {% if sel_year == y %}selected{% endif %}>FY{{ y }} (Jul {{ y - 1 }}–Jun {{ y }})</option>
           {% endfor %}
         </select>
       </div>
@@ -60,7 +60,7 @@
 {% if chart_data %}
 <div class="card">
   <div class="card-header-custom fw-semibold">
-    {{ metric.name }} — {{ sel_year }}
+    {{ metric.name }} — FY{{ sel_year }} (Jul {{ sel_year - 1 }}–Jun {{ sel_year }})
   </div>
   <div class="card-body">
     <canvas id="trendChart" style="max-height:420px"></canvas>

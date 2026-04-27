@@ -811,16 +811,21 @@ def report_trend():
     branch_ids = request.args.getlist('branches', type=int)
 
     categories  = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
-    available_years = [r[0] for r in db.session.query(Entry.year).distinct()
-                                                .order_by(Entry.year.asc()).all()]
+    fy_rows = db.session.query(Entry.year, Entry.month).filter(Entry.month.isnot(None)).distinct().all()
+    fy_set = set()
+    for yr, mo in fy_rows:
+        fy_set.add(yr + 1 if mo >= 7 else yr)
+    available_years = sorted(fy_set)
     metrics_json = metrics_by_category_json()
     chart_data   = None
     metric = category = None
 
+    FY_MONTHS = list(range(7, 13)) + list(range(1, 7))  # Jul–Dec then Jan–Jun
+
     if cat_id and metric_id and year:
         category = Category.query.get_or_404(cat_id)
         metric   = Metric.query.get_or_404(metric_id)
-        labels   = [m[:3] for m in MONTHS]
+        labels   = [MONTHS[mo - 1][:3] for mo in FY_MONTHS]
         datasets = []
         colors   = ['#2c6e8a','#e74c3c','#27ae60','#f39c12','#8e44ad',
                     '#16a085','#d35400','#2980b9','#c0392b','#1abc9c']
@@ -841,16 +846,17 @@ def report_trend():
                 lockers = [lb for lb in locker_branches
                            if lb.name.lower().startswith(b.name.lower())]
                 pts = []
-                for mo in range(1, 13):
+                for mo in FY_MONTHS:
+                    yr = year - 1 if mo >= 7 else year
                     total = None
                     e = Entry.query.filter_by(category_id=cat_id, branch_id=b.id,
-                                              year=year, month=mo).first()
+                                              year=yr, month=mo).first()
                     ev = EntryValue.query.filter_by(entry_id=e.id, metric_id=metric_id).first() if e else None
                     if ev and ev.value_number is not None:
                         total = ev.value_number
                     for lb in lockers:
                         le = Entry.query.filter_by(category_id=cat_id, branch_id=lb.id,
-                                                   year=year, month=mo).first()
+                                                   year=yr, month=mo).first()
                         lev = EntryValue.query.filter_by(entry_id=le.id, metric_id=metric_id).first() if le else None
                         if lev and lev.value_number is not None:
                             total = (total or 0) + lev.value_number
@@ -860,8 +866,9 @@ def report_trend():
                                  'backgroundColor': colors[i % len(colors)] + '22'})
         else:
             pts = []
-            for mo in range(1, 13):
-                e = Entry.query.filter_by(category_id=cat_id, year=year, month=mo).first()
+            for mo in FY_MONTHS:
+                yr = year - 1 if mo >= 7 else year
+                e = Entry.query.filter_by(category_id=cat_id, year=yr, month=mo).first()
                 ev = EntryValue.query.filter_by(entry_id=e.id, metric_id=metric_id).first() if e else None
                 pts.append(ev.value_number if ev else None)
             datasets.append({'label': metric.name, 'data': pts, 'tension': 0.3,

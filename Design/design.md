@@ -693,6 +693,9 @@ with app.app_context():
 | `Data files/manual/QRSver2.xlsx` | 2026-04-26 | 24 Quarterly Reference Stats entries created — Q1/Jun 2025, Q2/Oct 2025, Q3/Jan 2026, all 8 branches |
 | `Data files/manual/onlin423.xlsx` | 2026-04-26 | 27 Online Stats entries created — Jan 2024 – Mar 2026, system-wide |
 | `Data files/Circulation/CIRC/*.xlsx` (9 files) | 2026-04-27 | SIRSI checkout data for Jul 2025 – Mar 2026. Locker branches (Rock Hill - Lockers, Clover - Lockers, Fort Mill - Lockers, Lake Wylie - Lockers, York - Lockers) were created manually before import — they are **not** in `seed_data.py` and the importer silently skips LOC codes if the branch row is absent. Each file wrote 10–11 Total Branch Circulation entries (6 real branches + active locker branches) and ~1,000–1,600 SirsiCheckout detail rows. The bare `YCL` system-wide ILS code is intentionally skipped. |
+| `Data files/Registration/REGISTRATIONS/*.xlsx` (9 files) | 2026-04-27 | SIRSI registration data for Jul 2025 – Mar 2026. 17–20 registration values created per month (Adult, Juvenile, Total per branch). October 2025 file had an unrecognised ILS code `YCL-SS` — unknown location, skipped. |
+| `Data files/annual/YCL_All_Stats_2019_2024.xlsx` | 2026-04-27 | 504 Branch Stats entries updated — Jul 2018 – Jun 2024 (72 months, all branches). Upserted over existing SQL-imported entries, filling in any missing metrics. |
+| `Data files/annual/YCL_Stats_2025.xlsx` | 2026-04-27 | 84 Branch Stats entries updated — Jul 2024 – Jun 2025 (12 months, all branches). |
 
 ### Verifying after a one-time load
 
@@ -734,7 +737,7 @@ YCL has **6 real service locations**: Rock Hill (Main), Clover, Fort Mill, Lake 
 | Type | Examples | `is_desk` | Counted as a branch? |
 |---|---|---|---|
 | Service location | Rock Hill, Clover, Fort Mill, Lake Wylie, York, Outreach/Bookmobile | No | ✅ Yes |
-| Locker pickup | Rock Hill Lockers, Clover Lockers, Fort Mill Lockers, Lake Wylie Lockers, York Lockers | No | ❌ No — filtered out |
+| Locker pickup | Rock Hill - Lockers, Clover - Lockers, Fort Mill - Lockers, Lake Wylie - Lockers, York - Lockers | No | ❌ No — filtered out |
 | Desk sub-location | Rock Hill - Circulation, Rock Hill - YA | Yes | ❌ No — `is_desk=True` excludes them |
 | System-wide placeholder | YCL (System Wide) | No | ❌ No — excluded by name |
 
@@ -871,46 +874,42 @@ See `Notes/annual_comparables_design.md` for full documentation of the annual su
 
 ---
 
-## Current Data Status (as of 2026-04-26)
+## Current Data Status (as of 2026-04-27)
 
 ### What is loaded
 
 | Source | Status | Coverage |
 |---|---|---|
-| `non-SIRSI423.xlsx` | ✅ Loaded (one-time insert) | Jan 2024 – Mar 2026, all branches, all non-SIRSI Branch Stats metrics (WiFi, PC reservations, programs, ILL/ICL, printing, etc.) |
-| SIRSI Circulation | ✅ Loaded (one-time insert) | Jul 2025 – Mar 2026 (9 months). Locker branches included. See Historical Loads table below. |
-| SIRSI Registration | ⚠️ Partial | December 2025 only |
+| Branch Stats (non-SIRSI) | ✅ Loaded | Jul 2018 – Mar 2026, all branches. Sources: SQL import (2018–2024), `non-SIRSI423.xlsx` (2024–2026), `YCL_All_Stats_2019_2024.xlsx`, `YCL_Stats_2025.xlsx`. |
+| SIRSI Circulation | ✅ Loaded | Jul 2025 – Mar 2026 (9 months), locker branches included. Pre-Jul 2025 circulation came from SQL import via annual files. |
+| SIRSI Registration | ✅ Loaded | Jul 2025 – Mar 2026 (9 months). Pre-Jul 2025 Adult/Juvenile values from SQL import; Total recalculated 2026-04-27. |
 | Princh Printing | ⚠️ Partial | Some months loaded, not full history |
-| Online Stats | ✅ Loaded (one-time insert) | 27 entries — Jan 2024 – Mar 2026, system-wide |
-| Quarterly Reference Stats | ✅ Loaded (one-time insert) | 24 entries — Q1/Jun 2025, Q2/Oct 2025, Q3/Jan 2026, all 8 branches. **Future periods entered manually via nav.** |
-| Door Counter | ❌ Not loaded | Gate Count data in DB came from `non-SIRSI423.xlsx`, not door counter exports |
+| Online Stats | ✅ Loaded | 27 entries — Jan 2024 – Mar 2026, system-wide |
+| Quarterly Reference Stats | ✅ Loaded | 24 entries — Q1/Jun 2025, Q2/Oct 2025, Q3/Jan 2026, all 8 branches. **Future periods entered manually via nav.** |
+| Door Counter | ❌ Not loaded | Gate Count data in DB came from annual Excel files, not door counter exports |
 
 ### Remaining uploads needed
 
 Upload through the **Upload Data** page (`/upload`). Files can be uploaded in any order — the system upserts and will not overwrite unrelated metrics.
 
-**Priority 1 — SIRSI Circulation** (one file per month, all months Jan 2024 – present except Aug 2025)
+**Priority 1 — SIRSI Circulation** (ongoing monthly)
 - File: `Checkouts by Branch and Shelving Location - {Month} {Year}.xlsx`
-- Writes: `Total Branch Circulation` and `Hotspots Circulation` per branch
+- Writes: `Total Branch Circulation` and `Hotspots Circulation` per branch + locker branches
 
-**Priority 2 — SIRSI Registration** (one file per month, all months Jan 2024 – present except Aug 2025)
+**Priority 2 — SIRSI Registration** (ongoing monthly)
 - File: `Number of New Library Users by Branch and Patron Type - {Month} {Year}.xlsx`
 - Writes: `New Library Card Registrations, Adult/Juvenile/Total` per branch
 
-**Priority 3 — Online Stats** (single upload covers multiple months)
-- File: `onlin423.xlsx` — already loaded (Jan 2024 – Mar 2026)
+**Priority 3 — Online Stats** (ongoing monthly)
 - Future months: enter via Manual Entry form → Online Stats tab, or upload a new Excel file
-- Writes: all Online Stats metrics system-wide
 
 **Priority 4 — Quarterly Reference Stats**
-- Historical data already loaded via one-time script from `QRSver2.xlsx` (Q1/Jun 2025, Q2/Oct 2025, Q3/Jan 2026)
 - **Going forward: entered manually each period via Enter Data → Qrtly Ref Stats in the nav**
 - Do NOT upload future QRS data through the Upload Data page — use manual entry instead
 
-**Priority 5 — Princh Printing** (one file per month, ongoing)
+**Priority 5 — Princh Printing** (ongoing monthly)
 - File: `princh-export_{start}_{end}.xlsx` — upload monthly through Upload Data page
 - Writes: `Total Prints per Month` per branch
-- Some 2025 months have incomplete branch coverage (see data status table); historical Princh exports can fill gaps if available
 
 ---
 
@@ -946,6 +945,18 @@ with app.app_context():
             db.session.add(Branch(name=name, is_active=True, is_desk=False, sort_order=sort_order))
     db.session.commit()
 ```
+
+### Duplicate metrics from SQL import conflict (fixed 2026-04-27)
+
+The original SQL import created duplicate `Metric` rows for four Branch Stats metrics: `New Library Card Registrations, Total`, `Total Branch Circulation`, `Hotspots Circulation`, and `Locker Circulation`. Each had two DB rows with the same name but different IDs and sort orders. Different importers resolved to different IDs via `build_metric_lookup()` (which returns the last match by sort order), so values were being written to different metric IDs and both appeared in reports.
+
+**Fix:** For each duplicate pair, the higher-sort-order metric (the one the import pipeline resolves to) was kept as canonical. Any values in the lower-sort-order (inactive) metric that weren't already in the canonical metric were migrated across. All inactive metric values and the inactive metrics themselves were then deleted. The `New Library Card Registrations, Total` canonical metric (id=88) also had all its values recalculated as `Adult + Juvenile` as part of the same cleanup.
+
+**How to detect in future:** Run `SELECT name, COUNT(*) FROM metrics GROUP BY name HAVING COUNT(*) > 1` in the DB. Any result here indicates a duplicate that needs resolving.
+
+### Circulation category empty metrics deleted (2026-04-27)
+
+The `Circulation` category (used as a Data Status widget alias for SIRSI data) had two metrics — `Renewals` and `Hotspots Checkouts` — with zero values, created by the SQL import. These were never populated and caused a confusing empty section in the Year-over-Year report. Both metrics were deleted. The `Circulation` category shell was kept so the Data Status widget continues to show the correct SIRSI coverage date. Hotspots data is fully available under Branch Stats → `Hotspots Circulation` (639 values).
 
 ### Outreach/Bookmobile branch alias pointed to wrong canonical name (fixed 2026-04-27)
 

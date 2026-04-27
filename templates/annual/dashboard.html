@@ -54,12 +54,19 @@
 <div class="card mb-4">
   <div class="card-header-custom fw-semibold d-flex align-items-center gap-3 flex-wrap">
     <span><i class="bi bi-graph-up me-1 text-primary"></i>Trend Explorer</span>
-    <div class="d-flex gap-2 flex-wrap">
-      <select id="sectionPicker" class="form-select form-select-sm" style="width:auto">
-        <option value="">— Select section —</option>
-      </select>
-      <select id="metricPicker" class="form-select form-select-sm" style="width:auto" disabled>
-        <option value="">— Select metric —</option>
+    <div class="d-flex gap-2 flex-wrap flex-grow-1">
+      <select id="metricPicker" class="form-select form-select-sm" style="max-width:480px">
+        <option value="">— Select a metric to plot —</option>
+        {% for sec in section_order %}
+          {% set mlist = sections.get(sec, []) | selectattr('data_type', 'in', ['integer', 'decimal']) | list %}
+          {% if mlist %}
+          <optgroup label="{{ section_labels[sec] }}">
+            {% for m in mlist %}
+            <option value="{{ m.name }}">{{ m.name }}</option>
+            {% endfor %}
+          </optgroup>
+          {% endif %}
+        {% endfor %}
       </select>
     </div>
     <div class="ms-auto d-flex gap-2">
@@ -76,7 +83,7 @@
   <div class="card-body">
     <div id="explorerPlaceholder" class="text-center text-muted py-5">
       <i class="bi bi-bar-chart-line fs-1 d-block mb-2 opacity-25"></i>
-      Pick a section and metric above to plot a trend
+      Select a metric above to plot its trend over time
     </div>
     <canvas id="chartExplorer" style="display:none"></canvas>
   </div>
@@ -318,48 +325,12 @@ makeChart('chartTotalCirc','Grand Total Circ',       'GRAND TOTAL ALL CIRC',    
 })();
 
 // ── Trend Explorer ──────────────────────────────────────────────────────────
-const sectionMeta = {{ sections | tojson(default=str) if false else '{}' }};
-
-// Build section → [metric names] map from chartData keys and section_order
-const sectionOrder = {{ section_order | tojson }};
-const metricsBySectionRaw = {};
-{% for section_name, mlist in sections.items() %}
-metricsBySectionRaw[{{ section_name | tojson }}] = [
-  {% for m in mlist %}{% if m.data_type in ['integer','decimal'] %}{{ m.name | tojson }},{% endif %}{% endfor %}
-];
-{% endfor %}
-
-// Populate section picker in section_order sequence
-const sectionPicker = document.getElementById('sectionPicker');
-const metricPicker  = document.getElementById('metricPicker');
-sectionOrder.forEach(sec => {
-  if (metricsBySectionRaw[sec] && metricsBySectionRaw[sec].length) {
-    const opt = document.createElement('option');
-    opt.value = sec; opt.textContent = sec;
-    sectionPicker.appendChild(opt);
-  }
-});
-
-sectionPicker.addEventListener('change', () => {
-  const sec = sectionPicker.value;
-  metricPicker.innerHTML = '<option value="">— Select metric —</option>';
-  metricPicker.disabled = !sec;
-  if (sec) {
-    (metricsBySectionRaw[sec] || []).forEach(name => {
-      const opt = document.createElement('option');
-      opt.value = name; opt.textContent = name;
-      metricPicker.appendChild(opt);
-    });
-  }
-  drawExplorer();
-});
-
-metricPicker.addEventListener('change', drawExplorer);
+document.getElementById('metricPicker').addEventListener('change', drawExplorer);
 document.querySelectorAll('input[name="chartTypeRadio"]').forEach(r => r.addEventListener('change', drawExplorer));
 
 let explorerChart = null;
 function drawExplorer() {
-  const metric = metricPicker.value;
+  const metric = document.getElementById('metricPicker').value;
   const placeholder = document.getElementById('explorerPlaceholder');
   const canvas = document.getElementById('chartExplorer');
   if (!metric || !chartData[metric]) {

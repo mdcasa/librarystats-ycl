@@ -2289,6 +2289,24 @@ def annual_survey_dashboard():
         'EXPENSES STAFF', 'EXPENSES COLLECTION', 'EXPENSES OPERATIONS',
         'EXPENSES CAPITAL', 'EXPENSES TOTAL', 'COLLECTION SIZE',
     ]
+    section_labels = {
+        'USERS GATE COUNT':      'Users & Gate Count',
+        'CIRC':                  'Circulation',
+        'PROGRAMMING':           'Programming',
+        'OUTREACH':              'Outreach',
+        'TECH USE':              'Technology Use',
+        'REF MTG RM':            'Reference & Meeting Rooms',
+        'ILL':                   'Interlibrary Loans',
+        'OPERATIONS':            'Operations',
+        'STAFFING':              'Staffing',
+        'REVENUE':               'Revenue',
+        'EXPENSES STAFF':        'Expenses: Staff',
+        'EXPENSES COLLECTION':   'Expenses: Collection',
+        'EXPENSES OPERATIONS':   'Expenses: Operations',
+        'EXPENSES CAPITAL':      'Expenses: Capital',
+        'EXPENSES TOTAL':        'Expenses: Total',
+        'COLLECTION SIZE':       'Collection Size',
+    }
 
     return render_template('annual/dashboard.html',
                            years=years,
@@ -2297,6 +2315,7 @@ def annual_survey_dashboard():
                            chart_data=chart_data,
                            sections=sections,
                            section_order=section_order,
+                           section_labels=section_labels,
                            by_year=by_year,
                            all_metrics=all_metrics)
 

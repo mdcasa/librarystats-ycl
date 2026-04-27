@@ -812,10 +812,11 @@ def report_trend():
 
     categories  = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
     fy_rows = db.session.query(Entry.year, Entry.month).filter(Entry.month.isnot(None)).distinct().all()
+    _now = datetime.now(); _cur_fy = _now.year + 1 if _now.month >= 7 else _now.year
     fy_set = set()
     for yr, mo in fy_rows:
         fy_set.add(yr + 1 if mo >= 7 else yr)
-    available_years = sorted(fy_set)
+    available_years = sorted(y for y in fy_set if y <= _cur_fy)
     metrics_json = metrics_by_category_json()
     chart_data   = None
     metric = category = None
@@ -1003,13 +1004,14 @@ def report_yoy():
     fy_rows = db.session.query(Entry.year, Entry.month, Entry.quarter).filter(
         or_(Entry.month.isnot(None), Entry.quarter.isnot(None))
     ).distinct().all()
+    _now = datetime.now(); _cur_fy = _now.year + 1 if _now.month >= 7 else _now.year
     fy_set = set()
     for yr, mo, q in fy_rows:
         if mo is not None:
             fy_set.add(yr + 1 if mo >= 7 else yr)
         if q is not None:
             fy_set.add(yr + 1 if q in (3, 4) else yr)
-    available_years = sorted(fy_set)
+    available_years = sorted(y for y in fy_set if y <= _cur_fy)
 
     all_branches = Branch.query.filter(
         Branch.is_active == True,
@@ -1159,13 +1161,14 @@ def report_fiscal():
     rows = db.session.query(Entry.year, Entry.month, Entry.quarter).filter(
         or_(Entry.month.isnot(None), Entry.quarter.isnot(None))
     ).distinct().all()
+    _now = datetime.now(); _cur_fy = _now.year + 1 if _now.month >= 7 else _now.year
     fy_set = set()
     for yr, mo, q in rows:
         if mo is not None:
             fy_set.add(yr + 1 if mo >= 7 else yr)
         if q is not None:
             fy_set.add(yr + 1 if q in (3, 4) else yr)
-    available_fy = sorted(fy_set, reverse=True)
+    available_fy = sorted((y for y in fy_set if y <= _cur_fy), reverse=True)
 
     table = branches = category = fy_label = None
 
@@ -1262,11 +1265,13 @@ def report_fiscal():
 
 def _available_fy():
     """Sorted list of fiscal years (descending) derived from monthly entry data."""
+    now = datetime.now()
+    current_fy = now.year + 1 if now.month >= 7 else now.year
     rows = db.session.query(Entry.year, Entry.month).filter(Entry.month.isnot(None)).distinct().all()
     fy_set = set()
     for yr, mo in rows:
         fy_set.add(yr + 1 if mo >= 7 else yr)
-    return sorted(fy_set, reverse=True)
+    return sorted((y for y in fy_set if y <= current_fy), reverse=True)
 
 
 def _fy_label(fy_year):
@@ -1787,13 +1792,14 @@ def director_dashboard():
     rows = db.session.query(Entry.year, Entry.month, Entry.quarter).filter(
         or_(Entry.month.isnot(None), Entry.quarter.isnot(None))
     ).distinct().all()
+    _now = datetime.now(); _cur_fy = _now.year + 1 if _now.month >= 7 else _now.year
     fy_set = set()
     for yr, mo, q in rows:
         if mo is not None:
             fy_set.add(yr + 1 if mo >= 7 else yr)
         if q is not None:
             fy_set.add(yr + 1 if q in (3, 4) else yr)
-    available_fy = sorted(fy_set, reverse=True)
+    available_fy = sorted((y for y in fy_set if y <= _cur_fy), reverse=True)
 
     fy_year = request.args.get('fy_year', type=int)
     stats = None

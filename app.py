@@ -378,8 +378,11 @@ def _branches_for_category(category):
         return (Branch.query.filter_by(is_active=True)
                 .filter(~Branch.name.in_(['Rock Hill', 'YCL (System Wide)']))
                 .order_by(Branch.is_desk.desc(), Branch.sort_order).all())
-    # All other categories: exclude desk-level branches
-    return Branch.query.filter_by(is_active=True, is_desk=False).order_by(Branch.name).all()
+    # All other categories: exclude desk-level and locker branches
+    return (Branch.query.filter_by(is_active=True, is_desk=False)
+            .filter(~Branch.name.ilike('%locker%'),
+                    Branch.name != 'YCL (System Wide)')
+            .order_by(Branch.name).all())
 
 
 @app.route('/entries/new/<int:category_id>', methods=['GET', 'POST'])

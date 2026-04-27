@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, session
 from flask_login import LoginManager, login_user, logout_user, current_user
 from models import db, Category, Metric, Branch, Entry, EntryValue, User
+from sqlalchemy.orm import joinedload
 from datetime import datetime
 from functools import wraps
 import hmac
@@ -1005,7 +1006,7 @@ def report_yoy():
         colors   = ['#2c6e8a','#e74c3c','#27ae60','#f39c12','#8e44ad','#16a085']
 
         def _entries(year):
-            q = Entry.query.filter_by(category_id=cat_id, year=year)
+            q = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat_id, year=year)
             if branch_id and category.has_branch:
                 q = q.filter_by(branch_id=branch_id)
             return q.all()

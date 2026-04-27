@@ -97,8 +97,8 @@
 {% set _data    = ['upload_data','entries_list','entry_view'] %}
 {% set _dash    = ['director_dashboard','annual_survey_dashboard','annual_survey_enter','annual_survey_calculate'] %}
 {% set _reports = ['report_monthly_stats','report_monthly','report_fiscal','report_trend',
-                   'report_yoy','report_quarterly_ref','report_annual','report_crosstab',
-                   'report_programming_age','report_programming','report_online'] %}
+                   'report_yoy','report_quarterly_ref','report_annual',
+                   'report_programming','report_online'] %}
 {% set _admin   = ['admin_categories','admin_category_edit','admin_branches',
                    'admin_import','admin_export','admin_metric_edit',
                    'admin_users','admin_user_new','admin_user_edit'] %}
@@ -228,12 +228,6 @@
             <li><a class="dropdown-item {% if ep == 'report_annual' %}active{% endif %}"
                    href="{{ url_for('report_annual') }}">
               <i class="bi bi-trophy me-2 text-warning"></i>Branch Scorecard</a></li>
-            <li><a class="dropdown-item {% if ep == 'report_crosstab' %}active{% endif %}"
-                   href="{{ url_for('report_crosstab') }}">
-              <i class="bi bi-grid-3x3-gap me-2 text-primary"></i>Cross-tab Heat Map</a></li>
-            <li><a class="dropdown-item {% if ep == 'report_programming_age' %}active{% endif %}"
-                   href="{{ url_for('report_programming_age') }}">
-              <i class="bi bi-people-fill me-2" style="color:#6c3483"></i>Programming Cross-tab</a></li>
             <li><a class="dropdown-item {% if ep == 'report_programming' %}active{% endif %}"
                    href="{{ url_for('report_programming') }}">
               <i class="bi bi-people me-2 text-danger"></i>Programming Summary</a></li>

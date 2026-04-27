@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for, flash, jso
 from flask_login import LoginManager, login_user, logout_user, current_user
 from models import db, Category, Metric, Branch, Entry, EntryValue, User
 from sqlalchemy.orm import joinedload
+from sqlalchemy import or_, and_
 from datetime import datetime
 from functools import wraps
 import hmac
@@ -986,11 +987,22 @@ def report_yoy():
     branch_id = request.args.get('branch',   type=int)
     metric_id = request.args.get('metric',   type=int)
     mode      = request.args.get('mode', 'annual')
-    years     = sorted(request.args.getlist('years', type=int))
+    years     = sorted(request.args.getlist('years', type=int))  # fiscal years (e.g. 2024 = Jul 2023–Jun 2024)
 
-    categories      = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
-    available_years = [r[0] for r in db.session.query(Entry.year).distinct().order_by(Entry.year).all()]
-    metrics_json    = metrics_by_category_json()
+    categories   = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
+    metrics_json = metrics_by_category_json()
+
+    # Derive available fiscal years from stored data
+    fy_rows = db.session.query(Entry.year, Entry.month, Entry.quarter).filter(
+        or_(Entry.month.isnot(None), Entry.quarter.isnot(None))
+    ).distinct().all()
+    fy_set = set()
+    for yr, mo, q in fy_rows:
+        if mo is not None:
+            fy_set.add(yr + 1 if mo >= 7 else yr)
+        if q is not None:
+            fy_set.add(yr + 1 if q in (3, 4) else yr)
+    available_years = sorted(fy_set)
 
     all_branches = Branch.query.filter(
         Branch.is_active == True,
@@ -1000,13 +1012,25 @@ def report_yoy():
     ).order_by(Branch.name).all()
     table = col_headers = chart_data = category = metric = annual_chart_json = None
 
+    # Fiscal month order: Jul→Jun
+    FY_MONTHS = list(range(7, 13)) + list(range(1, 7))
+    FY_MONTH_LABELS = ['Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun']
+
     if cat_id and len(years) >= 2:
         category = Category.query.get_or_404(cat_id)
         metrics  = Metric.query.filter_by(category_id=cat_id, is_active=True).order_by(Metric.sort_order).all()
         colors   = ['#2c6e8a','#e74c3c','#27ae60','#f39c12','#8e44ad','#16a085']
 
-        def _entries(year):
-            q = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat_id, year=year)
+        def _entries(fy_year):
+            # Fetch Jul(fy_year-1)–Jun(fy_year), handling monthly and quarterly entries
+            q = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat_id).filter(
+                or_(
+                    and_(Entry.year == fy_year - 1,
+                         or_(Entry.month >= 7, Entry.quarter.in_([3, 4]))),
+                    and_(Entry.year == fy_year,
+                         or_(Entry.month <= 6, Entry.quarter.in_([1, 2])))
+                )
+            )
             if branch_id and category.has_branch:
                 q = q.filter_by(branch_id=branch_id)
             return q.all()
@@ -1023,20 +1047,20 @@ def report_yoy():
             return ('+' if p > 0 else '') + str(p) + '%'
 
         if mode == 'annual':
-            # totals[metric_id][year] = sum
+            # totals[metric_id][fy_year] = sum across Jul–Jun
             totals = {m.id: {} for m in metrics}
-            for year in years:
-                for e in _entries(year):
+            for fy_year in years:
+                for e in _entries(fy_year):
                     for ev in e.values:
                         if ev.value_number and ev.metric_id in totals:
-                            totals[ev.metric_id][year] = totals[ev.metric_id].get(year, 0) + ev.value_number
+                            totals[ev.metric_id][fy_year] = totals[ev.metric_id].get(fy_year, 0) + ev.value_number
 
-            # Column headers: Year, [Δ year→year], Year, ...
+            # Column headers: FY2024, [Δ FY2023→FY2024], ...
             col_headers = []
             for j, y in enumerate(years):
-                col_headers.append({'label': str(y), 'is_change': False})
+                col_headers.append({'label': f'FY{y}', 'is_change': False})
                 if j > 0:
-                    col_headers.append({'label': f'Δ {years[j-1]}→{y}', 'is_change': True})
+                    col_headers.append({'label': f'Δ FY{years[j-1]}→FY{y}', 'is_change': True})
 
             # Build grouped table
             groups, seen = [], {}
@@ -1067,34 +1091,33 @@ def report_yoy():
 
         elif mode == 'monthly' and metric_id:
             metric = Metric.query.get_or_404(metric_id)
-            # monthly_data[month][year] = value
-            monthly_data = {mo: {} for mo in range(1, 13)}
-            for year in years:
-                for e in _entries(year):
+            # monthly_data[calendar_month][fy_year] = value
+            monthly_data = {mo: {} for mo in FY_MONTHS}
+            for fy_year in years:
+                for e in _entries(fy_year):
                     if e.month:
                         for ev in e.values:
                             if ev.metric_id == metric_id and ev.value_number is not None:
-                                monthly_data[e.month][year] = ev.value_number
+                                monthly_data[e.month][fy_year] = ev.value_number
 
-            # Chart
-            labels   = [m[:3] for m in MONTHS]
+            # Chart — X axis is Jul→Jun
             datasets = []
-            for i, year in enumerate(years):
-                pts = [monthly_data[mo].get(year) for mo in range(1, 13)]
-                datasets.append({'label': str(year), 'data': pts, 'tension': 0.3,
+            for i, fy_year in enumerate(years):
+                pts = [monthly_data[mo].get(fy_year) for mo in FY_MONTHS]
+                datasets.append({'label': f'FY{fy_year}', 'data': pts, 'tension': 0.3,
                                  'spanGaps': True, 'borderColor': colors[i % len(colors)],
                                  'backgroundColor': colors[i % len(colors)] + '22'})
-            chart_data = {'labels': labels, 'datasets': datasets}
+            chart_data = {'labels': FY_MONTH_LABELS, 'datasets': datasets}
 
-            # Table: rows = months, cols = years + % change
+            # Table: rows = Jul–Jun months, cols = FY years + % change
             col_headers = []
             for j, y in enumerate(years):
-                col_headers.append({'label': str(y), 'is_change': False})
+                col_headers.append({'label': f'FY{y}', 'is_change': False})
                 if j > 0:
-                    col_headers.append({'label': f'Δ {years[j-1]}→{y}', 'is_change': True})
+                    col_headers.append({'label': f'Δ FY{years[j-1]}→FY{y}', 'is_change': True})
 
             table = []
-            for mo in range(1, 13):
+            for mo, label in zip(FY_MONTHS, FY_MONTH_LABELS):
                 cells = []
                 for j, y in enumerate(years):
                     val  = monthly_data[mo].get(y)
@@ -1104,8 +1127,9 @@ def report_yoy():
                         cells.append({'val': _pct(prev, val) if (val and prev) else '—',
                                       'is_change': True,
                                       'up': val > prev if (val and prev) else None})
-                table.append({'label': MONTHS[mo - 1], 'cells': cells})
+                table.append({'label': label, 'cells': cells})
 
+    chart_year_labels = [f'FY{y}' for y in years]
     return render_template('reports/yearoveryear.html',
                            categories=categories, available_years=available_years,
                            metrics_json=metrics_json, all_branches=all_branches,
@@ -1113,7 +1137,7 @@ def report_yoy():
                            sel_mode=mode, sel_years=years,
                            category=category, metric=metric,
                            col_headers=col_headers, table=table, chart_data=chart_data,
-                           annual_chart_json=annual_chart_json, chart_years=years)
+                           annual_chart_json=annual_chart_json, chart_years=chart_year_labels)
 
 
 @app.route('/reports/fiscal')

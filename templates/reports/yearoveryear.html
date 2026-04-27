@@ -50,13 +50,13 @@
       </div>
 
       <div class="col-12">
-        <label class="sidebar-label mb-1">Years to compare (select 2 or more)</label>
+        <label class="sidebar-label mb-1">Fiscal years to compare (select 2 or more — FY runs Jul–Jun)</label>
         <div class="d-flex flex-wrap gap-2">
           {% for y in available_years %}
           <div class="form-check form-check-inline">
             <input class="form-check-input" type="checkbox" name="years" value="{{ y }}" id="yr{{ y }}"
               {% if y in sel_years %}checked{% endif %}>
-            <label class="form-check-label" for="yr{{ y }}">{{ y }}</label>
+            <label class="form-check-label" for="yr{{ y }}">FY{{ y }}</label>
           </div>
           {% endfor %}
         </div>
@@ -100,9 +100,9 @@
 
   <div class="mb-2">
     {% if sel_mode == 'annual' %}
-    <h5 class="mb-0">{{ category.name }} — Annual Totals</h5>
+    <h5 class="mb-0">{{ category.name }} — Fiscal Year Totals (Jul–Jun)</h5>
     {% else %}
-    <h5 class="mb-0">{{ category.name }} — {{ metric.name }} — Monthly by Year</h5>
+    <h5 class="mb-0">{{ category.name }} — {{ metric.name }} — Monthly by Fiscal Year</h5>
     {% endif %}
   </div>
 

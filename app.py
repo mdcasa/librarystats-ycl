@@ -998,7 +998,7 @@ def report_yoy():
         ~Branch.name.ilike('%locker%'),
         Branch.name != 'YCL (System Wide)',
     ).order_by(Branch.name).all()
-    table = col_headers = chart_data = category = metric = None
+    table = col_headers = chart_data = category = metric = annual_chart_json = None
 
     if cat_id and len(years) >= 2:
         category = Category.query.get_or_404(cat_id)
@@ -1056,6 +1056,15 @@ def report_yoy():
                 seen[key]['rows'].append({'metric': m, 'cells': cells})
             table = groups
 
+            # Chart data for client-side bar chart (no extra queries)
+            annual_chart_json = {
+                str(m.id): {
+                    'name': m.name,
+                    'values': [totals[m.id].get(y, 0) for y in years]
+                }
+                for m in metrics
+            }
+
         elif mode == 'monthly' and metric_id:
             metric = Metric.query.get_or_404(metric_id)
             # monthly_data[month][year] = value
@@ -1103,7 +1112,8 @@ def report_yoy():
                            sel_cat=cat_id, sel_branch=branch_id, sel_metric=metric_id,
                            sel_mode=mode, sel_years=years,
                            category=category, metric=metric,
-                           col_headers=col_headers, table=table, chart_data=chart_data)
+                           col_headers=col_headers, table=table, chart_data=chart_data,
+                           annual_chart_json=annual_chart_json, chart_years=years)
 
 
 @app.route('/reports/fiscal')

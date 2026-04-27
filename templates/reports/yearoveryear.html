@@ -82,6 +82,22 @@
   </div>
   {% endif %}
 
+  {% if sel_mode == 'annual' and annual_chart_json %}
+  <div class="card mb-4">
+    <div class="card-body">
+      <div class="d-flex align-items-center gap-3 mb-3">
+        <span class="sidebar-label mb-0">Chart metric:</span>
+        <select id="annual-chart-metric" class="form-select form-select-sm" style="max-width:320px">
+          {% for m_id, m_data in annual_chart_json.items() %}
+          <option value="{{ m_id }}">{{ m_data.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <canvas id="yoyChartAnnual" height="90"></canvas>
+    </div>
+  </div>
+  {% endif %}
+
   <div class="mb-2">
     {% if sel_mode == 'annual' %}
     <h5 class="mb-0">{{ category.name }} — Annual Totals</h5>
@@ -171,9 +187,11 @@
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 <script>
 Chart.register(ChartDataLabels);
-const metricsByCat = {{ metrics_json | tojson }};
-const selMetric    = {{ sel_metric or 'null' }};
-const chartData    = {{ chart_data | tojson if chart_data else 'null' }};
+const metricsByCat     = {{ metrics_json | tojson }};
+const selMetric        = {{ sel_metric or 'null' }};
+const chartData        = {{ chart_data | tojson if chart_data else 'null' }};
+const annualChartData  = {{ annual_chart_json | tojson if annual_chart_json else 'null' }};
+const annualChartYears = {{ chart_years | tojson if chart_years else 'null' }};
 
 let tomMetric = null;
 
@@ -220,7 +238,54 @@ document.getElementById('mode-select').addEventListener('change', updateMetricCo
 updateBranchCol();
 updateMetricCol();
 
-// Chart
+// Annual bar chart
+if (annualChartData && annualChartYears) {
+  const BAR_COLORS = ['#2c6e8a','#e74c3c','#27ae60','#f39c12','#8e44ad','#16a085'];
+  let annualChart = null;
+
+  function buildAnnualChart(metricId) {
+    const m = annualChartData[metricId];
+    if (!m) return;
+    const datasets = annualChartYears.map((yr, i) => ({
+      label: String(yr),
+      data: [m.values[i]],
+      backgroundColor: BAR_COLORS[i % BAR_COLORS.length] + 'cc',
+      borderColor:     BAR_COLORS[i % BAR_COLORS.length],
+      borderWidth: 1,
+    }));
+    const ctx = document.getElementById('yoyChartAnnual');
+    if (!ctx) return;
+    if (annualChart) annualChart.destroy();
+    annualChart = new Chart(ctx, {
+      type: 'bar',
+      data: { labels: [m.name], datasets },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'top' },
+          datalabels: {
+            anchor: 'end', align: 'end',
+            formatter: v => v ? Number(v).toLocaleString() : '',
+            font: { size: 11, weight: 'bold' },
+            color: '#333',
+          }
+        },
+        scales: {
+          y: { beginAtZero: true, ticks: { callback: v => v.toLocaleString() } },
+          x: { display: false }
+        }
+      }
+    });
+  }
+
+  const picker = document.getElementById('annual-chart-metric');
+  if (picker) {
+    buildAnnualChart(picker.value);
+    picker.addEventListener('change', () => buildAnnualChart(picker.value));
+  }
+}
+
+// Monthly line chart
 if (chartData) {
   const ctx = document.getElementById('yoyChart');
   if (ctx) {

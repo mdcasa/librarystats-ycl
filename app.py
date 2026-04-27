@@ -191,7 +191,7 @@ def index():
         cat = Category.query.filter_by(name=cat_name).first()
         if not cat:
             return {}
-        entries = Entry.query.filter_by(category_id=cat.id, year=y, month=m).all()
+        entries = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat.id, year=y, month=m).all()
         id_to_name = {mx.id: mx.name for mx in cat.metrics}
         totals = {}
         for e in entries:
@@ -774,7 +774,7 @@ def report_monthly():
     if cat_id and year and month:
         category = Category.query.get_or_404(cat_id)
         metrics  = Metric.query.filter_by(category_id=cat_id, is_active=True).order_by(Metric.sort_order).all()
-        entries  = Entry.query.filter_by(category_id=cat_id, year=year, month=month).all()
+        entries  = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat_id, year=year, month=month).all()
 
         branch_set, data = set(), {}
         for e in entries:
@@ -900,7 +900,7 @@ def report_programming():
         cat = Category.query.filter_by(name='Branch Stats').first()
         if cat:
             all_metrics = {m.name: m for m in cat.metrics}
-            q = Entry.query.filter_by(category_id=cat.id, year=year)
+            q = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat.id, year=year)
             if month:
                 q = q.filter_by(month=month)
             if branch_id:
@@ -1135,7 +1135,7 @@ def report_fiscal():
 
         # Monthly categories: months 7-12 of fy_year-1 and months 1-6 of fy_year
         # Quarterly categories: Q3+Q4 of fy_year-1 and Q1+Q2 of fy_year
-        entries = Entry.query.filter_by(category_id=cat_id).filter(
+        entries = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat_id).filter(
             or_(
                 and_(Entry.year == fy_year - 1,
                      or_(Entry.month >= 7, Entry.quarter.in_([3, 4]))),
@@ -1264,7 +1264,7 @@ def report_annual():
         if bs_cat:
             id_to_name = {m.id: m.name for m in bs_cat.metrics}
 
-            entries = Entry.query.filter_by(category_id=bs_cat.id).filter(
+            entries = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=bs_cat.id).filter(
                 or_(
                     and_(Entry.year == fy_year - 1, Entry.month >= 7),
                     and_(Entry.year == fy_year,     Entry.month <= 6)
@@ -1341,7 +1341,7 @@ def report_crosstab():
         cols = branches if category.has_branch else [None]
 
         data = {}  # (cal_year, month, branch_id_or_None) -> value
-        for e in Entry.query.filter_by(category_id=cat_id).filter(
+        for e in Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat_id).filter(
             or_(
                 and_(Entry.year == fy_year - 1, Entry.month >= 7),
                 and_(Entry.year == fy_year,     Entry.month <= 6)
@@ -1476,7 +1476,7 @@ def report_programming_age():
                 period_label = f'{MONTHS[month - 1]} {cal_year}'
             else:
                 # Full fiscal year
-                q = Entry.query.filter_by(category_id=bs_cat.id).filter(
+                q = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=bs_cat.id).filter(
                     or_(
                         and_(Entry.year == fy_year - 1, Entry.month >= 7),
                         and_(Entry.year == fy_year,     Entry.month <= 6)
@@ -1862,7 +1862,7 @@ def report_monthly_stats():
             cat = Category.query.filter_by(name=cat_name).first()
             if not cat:
                 return {}
-            entries = Entry.query.filter_by(category_id=cat.id, year=y, month=m).all()
+            entries = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat.id, year=y, month=m).all()
             id_to_name = {mx.id: mx.name for mx in cat.metrics}
             totals = {}
             for e in entries:
@@ -1975,7 +1975,7 @@ def director_dashboard():
             cat = Category.query.filter_by(name=cat_name).first()
             if not cat:
                 return {}
-            entries = Entry.query.filter_by(category_id=cat.id).filter(
+            entries = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat.id).filter(
                 or_(
                     and_(Entry.year == fy_year - 1,
                          or_(Entry.month >= 7, Entry.quarter.in_([3, 4]))),
@@ -2217,7 +2217,7 @@ def report_quarterly_ref():
 
             # Raw data: {branch_id: {quarter: value}}
             raw = {b.id: {} for b in all_branches}
-            for e in Entry.query.filter_by(category_id=cat.id, year=year).all():
+            for e in Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat.id, year=year).all():
                 if e.branch_id in raw and e.quarter and metric:
                     for ev in e.values:
                         if ev.metric_id == metric.id and ev.value_number is not None:
@@ -2543,7 +2543,7 @@ def annual_survey_calculate(year):
     def fy_entries(cat):
         if not cat:
             return []
-        return Entry.query.filter_by(category_id=cat.id).filter(
+        return Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat.id).filter(
             or_(
                 and_(Entry.year == year - 1, Entry.month >= 7),
                 and_(Entry.year == year,     Entry.month <= 6)

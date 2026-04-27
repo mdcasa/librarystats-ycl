@@ -933,6 +933,14 @@ Princh export location strings are matched to branches via substring search (cas
 
 Added fallback month detection for SIRSI New Library Users reports where the month is in the data column rather than the report header.
 
+### N+1 query timeout on Year-over-Year report (fixed 2026-04-27)
+
+**Problem:** The Year-over-Year report crashed with a Railway request timeout when "All Branches" was selected. The `_entries()` helper fetched Entry objects without eager-loading their associated `EntryValue` rows. Because SQLAlchemy's default relationship loading is lazy, every access to `e.values` in the loop fired a separate SQL query to Supabase. With 6 years × 8 branches × 12 months = ~580 entries, this meant ~580 individual round-trips (~50ms each over the network) — well over Railway's 30-second timeout.
+
+**Fix:** Added `options(joinedload(Entry.values))` to every `Entry.query` call where the results are iterated and `.values` is accessed — 10 sites total across `app.py`. This collapses N+1 queries into one JOIN per query (one per year in the YoY report). The `joinedload` import was added at the top of `app.py` from `sqlalchemy.orm`.
+
+**Rule to remember:** Any time you write `Entry.query…all()` followed by a loop over `e.values`, add `.options(joinedload(Entry.values))` to the query. Without it, each row in the result set costs a separate database round-trip, which is acceptable locally (SQLite, no network) but fatal in production (PostgreSQL over Supabase, ~50ms/query).
+
 ### Missing 'New Library Card Registrations, Total' metric (fixed 2026-04-26)
 
 The SIRSI registration importer writes Adult + Juvenile + Total, but only Adult and Juvenile were in `seed_data.py`. Total was never seeded, so the importer silently dropped that value. Fixed by adding it to `seed_data.py` and adding a startup patch in `app.py` that creates the metric in existing databases on next boot (inserted after Juvenile in the Registrations group).

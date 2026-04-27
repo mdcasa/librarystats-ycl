@@ -1522,6 +1522,7 @@ _UPLOAD_SOURCED_METRICS = {
     'Gate Count',
     'Total Branch Circulation',
     'Hotspots Circulation',
+    'Locker Circulation',
     'ILL - Sent (Main ONLY)',
     'ILL - Received (Main ONLY)',
     'ICLs - Sent (Main ONLY)',

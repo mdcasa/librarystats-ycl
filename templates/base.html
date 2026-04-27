@@ -93,7 +93,7 @@
 
 {# ── Active nav helpers ── #}
 {% set ep = request.endpoint or '' %}
-{% set _enter   = ['manual_entry','ill_entry','icl_entry','entry_create','entry_edit','entry_delete'] %}
+{% set _enter   = ['ill_entry','icl_entry','entry_create','entry_edit','entry_delete'] %}
 {% set _data    = ['upload_data','entries_list','entry_view'] %}
 {% set _dash    = ['director_dashboard','annual_survey_dashboard','annual_survey_enter','annual_survey_calculate'] %}
 {% set _reports = ['report_monthly_stats','report_monthly','report_fiscal','report_trend',
@@ -129,13 +129,6 @@
             <i class="bi bi-pencil-square me-1"></i>Enter Data
           </a>
           <ul class="dropdown-menu shadow-sm">
-            <li>
-              <a class="dropdown-item fw-semibold {% if ep == 'manual_entry' %}active{% endif %}"
-                 href="{{ url_for('manual_entry') }}">
-                <i class="bi bi-pencil-square me-2 text-primary"></i>Manual Entry (Staff)
-              </a>
-            </li>
-            <li><hr class="dropdown-divider"></li>
             <li>
               <a class="dropdown-item {% if ep == 'ill_entry' %}active{% endif %}"
                  href="{{ url_for('ill_entry') }}">

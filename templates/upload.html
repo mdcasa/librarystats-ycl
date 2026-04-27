@@ -121,5 +121,60 @@
   </div>
   {% endif %}
 
+  {% if comparison %}
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header-custom fw-semibold d-flex align-items-center justify-content-between">
+        <span><i class="bi bi-arrow-left-right me-2 text-info"></i>Prior-Year Comparison</span>
+        {% set total_flags = comparison | sum(attribute='flagged') %}
+        {% if total_flags > 0 %}
+        <span class="badge bg-warning text-dark">{{ total_flags }} value{% if total_flags != 1 %}s{% endif %} to review</span>
+        {% else %}
+        <span class="badge bg-success">All values look normal</span>
+        {% endif %}
+      </div>
+      {% for period in comparison %}
+      <div class="px-3 pt-3 pb-1">
+        <div class="fw-semibold small text-muted mb-2">{{ period.label }}</div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-3" style="font-size:.82rem">
+            <thead class="table-light">
+              <tr>
+                <th>Metric</th>
+                <th>Branch</th>
+                <th class="text-end">Prior Year</th>
+                <th class="text-end">This Import</th>
+                <th class="text-end">Change</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in period.rows %}
+              <tr {% if row.flag == 'danger' %}class="table-danger"{% elif row.flag == 'warning' %}class="table-warning"{% endif %}>
+                <td>{{ row.metric }}</td>
+                <td>{{ row.branch }}</td>
+                <td class="text-end">{{ row.prior | commas if row.prior is not none else '—' }}</td>
+                <td class="text-end">{{ row.current | commas if row.current is not none else '—' }}</td>
+                <td class="text-end">
+                  {% if row.pct is not none %}
+                    {% if row.pct > 0 %}<span class="text-success">+{{ row.pct | round(1) }}%</span>
+                    {% elif row.pct < 0 %}<span class="text-danger">{{ row.pct | round(1) }}%</span>
+                    {% else %}<span class="text-muted">0%</span>{% endif %}
+                  {% elif row.current is not none and row.prior is none %}
+                    <span class="text-muted">new</span>
+                  {% else %}
+                    <span class="text-danger fw-semibold">missing</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
 </div>
 {% endblock %}

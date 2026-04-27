@@ -328,7 +328,8 @@ def import_branch_stats(ws, cat, metric_lookup, branch_lookup, year_override=Non
                 db.session.add(EntryValue(entry_id=entry.id, metric_id=metric_id, value_number=val))
 
     db.session.commit()
-    return created, updated, warnings
+    period_set = {(y, m) for y, m, _ in buckets.keys()}
+    return created, updated, period_set, warnings
 
 
 def import_online_stats(ws, cat, metric_lookup, year_override=None):
@@ -585,9 +586,9 @@ def import_princh(ws, branch_lookup):
         r = _upsert_branch_stat(cat.id, branch_id, year, month, prints_metric.id, total)
         if r == 'created': created += 1
         else: updated += 1
-
+    period_set = {(y, m) for y, m, _ in totals.keys()}
     db.session.commit()
-    return created, updated, warnings
+    return created, updated, period_set, warnings
 
 
 def _detect_sirsi_report_type(rows):
@@ -957,7 +958,8 @@ def import_door_count(ws, branch_lookup):
             else: updated += 1
 
     db.session.commit()
-    return created, updated, []
+    period_set = set(monthly_ins.keys())
+    return created, updated, period_set, []
 
 
 def detect_and_import(wb, year_override=None):
@@ -981,7 +983,8 @@ def detect_and_import(wb, year_override=None):
             det, year, month, w = import_sirsi_user_profile(ws, branch_lookup)
             results.append({'sheet': 'SIRSI Checkouts (by User Profile)',
                              'created': det, 'updated': 0, 'skipped': 0, 'warnings': w,
-                             'note': f'{det} adult/juvenile rows stored for {month}/{year}' if year else ''})
+                             'note': f'{det} adult/juvenile rows stored for {month}/{year}' if year else '',
+                             'year': year, 'month': month})
 
         elif 'Checkouts by Branch and Shelving Location' in title:
             report_type, year, month = _detect_sirsi_report_type(rows)
@@ -989,7 +992,8 @@ def detect_and_import(wb, year_override=None):
                 det, circ, w = import_sirsi_checkouts(ws, year, month, branch_lookup)
                 results.append({'sheet': 'SIRSI Checkouts (by Shelving Location)',
                                  'created': det, 'skipped': 0, 'warnings': w,
-                                 'note': f'{circ} Circulation total entries written'})
+                                 'note': f'{circ} Circulation total entries written',
+                                 'year': year, 'month': month})
             else:
                 results.append({'sheet': sheet_name, 'created': 0, 'skipped': 0,
                                  'warnings': ['Could not determine year/month from report']})
@@ -1015,22 +1019,25 @@ def detect_and_import(wb, year_override=None):
             if year and month:
                 created, updated, w = import_new_library_users(ws, year, month, branch_lookup)
                 results.append({'sheet': 'New Library Card Registrations',
-                                 'created': created, 'updated': updated, 'skipped': 0, 'warnings': w})
+                                 'created': created, 'updated': updated, 'skipped': 0, 'warnings': w,
+                                 'year': year, 'month': month})
             else:
                 results.append({'sheet': sheet_name, 'created': 0, 'updated': 0, 'skipped': 0,
                                  'warnings': ['Could not determine year/month from report']})
 
         elif (any(v is not None and 'Letter color pages' in str(v) for r in rows[:3] for v in r) or
               ('Location' in header_row and 'Documents' in header_row and 'From' in header_row)):
-            created, updated, w = import_princh(ws, branch_lookup)
+            created, updated, periods, w = import_princh(ws, branch_lookup)
             results.append({'sheet': 'Total Prints per Month (Princh)',
-                             'created': created, 'updated': updated, 'skipped': 0, 'warnings': w})
+                             'created': created, 'updated': updated, 'skipped': 0, 'warnings': w,
+                             'periods': sorted(periods)})
 
         elif any(v is not None and 'Location Name' in str(v)
                  for r in rows[:3] for v in r):
-            created, updated, w = import_door_count(ws, branch_lookup)
+            created, updated, periods, w = import_door_count(ws, branch_lookup)
             results.append({'sheet': 'Gate Count (Door Counter)',
-                             'created': created, 'updated': updated, 'skipped': 0, 'warnings': w})
+                             'created': created, 'updated': updated, 'skipped': 0, 'warnings': w,
+                             'periods': sorted(periods)})
 
         elif sheet_name in ('Branch Stats', 'Online Stats', 'Qrtly Ref Stats') or \
              any(sheet_name in wb.sheetnames for sheet_name in ('Branch Stats', 'Online Stats')):
@@ -1103,8 +1110,9 @@ def do_import(wb, year_override=None):
     # Branch Stats
     metric_lookup, cat = build_metric_lookup('Branch Stats')
     if cat and 'Branch Stats' in wb.sheetnames:
-        c, s, w = import_branch_stats(wb['Branch Stats'], cat, metric_lookup, branch_lookup, year_override)
-        results.append({'sheet': 'Branch Stats', 'created': c, 'skipped': s, 'warnings': w})
+        c, s, periods, w = import_branch_stats(wb['Branch Stats'], cat, metric_lookup, branch_lookup, year_override)
+        results.append({'sheet': 'Branch Stats', 'created': c, 'skipped': s, 'warnings': w,
+                        'periods': sorted(periods)})
     elif 'Branch Stats' not in wb.sheetnames:
         results.append({'sheet': 'Branch Stats', 'created': 0, 'skipped': 0,
                         'warnings': ['Sheet "Branch Stats" not found in workbook']})

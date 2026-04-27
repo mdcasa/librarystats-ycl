@@ -1391,9 +1391,100 @@ def admin_import():
 
 # ── Upload (smart auto-detect) ───────────────────────────────────────────────
 
+_COMPARISON_METRICS = [
+    'Total Branch Circulation',
+    'Gate Count',
+    'New Library Card Registrations, Total',
+    'Total Prints per Month',
+]
+
+def _import_comparison(results):
+    """
+    After an import, compare written values to the same months one year prior.
+    Returns a list of period dicts, each with rows flagged by size of change.
+    """
+    from sqlalchemy import or_, and_
+    periods = set()
+    for r in results:
+        if r.get('year') and r.get('month'):
+            periods.add((r['year'], r['month']))
+        for p in r.get('periods', []):
+            periods.add(tuple(p))
+    if not periods:
+        return []
+
+    branch_cat = Category.query.filter_by(name='Branch Stats').first()
+    if not branch_cat:
+        return []
+
+    metric_id_map = {m.name: m.id for m in branch_cat.metrics
+                     if m.name in _COMPARISON_METRICS}
+    if not metric_id_map:
+        return []
+
+    branches = Branch.query.filter(
+        Branch.is_active == True,
+        Branch.is_desk == False,
+        ~Branch.name.ilike('%locker%'),
+        Branch.name != 'YCL (System Wide)',
+    ).order_by(Branch.name).all()
+
+    all_periods = periods | {(y - 1, m) for y, m in periods}
+    entries = (Entry.query
+               .options(joinedload(Entry.values))
+               .filter(
+                   Entry.category_id == branch_cat.id,
+                   or_(*[and_(Entry.year == y, Entry.month == m) for y, m in all_periods])
+               ).all())
+
+    lookup = {}
+    for e in entries:
+        for ev in e.values:
+            if ev.value_number is not None:
+                lookup[(e.year, e.month, e.branch_id, ev.metric_id)] = ev.value_number
+
+    comparison = []
+    for year, month in sorted(periods):
+        rows = []
+        for b in branches:
+            for metric_name in _COMPARISON_METRICS:
+                mid = metric_id_map.get(metric_name)
+                if not mid:
+                    continue
+                curr  = lookup.get((year,     month, b.id, mid))
+                prior = lookup.get((year - 1, month, b.id, mid))
+                if curr is None and prior is None:
+                    continue
+                pct = flag = None
+                if prior and curr is not None:
+                    pct = ((curr - prior) / prior) * 100
+                    if abs(pct) > 200:
+                        flag = 'danger'
+                    elif abs(pct) > 50:
+                        flag = 'warning'
+                elif prior and not curr:
+                    flag = 'warning'
+                rows.append({
+                    'metric':  metric_name,
+                    'branch':  b.name,
+                    'current': curr,
+                    'prior':   prior,
+                    'pct':     pct,
+                    'flag':    flag,
+                })
+        if rows:
+            comparison.append({
+                'label': f'{MONTHS[month - 1]} {year} vs {MONTHS[month - 1]} {year - 1}',
+                'rows':  rows,
+                'flagged': sum(1 for r in rows if r['flag']),
+            })
+    return comparison
+
+
 @app.route('/upload', methods=['GET', 'POST'])
 def upload_data():
     results = None
+    comparison = None
     if request.method == 'POST':
         f = request.files.get('file')
         if not f or not f.filename:
@@ -1411,17 +1502,16 @@ def upload_data():
                 results = detect_and_import(wb, year_override=year_override)
                 total_created = sum(r['created'] for r in results)
                 flash(f'Upload complete — {total_created} new records added.', 'success')
+                comparison = _import_comparison(results)
             except Exception as e:
                 flash(f'Upload failed: {e}', 'danger')
             finally:
                 if tmp_path and os.path.exists(tmp_path):
                     os.unlink(tmp_path)
-    return render_template('upload.html', results=results, now=datetime.utcnow())
+    return render_template('upload.html', results=results, comparison=comparison, now=datetime.utcnow())
 
 
-# ── Manual staff entry ────────────────────────────────────────────────────────
-
-# Metrics populated via file upload or dedicated forms — excluded from the main branch table
+# Metrics populated via file upload or dedicated forms — excluded from general entry forms
 _UPLOAD_SOURCED_METRICS = {
     'New Library Card Registrations, Adult',
     'New Library Card Registrations, Juvenile',
@@ -1437,150 +1527,6 @@ _UPLOAD_SOURCED_METRICS = {
 
 _ILL_METRICS  = {'ILL - Sent (Main ONLY)', 'ILL - Received (Main ONLY)'}
 _ICL_METRICS  = {'ICLs - Sent (Main ONLY)', 'ICLs - Received (Main ONLY)'}
-
-
-@app.route('/enter/manual', methods=['GET', 'POST'])
-def manual_entry():
-    branch_cat  = Category.query.filter_by(name='Branch Stats').first()
-    online_cat  = Category.query.filter_by(name='Online Stats').first()
-
-    branch_metrics = [m for m in (branch_cat.active_metrics if branch_cat else [])
-                      if m.name not in _UPLOAD_SOURCED_METRICS]
-    online_metrics = online_cat.active_metrics if online_cat else []
-
-    # Main branches only — no lockers, no desk branches, no system-wide
-    branches = (Branch.query
-                .filter_by(is_active=True, is_desk=False)
-                .filter(~Branch.name.contains('Lockers'),
-                        Branch.name != 'YCL (System Wide)')
-                .order_by(Branch.name)
-                .all())
-
-    year  = request.args.get('year',  type=int) or datetime.now().year
-    month = request.args.get('month', type=int) or datetime.now().month
-
-    if request.method == 'POST':
-        year          = request.form.get('year',  type=int)
-        month         = request.form.get('month', type=int)
-        submitted_by  = current_user.username
-
-        # ── Branch Stats ──────────────────────────────────────────────────
-        for branch in branches:
-            vals = {}
-            for m in branch_metrics:
-                raw = request.form.get(f'b{branch.id}_m{m.id}', '').strip()
-                if raw:
-                    try:
-                        vals[m.id] = float(raw)
-                    except ValueError:
-                        pass
-            if not vals:
-                continue
-
-            entry = Entry.query.filter_by(category_id=branch_cat.id,
-                                          branch_id=branch.id,
-                                          year=year, month=month).first()
-            if not entry:
-                entry = Entry(category_id=branch_cat.id, branch_id=branch.id,
-                              year=year, month=month, submitted_by=submitted_by)
-                db.session.add(entry)
-                db.session.flush()
-
-            for metric_id, val in vals.items():
-                ev = EntryValue.query.filter_by(entry_id=entry.id,
-                                                metric_id=metric_id).first()
-                if ev:
-                    ev.value_number = val
-                else:
-                    db.session.add(EntryValue(entry_id=entry.id,
-                                              metric_id=metric_id,
-                                              value_number=val))
-
-        # ── Auto-compute Total New Library Cards ──────────────────────────
-        total_metric = next((m for m in (branch_cat.active_metrics if branch_cat else [])
-                             if m.name == 'New Library Card Registrations, Total'), None)
-        adult_metric = next((m for m in (branch_cat.active_metrics if branch_cat else [])
-                             if m.name == 'New Library Card Registrations, Adult'), None)
-        juv_metric   = next((m for m in (branch_cat.active_metrics if branch_cat else [])
-                             if m.name == 'New Library Card Registrations, Juvenile'), None)
-        if total_metric and adult_metric and juv_metric:
-            for branch in branches:
-                entry = Entry.query.filter_by(category_id=branch_cat.id,
-                                              branch_id=branch.id,
-                                              year=year, month=month).first()
-                if not entry:
-                    continue
-                adult_ev = EntryValue.query.filter_by(entry_id=entry.id, metric_id=adult_metric.id).first()
-                juv_ev   = EntryValue.query.filter_by(entry_id=entry.id, metric_id=juv_metric.id).first()
-                adult_val = adult_ev.value_number if adult_ev else 0
-                juv_val   = juv_ev.value_number   if juv_ev   else 0
-                if adult_val or juv_val:
-                    total_ev = EntryValue.query.filter_by(entry_id=entry.id, metric_id=total_metric.id).first()
-                    if total_ev:
-                        total_ev.value_number = (adult_val or 0) + (juv_val or 0)
-                    else:
-                        db.session.add(EntryValue(entry_id=entry.id, metric_id=total_metric.id,
-                                                  value_number=(adult_val or 0) + (juv_val or 0)))
-
-        # ── Online Stats ──────────────────────────────────────────────────
-        online_vals = {}
-        for m in online_metrics:
-            raw = request.form.get(f'online_m{m.id}', '').strip()
-            if raw:
-                try:
-                    online_vals[m.id] = float(raw)
-                except ValueError:
-                    pass
-
-        if online_vals:
-            o_entry = Entry.query.filter_by(category_id=online_cat.id,
-                                             branch_id=None,
-                                             year=year, month=month).first()
-            if not o_entry:
-                o_entry = Entry(category_id=online_cat.id, branch_id=None,
-                                year=year, month=month, submitted_by=submitted_by)
-                db.session.add(o_entry)
-                db.session.flush()
-
-            for metric_id, val in online_vals.items():
-                ev = EntryValue.query.filter_by(entry_id=o_entry.id,
-                                                metric_id=metric_id).first()
-                if ev:
-                    ev.value_number = val
-                else:
-                    db.session.add(EntryValue(entry_id=o_entry.id,
-                                              metric_id=metric_id,
-                                              value_number=val))
-
-        db.session.commit()
-        flash(f'Data saved for {MONTHS[month - 1]} {year}.', 'success')
-        return redirect(url_for('manual_entry', year=year, month=month))
-
-    # ── Load existing values for selected period ──────────────────────────
-    branch_values = {}
-    for branch in branches:
-        entry = Entry.query.filter_by(category_id=branch_cat.id,
-                                      branch_id=branch.id,
-                                      year=year, month=month).first()
-        branch_values[branch.id] = (
-            {ev.metric_id: ev for ev in entry.values} if entry else {}
-        )
-
-    o_entry = Entry.query.filter_by(category_id=online_cat.id,
-                                     branch_id=None,
-                                     year=year, month=month).first()
-    online_values = {ev.metric_id: ev for ev in o_entry.values} if o_entry else {}
-
-    year_range = range(datetime.now().year - 5, datetime.now().year + 2)
-    return render_template('entries/manual.html',
-                           branches=branches,
-                           branch_metrics=branch_metrics,
-                           online_metrics=online_metrics,
-                           branch_values=branch_values,
-                           online_values=online_values,
-                           year=year, month=month,
-                           months=MONTHS,
-                           year_range=year_range)
 
 
 def _ill_icl_entry(metric_names_set, form_title, endpoint):

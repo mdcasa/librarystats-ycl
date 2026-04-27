@@ -193,14 +193,15 @@ def build_branch_lookup():
 
     aliases = {
         # Outreach/Bookmobile variants
-        'OUTREACH / BOOKMOBILE':  'Outreach/Bookmobile',
-        'Outreach / Bookmobile':  'Outreach/Bookmobile',
-        'outreach / bookmobile':  'Outreach/Bookmobile',
-        'OUTREACH/BOOKMOBILE':    'Outreach/Bookmobile',
-        'outreach/bookmobile':    'Outreach/Bookmobile',
-        'BOOKMOBILE/OUTREACH':    'Outreach/Bookmobile',
-        'OUTREACH / BKM':         'Outreach/Bookmobile',
-        'Outreach / BKM':         'Outreach/Bookmobile',
+        'OUTREACH / BOOKMOBILE':  'Bookmobile/Outreach',
+        'Outreach / Bookmobile':  'Bookmobile/Outreach',
+        'outreach / bookmobile':  'Bookmobile/Outreach',
+        'OUTREACH/BOOKMOBILE':    'Bookmobile/Outreach',
+        'Outreach/Bookmobile':    'Bookmobile/Outreach',
+        'outreach/bookmobile':    'Bookmobile/Outreach',
+        'BOOKMOBILE/OUTREACH':    'Bookmobile/Outreach',
+        'OUTREACH / BKM':         'Bookmobile/Outreach',
+        'Outreach / BKM':         'Bookmobile/Outreach',
         # System-wide variants
         'YCL SYSTEM WIDE':        'YCL (System Wide)',
         'YCL (SYSTEM WIDE)':      'YCL (System Wide)',

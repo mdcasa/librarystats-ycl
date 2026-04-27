@@ -252,16 +252,16 @@ Created by `seed_data.py` on first boot. The SIRSI importer also creates branche
 | Fort Mill | YCL-FM | No | |
 | Lake Wylie | YCL-LW | No | |
 | York | YCL-YK | No | |
-| Outreach/Bookmobile | YCL-BK | No | Also aliased as `Outreach / BKM`, `Outreach / Bookmobile` |
+| Bookmobile/Outreach | YCL-BK | No | Also aliased as `Outreach / BKM`, `Outreach / Bookmobile`, `OUTREACH/BOOKMOBILE` in `build_branch_lookup()` |
 | YCL (System Wide) | YCL | No | Skipped by importers; excluded from forms |
 | Rock Hill - Circulation | — | Yes | QRS desk branch |
 | Rock Hill - Reference | — | Yes | Deactivated (`is_active=False`) |
 | Rock Hill - YA | — | Yes | QRS desk branch |
-| Rock Hill Lockers | YCL-RH-LOC | No | Created by SIRSI importer |
-| Clover Lockers | YCL-CL-LOC | No | Created by SIRSI importer |
-| Fort Mill Lockers | YCL-FM-LOC | No | Created by SIRSI importer |
-| Lake Wylie Lockers | YCL-LW-LOC | No | Created by SIRSI importer |
-| York Lockers | YCL-YK-LOC | No | Created by SIRSI importer |
+| Rock Hill - Lockers | YCL-RH-LOC | No | **Must be created manually** — not in `seed_data.py`. SIRSI importer skips LOC codes if this branch is absent. |
+| Clover - Lockers | YCL-CL-LOC | No | **Must be created manually** — not in `seed_data.py`. |
+| Fort Mill - Lockers | YCL-FM-LOC | No | **Must be created manually** — not in `seed_data.py`. |
+| Lake Wylie - Lockers | YCL-LW-LOC | No | **Must be created manually** — not in `seed_data.py`. |
+| York - Lockers | YCL-YK-LOC | No | **Must be created manually** — not in `seed_data.py`. |
 
 ---
 
@@ -689,9 +689,10 @@ with app.app_context():
 
 | File | Date Loaded | Result |
 |---|---|---|
-| `Data files/manual/non-SIRSI423.xlsx` | 2026-04-26 | 165 Branch Stats entries created, covering Jan 2024 – Mar 2026 (all branches, all non-SIRSI metrics) |
+| `Data files/manual/non-SIRSI423.xlsx` | 2026-04-26 | 171 Branch Stats entries created/updated, covering Jan 2024 – Mar 2026 (all branches including Outreach, all non-SIRSI Branch Stats metrics) |
 | `Data files/manual/QRSver2.xlsx` | 2026-04-26 | 24 Quarterly Reference Stats entries created — Q1/Jun 2025, Q2/Oct 2025, Q3/Jan 2026, all 8 branches |
 | `Data files/manual/onlin423.xlsx` | 2026-04-26 | 27 Online Stats entries created — Jan 2024 – Mar 2026, system-wide |
+| `Data files/Circulation/CIRC/*.xlsx` (9 files) | 2026-04-27 | SIRSI checkout data for Jul 2025 – Mar 2026. Locker branches (Rock Hill - Lockers, Clover - Lockers, Fort Mill - Lockers, Lake Wylie - Lockers, York - Lockers) were created manually before import — they are **not** in `seed_data.py` and the importer silently skips LOC codes if the branch row is absent. Each file wrote 10–11 Total Branch Circulation entries (6 real branches + active locker branches) and ~1,000–1,600 SirsiCheckout detail rows. The bare `YCL` system-wide ILS code is intentionally skipped. |
 
 ### Verifying after a one-time load
 
@@ -877,9 +878,9 @@ See `Notes/annual_comparables_design.md` for full documentation of the annual su
 | Source | Status | Coverage |
 |---|---|---|
 | `non-SIRSI423.xlsx` | ✅ Loaded (one-time insert) | Jan 2024 – Mar 2026, all branches, all non-SIRSI Branch Stats metrics (WiFi, PC reservations, programs, ILL/ICL, printing, etc.) |
-| SIRSI Circulation | ⚠️ Partial | August 2025 only (11 entries, 1,563 SirsiCheckout rows) |
-| SIRSI Registration | ⚠️ Partial | August 2025 only (6 values per metric) |
-| Princh Printing | ⚠️ Partial | Some months loaded (79 values), not full history |
+| SIRSI Circulation | ✅ Loaded (one-time insert) | Jul 2025 – Mar 2026 (9 months). Locker branches included. See Historical Loads table below. |
+| SIRSI Registration | ⚠️ Partial | December 2025 only |
+| Princh Printing | ⚠️ Partial | Some months loaded, not full history |
 | Online Stats | ✅ Loaded (one-time insert) | 27 entries — Jan 2024 – Mar 2026, system-wide |
 | Quarterly Reference Stats | ✅ Loaded (one-time insert) | 24 entries — Q1/Jun 2025, Q2/Oct 2025, Q3/Jan 2026, all 8 branches. **Future periods entered manually via nav.** |
 | Door Counter | ❌ Not loaded | Gate Count data in DB came from `non-SIRSI423.xlsx`, not door counter exports |
@@ -914,6 +915,41 @@ Upload through the **Upload Data** page (`/upload`). Files can be uploaded in an
 ---
 
 ## Known Issues Fixed
+
+### New Library Card Registrations, Total corrupted by SQL import (fixed 2026-04-27)
+
+**Problem:** The original SQL import script incorrectly stored `Gate Count` values in the `New Library Card Registrations, Total` metric field. This affected 592 Branch Stats entries spanning Jul 2018 – Jun 2025 — every entry loaded by the SQL script. The error was visible as suspiciously large registration totals (e.g. Rock Hill July 2024 showing 19,042 new registrations instead of a realistic ~200–400).
+
+**Fix:** All 592 affected entries were corrected by recalculating `Total = Adult + Juvenile` using the Adult and Juvenile values (which were correctly stored). Applied via a one-off Python script on 2026-04-27.
+
+**Rule going forward:** `New Library Card Registrations, Total` must always equal Adult + Juvenile. The app's startup patch already enforces this for entries missing Total. Future SIRSI registration imports calculate it directly. Never import or manually enter a Total that doesn't match Adult + Juvenile.
+
+### Locker branches not in seed data — must be created manually (discovered 2026-04-27)
+
+`seed_data.py` does not create the five locker branches (`Rock Hill - Lockers`, `Clover - Lockers`, `Fort Mill - Lockers`, `Lake Wylie - Lockers`, `York - Lockers`). If they are absent, `build_branch_lookup()` resolves the LOC aliases to nothing and the SIRSI importer silently skips all locker rows, reporting them as "Unrecognised ILS codes skipped."
+
+**Fix for a fresh instance:** After first boot, run this once before uploading any SIRSI circulation files:
+
+```python
+from dotenv import load_dotenv; load_dotenv()
+from app import app
+from models import db, Branch
+
+locker_branches = [
+    ('Rock Hill - Lockers', 100), ('Clover - Lockers', 101),
+    ('Fort Mill - Lockers', 102), ('Lake Wylie - Lockers', 103),
+    ('York - Lockers', 104),
+]
+with app.app_context():
+    for name, sort_order in locker_branches:
+        if not Branch.query.filter_by(name=name).first():
+            db.session.add(Branch(name=name, is_active=True, is_desk=False, sort_order=sort_order))
+    db.session.commit()
+```
+
+### Outreach/Bookmobile branch alias pointed to wrong canonical name (fixed 2026-04-27)
+
+The `build_branch_lookup()` aliases for `OUTREACH/BOOKMOBILE` and variants pointed to `Outreach/Bookmobile`, but the actual DB branch name is `Bookmobile/Outreach`. The alias lookup silently returned `None`, so all Outreach rows in `non-SIRSI423.xlsx` were skipped on the first import attempt. Fixed by updating all Outreach aliases in `ILS_BRANCH_MAP` and `build_branch_lookup()` to point to `Bookmobile/Outreach`.
 
 ### Importer skipping existing entries (fixed 2026-04-25)
 

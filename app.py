@@ -44,15 +44,15 @@ with app.app_context():
         db.session.rollback()
 
     # Mark Rock Hill desk branches used in Quarterly Reference Stats
-    for _desk_name in ['Rock Hill - Circulation', 'Rock Hill - Reference', 'Rock Hill - YA', "Rock Hill - Children's"]:
+    for _desk_name in ['Rock Hill - Circulation', 'Rock Hill - Reference', 'Rock Hill - YA', 'Rock Hill - Childrens']:
         _b = Branch.query.filter_by(name=_desk_name).first()
         if _b:
             _b.is_desk = True
             _b.is_active = True
-    # Create Rock Hill - Children's if it doesn't exist yet
-    if not Branch.query.filter_by(name="Rock Hill - Children's").first():
+    # Create Rock Hill - Childrens if it doesn't exist yet
+    if not Branch.query.filter_by(name='Rock Hill - Childrens').first():
         _max_sort = db.session.query(db.func.max(Branch.sort_order)).scalar() or 0
-        db.session.add(Branch(name="Rock Hill - Children's", is_desk=True, is_active=True, sort_order=_max_sort + 1))
+        db.session.add(Branch(name='Rock Hill - Childrens', is_desk=True, is_active=True, sort_order=_max_sort + 1))
     db.session.commit()
 
     if Category.query.count() == 0:

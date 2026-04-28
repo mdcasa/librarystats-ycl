@@ -5,7 +5,7 @@ def seed(db):
     branches = [
         'Rock Hill', 'Clover', 'Fort Mill', 'Lake Wylie', 'York',
         'Bookmobile/Outreach', 'YCL (System Wide)',
-        'Rock Hill - Children\'s', 'Rock Hill - Circulation', 'Rock Hill - Reference', 'Rock Hill - YA',
+        'Rock Hill - Childrens', 'Rock Hill - Circulation', 'Rock Hill - Reference', 'Rock Hill - YA',
         'Outreach / BKM',
     ]
     for i, name in enumerate(branches):

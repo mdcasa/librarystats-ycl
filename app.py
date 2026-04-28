@@ -1000,7 +1000,7 @@ def report_yoy():
     mode      = request.args.get('mode', 'annual')
     years     = sorted(request.args.getlist('years', type=int))  # fiscal years (e.g. 2024 = Jul 2023–Jun 2024)
 
-    categories   = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
+    categories   = Category.query.filter(Category.is_active == True, Category.name != 'Circulation').order_by(Category.sort_order).all()
     metrics_json = metrics_by_category_json()
 
     # Derive available fiscal years from stored data

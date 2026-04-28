@@ -43,15 +43,16 @@ with app.app_context():
     except Exception:
         db.session.rollback()
 
-    # Mark Rock Hill desk branches (only Circ and YA report quarterly reference stats)
-    for _desk_name in ['Rock Hill - Circulation', 'Rock Hill - YA']:
+    # Mark Rock Hill desk branches used in Quarterly Reference Stats
+    for _desk_name in ['Rock Hill - Circulation', 'Rock Hill - Reference', 'Rock Hill - YA', "Rock Hill - Children's"]:
         _b = Branch.query.filter_by(name=_desk_name).first()
-        if _b and not _b.is_desk:
+        if _b:
             _b.is_desk = True
-    # Rock Hill - Reference is not used; deactivate so it disappears from all lists
-    _rhr = Branch.query.filter_by(name='Rock Hill - Reference').first()
-    if _rhr and _rhr.is_active:
-        _rhr.is_active = False
+            _b.is_active = True
+    # Create Rock Hill - Children's if it doesn't exist yet
+    if not Branch.query.filter_by(name="Rock Hill - Children's").first():
+        _max_sort = db.session.query(db.func.max(Branch.sort_order)).scalar() or 0
+        db.session.add(Branch(name="Rock Hill - Children's", is_desk=True, is_active=True, sort_order=_max_sort + 1))
     db.session.commit()
 
     if Category.query.count() == 0:
@@ -378,7 +379,7 @@ def _branches_for_category(category):
         return (Branch.query.filter_by(is_active=True)
                 .filter(~Branch.name.in_(['Rock Hill', 'YCL (System Wide)']),
                         ~Branch.name.ilike('%locker%'))
-                .order_by(Branch.is_desk.desc(), Branch.sort_order).all())
+                .order_by(Branch.name).all())
     # All other categories: exclude desk-level and locker branches
     return (Branch.query.filter_by(is_active=True, is_desk=False)
             .filter(~Branch.name.ilike('%locker%'),

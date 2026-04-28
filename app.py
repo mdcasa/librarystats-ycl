@@ -179,7 +179,7 @@ def group_metrics(metrics):
 @app.context_processor
 def inject_nav():
     return {
-        'nav_categories': Category.query.filter_by(is_active=True).order_by(Category.sort_order).all(),
+        'nav_categories': Category.query.filter(Category.is_active == True, Category.name != 'Circulation').order_by(Category.sort_order).all(),
         'now': datetime.now(),
     }
 

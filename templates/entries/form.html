@@ -66,9 +66,9 @@
           <label class="form-label fw-semibold">Quarter</label>
           <select name="quarter" class="form-select">
             <option value="">— select —</option>
-            {% for q in [1,2,3,4] %}
+            {% for q, month in [(1,'June'),(2,'October'),(3,'January'),(4,'April')] %}
             <option value="{{ q }}"
-              {% if editing and entry.quarter == q %}selected{% endif %}>Q{{ q }}</option>
+              {% if editing and entry.quarter == q %}selected{% endif %}>Q{{ q }} ({{ month }})</option>
             {% endfor %}
           </select>
         </div>

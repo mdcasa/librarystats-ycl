@@ -218,6 +218,8 @@ def build_branch_lookup():
         'ROCK HILL YA':               'Rock Hill - YA',
         'RH - YA':                    'Rock Hill - YA',
         'RH YA':                      'Rock Hill - YA',
+        'Rock Hill - Childrens':      "Rock Hill - Children's",
+        'ROCK HILL - CHILDRENS':      "Rock Hill - Children's",
         # Locker locations (ILS codes)
         'YCL-CL-LOC':                 'Clover - Lockers',
         'YCL-FM-LOC':                 'Fort Mill - Lockers',

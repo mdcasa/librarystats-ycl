@@ -905,7 +905,12 @@ def report_programming():
 
     available_years = [r[0] for r in db.session.query(Entry.year).distinct()
                                                 .order_by(Entry.year.desc()).all()]
-    branches = Branch.query.filter_by(is_active=True).order_by(Branch.name).all()
+    branches = Branch.query.filter(
+        Branch.is_active == True,
+        Branch.is_desk == False,
+        ~Branch.name.ilike('%locker%'),
+        Branch.name != 'YCL (System Wide)',
+    ).order_by(Branch.name).all()
     TYPES      = ['ONSITE', 'OFFSITE', 'VIRTUAL']
     AGE_GROUPS = ['0-5', '6-11', '12-18', '19+', 'General Interest']
     summary = outreach = None

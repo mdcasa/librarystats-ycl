@@ -351,16 +351,27 @@ def entries_list():
 
     ILL_ICL_PSEUDO = -1  # virtual filter id for ILL/ICL entries
 
+    def _bs_metric_filter(metric_name_set):
+        """Return a query filter for Branch Stats entries containing any of the named metrics."""
+        bs_cat = Category.query.filter_by(name='Branch Stats').first()
+        ids = [m.id for m in (bs_cat.metrics if bs_cat else []) if m.name in metric_name_set]
+        return (bs_cat, ids)
+
     q = Entry.query
     if cat_id == ILL_ICL_PSEUDO:
-        bs_cat = Category.query.filter_by(name='Branch Stats').first()
-        ill_icl_ids = [m.id for m in (bs_cat.metrics if bs_cat else [])
-                       if m.name in (_ILL_METRICS | _ICL_METRICS)]
-        if bs_cat and ill_icl_ids:
+        bs_cat, ids = _bs_metric_filter(_ILL_METRICS | _ICL_METRICS)
+        if bs_cat and ids:
             q = q.filter_by(category_id=bs_cat.id).filter(
-                Entry.values.any(EntryValue.metric_id.in_(ill_icl_ids)))
+                Entry.values.any(EntryValue.metric_id.in_(ids)))
     elif cat_id:
-        q = q.filter_by(category_id=cat_id)
+        selected_cat = db.session.get(Category, cat_id)
+        if selected_cat and selected_cat.name == 'Circulation':
+            bs_cat, ids = _bs_metric_filter(_CIRC_METRICS)
+            if bs_cat and ids:
+                q = q.filter_by(category_id=bs_cat.id).filter(
+                    Entry.values.any(EntryValue.metric_id.in_(ids)))
+        else:
+            q = q.filter_by(category_id=cat_id)
     if branch_id:
         q = q.filter_by(branch_id=branch_id)
     if year:
@@ -1549,6 +1560,7 @@ _UPLOAD_SOURCED_METRICS = {
 
 _ILL_METRICS  = {'ILL - Sent (Main ONLY)', 'ILL - Received (Main ONLY)'}
 _ICL_METRICS  = {'ICLs - Sent (Main ONLY)', 'ICLs - Received (Main ONLY)'}
+_CIRC_METRICS = {'Total Branch Circulation', 'Hotspots Circulation', 'Locker Circulation'}
 
 
 def _ill_icl_entry(metric_names_set, form_title, endpoint):

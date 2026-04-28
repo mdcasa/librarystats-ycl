@@ -376,7 +376,8 @@ def _branches_for_category(category):
     if category.name == 'Quarterly Reference Stats':
         # Show desks (Circ, YA) but not the parent Rock Hill branch or system-wide
         return (Branch.query.filter_by(is_active=True)
-                .filter(~Branch.name.in_(['Rock Hill', 'YCL (System Wide)']))
+                .filter(~Branch.name.in_(['Rock Hill', 'YCL (System Wide)']),
+                        ~Branch.name.ilike('%locker%'))
                 .order_by(Branch.is_desk.desc(), Branch.sort_order).all())
     # All other categories: exclude desk-level and locker branches
     return (Branch.query.filter_by(is_active=True, is_desk=False)

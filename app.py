@@ -293,7 +293,6 @@ def index():
         Branch.is_desk == False,
         ~Branch.name.ilike('%locker%'),
         Branch.name != 'YCL (System Wide)',
-        Branch.name != 'Outreach / BKM',
     ).order_by(Branch.sort_order).all()
 
     coverage = []

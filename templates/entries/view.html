@@ -32,12 +32,14 @@
     <a href="{{ url_for('entry_edit', entry_id=entry.id) }}" class="btn btn-outline-primary btn-sm">
       <i class="bi bi-pencil me-1"></i>Edit
     </a>
+    {% if current_user.is_admin %}
     <form method="post" action="{{ url_for('entry_delete', entry_id=entry.id) }}"
           onsubmit="return confirm('Delete this entry? This cannot be undone.')">
       <button class="btn btn-outline-danger btn-sm">
         <i class="bi bi-trash me-1"></i>Delete
       </button>
     </form>
+    {% endif %}
   </div>
 </div>
 

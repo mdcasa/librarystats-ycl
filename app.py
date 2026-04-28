@@ -349,8 +349,17 @@ def entries_list():
     branch_id = request.args.get('branch', type=int)
     year = request.args.get('year', type=int)
 
+    ILL_ICL_PSEUDO = -1  # virtual filter id for ILL/ICL entries
+
     q = Entry.query
-    if cat_id:
+    if cat_id == ILL_ICL_PSEUDO:
+        bs_cat = Category.query.filter_by(name='Branch Stats').first()
+        ill_icl_ids = [m.id for m in (bs_cat.metrics if bs_cat else [])
+                       if m.name in (_ILL_METRICS | _ICL_METRICS)]
+        if bs_cat and ill_icl_ids:
+            q = q.filter_by(category_id=bs_cat.id).filter(
+                Entry.values.any(EntryValue.metric_id.in_(ill_icl_ids)))
+    elif cat_id:
         q = q.filter_by(category_id=cat_id)
     if branch_id:
         q = q.filter_by(branch_id=branch_id)
@@ -366,6 +375,7 @@ def entries_list():
                            all_categories=Category.query.filter_by(is_active=True).order_by(Category.sort_order).all(),
                            all_branches=Branch.query.filter_by(is_active=True).order_by(Branch.name).all(),
                            available_years=years,
+                           ILL_ICL_PSEUDO=ILL_ICL_PSEUDO,
                            sel_cat=cat_id, sel_branch=branch_id, sel_year=year)
 
 
@@ -513,6 +523,7 @@ def entry_edit(entry_id):
 # ── Delete entry ─────────────────────────────────────────────────────────────
 
 @app.route('/entries/<int:entry_id>/delete', methods=['POST'])
+@admin_required
 def entry_delete(entry_id):
     entry = Entry.query.get_or_404(entry_id)
     db.session.delete(entry)

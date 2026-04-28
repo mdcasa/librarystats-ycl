@@ -17,6 +17,7 @@
           {% for cat in all_categories %}
           <option value="{{ cat.id }}" {% if sel_cat == cat.id %}selected{% endif %}>{{ cat.name }}</option>
           {% endfor %}
+          <option value="{{ ILL_ICL_PSEUDO }}" {% if sel_cat == ILL_ICL_PSEUDO %}selected{% endif %}>ILL / ICL (Main only)</option>
         </select>
       </div>
       <div class="col-sm-3">

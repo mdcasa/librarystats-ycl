@@ -80,6 +80,17 @@ The "Add New Category" form on `/admin/categories` is hidden by default behind a
 ### Browse Data — Submitted column
 The entries list combines submitted date and username into one column: `DD Mon YYYY · username`. Time-of-day is omitted as it adds no value.
 
+### Browse Data — pseudo-category filters
+Two virtual category IDs extend the category filter beyond real categories:
+
+- **ILL / ICL (Main only)** — filter ID `-1`. Selecting this shows Branch Stats entries for Rock Hill that contain any ILL or ICL metric values. Implemented as a special case in `entries_list()` before the normal `filter_by(category_id=...)` path.
+- **Circulation** — when the user selects the `Circulation` category (which has no real entries), the browse query is redirected to Branch Stats entries containing `Total Branch Circulation`, `Hotspots Circulation`, or `Locker Circulation` values. This makes the Circulation filter actually useful, since all circulation data lives in Branch Stats.
+
+The helper `_bs_metric_filter(metric_name_set)` in `entries_list()` encapsulates the look-up of Branch Stats metric IDs for both pseudo-filters.
+
+### Browse Data — entry delete restricted to admins
+The `/entries/<id>/delete` route requires `@admin_required`. The Delete button in the entry view template is also conditionally hidden for non-admin users. Regular staff can view and edit entries but cannot delete them.
+
 ---
 
 ## Tech Stack
@@ -218,7 +229,7 @@ After the first user is created, additional accounts are managed via Admin → U
 
 ## Data Model
 
-Seven tables:
+Eight tables:
 
 | Table | Purpose |
 |---|---|
@@ -229,6 +240,7 @@ Seven tables:
 | `entries` | One record per branch/month(or quarter)/category |
 | `entry_values` | The actual numbers, linked to an Entry and a Metric |
 | `sirsi_checkouts` | Granular ILS checkout data: branch × patron type × shelving location × month |
+| `quarterly_ref_closure_days` | Saved holiday + unexpected closure days per year for the Quarterly Reference Stats report |
 
 **Key model fields:**
 - `Entry.month` (1–12) and `Entry.quarter` (1–4) are both nullable — a monthly entry has month set, quarter null, and vice versa
@@ -255,8 +267,9 @@ Created by `seed_data.py` on first boot. The SIRSI importer also creates branche
 | Bookmobile/Outreach | YCL-BK | No | Also aliased as `Outreach / BKM`, `Outreach / Bookmobile`, `OUTREACH/BOOKMOBILE` in `build_branch_lookup()` |
 | YCL (System Wide) | YCL | No | Skipped by importers; excluded from forms |
 | Rock Hill - Circulation | — | Yes | QRS desk branch |
-| Rock Hill - Reference | — | Yes | Deactivated (`is_active=False`) |
+| Rock Hill - Reference | — | Yes | QRS desk branch (reactivated 2026-04-28; was previously deactivated) |
 | Rock Hill - YA | — | Yes | QRS desk branch |
+| Rock Hill - Children's | — | Yes | QRS desk branch (added 2026-04-28). Import alias maps `Rock Hill - Childrens` (no apostrophe, as it appears in the Google Form export) to this canonical name. |
 | Rock Hill - Lockers | YCL-RH-LOC | No | **Must be created manually** — not in `seed_data.py`. SIRSI importer skips LOC codes if this branch is absent. |
 | Clover - Lockers | YCL-CL-LOC | No | **Must be created manually** — not in `seed_data.py`. |
 | Fort Mill - Lockers | YCL-FM-LOC | No | **Must be created manually** — not in `seed_data.py`. |
@@ -340,6 +353,8 @@ Shows all active Branch Stats metrics **except** those sourced from uploads or d
 | New Library Card Registrations, Total | SIRSI registration upload |
 | Total Branch Circulation | SIRSI checkout upload |
 | Hotspots Circulation | SIRSI checkout upload |
+| Locker Circulation | Branch Stats Excel upload |
+| Total Prints per Month | Princh upload |
 | ILL - Sent (Main ONLY) | `/enter/ill` form |
 | ILL - Received (Main ONLY) | `/enter/ill` form |
 | ICLs - Sent (Main ONLY) | `/enter/icl` form |
@@ -371,6 +386,8 @@ Both forms use `templates/entries/main_only_entry.html` and upsert values (exist
 ## New Entry / Edit Entry Forms (`/entries/new/<id>`, `/entries/<id>/edit`)
 
 These generic forms (used by "Enter Data → [category]" in the nav) also filter out `_UPLOAD_SOURCED_METRICS` for Branch Stats entries, matching the manual entry form. This prevents staff from accidentally entering values for metrics that are owned by file imports or the dedicated ILL/ICL forms. The filtering applies only to Branch Stats; other categories (Online Stats, Quarterly Reference Stats) show all their metrics.
+
+**Circulation excluded from nav:** The `Circulation` category is excluded from the "Enter Data" dropdown. It has no entry form — it is a UI alias only. Selecting it in the nav would create empty, meaningless entries.
 
 ---
 
@@ -619,7 +636,7 @@ The importer ignores which branch the card was registered at (Station Library) a
 
 **File naming example:** `QRSver2.xlsx`
 
-**Sample file:** `Data files/manual/QRSver2.xlsx` — covers Q1-Q3 2025 and into 2026, ~1000 rows
+**Sample files:** `Data files/manual/QRSver2.xlsx` (original format, no Month column); `Data files/manual/QRS4-27.xlsx` (updated format with Month column, covers through Q4 2026)
 
 **Format:**
 - Sheet named `Sheet1` (Google Forms export format — do not rename)
@@ -641,6 +658,7 @@ The importer ignores which branch the card was registered at (Station Library) a
 | `Rock Hill - Circulation` | Rock Hill - Circulation (desk branch) |
 | `Rock Hill - Reference` | Rock Hill - Reference (desk branch) |
 | `Rock Hill - YA` | Rock Hill - YA (desk branch) |
+| `Rock Hill - Childrens` | Rock Hill - Children's (desk branch) — import alias handles the missing apostrophe |
 
 **What it writes:** `Total Transactions for the Week` (summed per branch/quarter/month) → Quarterly Reference Stats
 
@@ -826,6 +844,21 @@ Sign Out button is right-aligned (hidden on mobile).
 - Each line is labeled at its first non-null data point (branch name for Trend, year for YOY). Labels appear above the point with a white pill background and the line's color as font color.
 - Trend report branch selector and chart both exclude locker branches and desk sub-locations — only the 6 real service locations appear.
 
+**Category exclusions from report filters:**
+- **Year-over-Year** category picker: excludes `Circulation` and `Quarterly Reference Stats`. Circulation has no real entries (it's a Data Status alias); QRS is quarterly-only data that doesn't fit the YoY annual/monthly comparison model.
+- **Monthly Summary** category picker: excludes `Circulation`. Circulation data is available under Branch Stats.
+- **Programming Summary** branch picker: excludes locker branches (they have no programming data).
+
+**Quarterly Reference Stats report (`/reports/quarterly_ref`):**
+The report has a two-step flow to ensure the annual estimate is only shown when the open-days calculation is complete:
+
+1. **Select year** — the year dropdown only shows years that have actual QRS entries (not all entry years). The quarterly sample counts table appears immediately.
+2. **Save closure days** — staff enter the number of scheduled holiday days and unexpected closure days for that year and click "Save & Calculate." Values are persisted to the `quarterly_ref_closure_days` table. The annual estimate column and open-days calculation card only appear after closure days are saved.
+3. **Subsequent visits** — saved closure days are auto-loaded when the year is selected; the full report shows without re-entering the days.
+4. **Clear button** — appears when closure days are saved. Clicking it (with a confirmation prompt) deletes the `quarterly_ref_closure_days` record for that year, hiding the annual estimate until new values are saved.
+
+Annual estimate formula: for each branch, `avg(sampled quarter values) × open_weeks`, where `open_weeks = (312 - holidays - unexpected) / 6`. System total = sum of per-branch estimates.
+
 | Route | Function | Description |
 |---|---|---|
 | `/reports/monthlystats` | `report_monthly_stats` | Monthly Board Report — key metrics for a selected month |
@@ -833,7 +866,9 @@ Sign Out button is right-aligned (hidden on mobile).
 | `/reports/fiscal` | `report_fiscal` | Fiscal Year Totals — annual rollup by category |
 | `/reports/trend` | `report_trend` | Trend Over Time — one metric charted over months |
 | `/reports/yearoveryear` | `report_yoy` | Year-over-Year — compare same month across years |
-| `/reports/quarterly_ref` | `report_quarterly_ref` | Quarterly Reference Stats — desk tallies by quarter |
+| `/reports/quarterly_ref` | `report_quarterly_ref` | Quarterly Reference Stats — desk tallies by quarter, annual estimate |
+| `/reports/quarterly_ref/save_closure` | `quarterly_ref_save_closure` | POST — save holiday/closure days for a year |
+| `/reports/quarterly_ref/clear_closure` | `quarterly_ref_clear_closure` | POST — delete saved closure days for a year |
 | `/reports/annual` | `report_annual` | Branch Scorecard — annual summary per branch |
 | `/reports/crosstab` | `report_crosstab` | Cross-tab Heat Map — metric × branch grid |
 | `/reports/programming_age` | `report_programming_age` | Programming Cross-tab — sessions/attendance by age group |
@@ -880,13 +915,13 @@ See `Notes/annual_comparables_design.md` for full documentation of the annual su
 
 | Source | Status | Coverage |
 |---|---|---|
-| Branch Stats (non-SIRSI) | ✅ Loaded | Jul 2018 – Mar 2026, all branches. Sources: SQL import (2018–2024), `non-SIRSI423.xlsx` (2024–2026), `YCL_All_Stats_2019_2024.xlsx`, `YCL_Stats_2025.xlsx`. |
+| Branch Stats (non-SIRSI) | ✅ Loaded | Jul 2018 – Mar 2026, all branches. Sources: SQL import (2018–2024), `non-SIRSI423.xlsx` (2024–2026), `YCL_All_Stats_2019_2024.xlsx`, `YCL_Stats_2025.xlsx`, `all_branch_stats4-27.xlsx`. Gate counts for Jul 2025–Mar 2026 restored 2026-04-28 from these files after a door counter import corrupted them. Rock Hill Gate Count is 0/null Oct 2025–Mar 2026 (branch closure). |
 | SIRSI Circulation | ✅ Loaded | Jul 2025 – Mar 2026 (9 months), locker branches included. Pre-Jul 2025 circulation came from SQL import via annual files. |
 | SIRSI Registration | ✅ Loaded | Jul 2025 – Mar 2026 (9 months). Pre-Jul 2025 Adult/Juvenile values from SQL import; Total recalculated 2026-04-27. |
 | Princh Printing | ⚠️ Partial | Some months loaded, not full history |
 | Online Stats | ✅ Loaded | 27 entries — Jan 2024 – Mar 2026, system-wide |
-| Quarterly Reference Stats | ✅ Loaded | 24 entries — Q1/Jun 2025, Q2/Oct 2025, Q3/Jan 2026, all 8 branches. **Future periods entered manually via nav.** |
-| Door Counter | ❌ Not loaded | Gate Count data in DB came from annual Excel files, not door counter exports |
+| Quarterly Reference Stats | ✅ Loaded | Q1/Jun 2025, Q2/Oct 2025, Q3/Jan 2026, Q4/2026 — 8 branches including Rock Hill - Circulation, Reference, YA, Children's. Source file: `QRS4-27.xlsx`. **Future periods entered manually via nav.** |
+| Door Counter | ❌ Not loaded | Gate Count data in DB came from annual Excel files and manually compiled Branch Stats. Do not use door counter exports for FY2025-26 — they produced incorrect totals and overwrote valid data. |
 
 ### Remaining uploads needed
 
@@ -993,3 +1028,30 @@ Added fallback month detection for SIRSI New Library Users reports where the mon
 The SIRSI registration importer writes Adult + Juvenile + Total, but only Adult and Juvenile were in `seed_data.py`. Total was never seeded, so the importer silently dropped that value. Fixed by adding it to `seed_data.py` and adding a startup patch in `app.py` that creates the metric in existing databases on next boot (inserted after Juvenile in the Registrations group).
 
 A second startup patch (same deploy) backfills the Total `EntryValue` for all existing Branch Stats entries that have Adult and/or Juvenile values but no Total — covering every month imported before the metric existed. The patch iterates all Branch Stats entries on startup and writes `Total = Adult + Juvenile` wherever Total is absent; it is a no-op on subsequent boots since those entries already have Total.
+
+### Outreach / BKM duplicate branch (fixed 2026-04-28)
+
+The DB had two active branches for Outreach: `Bookmobile/Outreach` (id=6, canonical — has all data) and `Outreach / BKM` (id=11 — empty, created by the SQL import). The dashboard was showing 7 branches instead of 6 because both were counted. `Outreach / BKM` was deactivated via the Admin → Branches UI. A hardcoded name exclusion in `_real_branches()` that was masking the duplicate was also removed.
+
+### Rock Hill - Children's desk branch added (2026-04-28)
+
+The QRS Google Form includes "Rock Hill - Childrens" (no apostrophe) as a submission option. This branch did not exist in the DB, so those QRS rows were silently skipped during import. Three changes were made:
+- `Rock Hill - Children's` (with apostrophe) was created as an `is_desk=True` branch via a startup patch in `app.py` and added to `seed_data.py` for fresh instances.
+- An import alias `Rock Hill - Childrens` → `Rock Hill - Children's` was added to `build_branch_lookup()` in `import_excel.py`.
+- `Rock Hill - Reference` (previously deactivated) was reactivated and is now included in QRS entry forms and reports.
+
+A brief period where both `Rock Hill - Childrens` (no apostrophe) and `Rock Hill - Children's` existed as separate DB rows was resolved by migrating the data to the canonical apostrophe form and deactivating the no-apostrophe row.
+
+### QRS entry form shows month alongside quarter (added 2026-04-28)
+
+The Quarterly Reference Stats entry form previously showed only "Q1", "Q2" etc. in the quarter selector. Since YCL's quarter labels don't follow calendar conventions (Q1 = June, Q2 = October, etc.), month names were added alongside: "Q1 — June", "Q2 — October", etc. This reduces the chance of staff selecting the wrong quarter.
+
+### Gate counts overwritten by partial door counter import (restored 2026-04-28)
+
+A door counter upload overwrote Gate Count values for Jul 2025 – Mar 2026 with incorrect data. The correct values were restored by re-importing from `non-SIRSI423.xlsx` and the companion `all_branch_stats4-27.xlsx` file. Rock Hill Gate Count values for Oct 2025 – Mar 2026 are zero/null, reflecting the branch's physical closure during that period — not missing data.
+
+**Note:** The door counter export format (hourly rows per location) is supported by the importer, but the raw files for FY2025-26 produced incorrect totals. Gate Count data for that period now comes from the manually compiled Branch Stats Excel files. Going forward, check gate count values after any door counter upload.
+
+### /entries crash when submitted_at is null (fixed 2026-04-28)
+
+The Browse Data entries list template accessed `entry.submitted_at` without a null guard. Entries created by the SQL import had `submitted_at = null`, causing a Jinja2 render error. Fixed by adding a null check in `templates/entries/list.html`.

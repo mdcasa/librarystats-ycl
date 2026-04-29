@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, session
 from flask_login import LoginManager, login_user, logout_user, current_user
-from models import db, Category, Metric, Branch, Entry, EntryValue, User
+from models import db, Category, Metric, Branch, Entry, EntryValue, User, QuarterlyRefClosureDays
 from sqlalchemy.orm import joinedload
 from sqlalchemy import or_, and_
 from datetime import datetime
@@ -793,7 +793,7 @@ def report_monthly():
     year   = request.args.get('year',     type=int)
     month  = request.args.get('month',    type=int)
 
-    categories = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
+    categories = Category.query.filter(Category.is_active == True, Category.name != 'Circulation').order_by(Category.sort_order).all()
     available_years = [r[0] for r in db.session.query(Entry.year).distinct()
                                                 .order_by(Entry.year.desc()).all()]
     table = branches = category = None
@@ -1028,7 +1028,7 @@ def report_yoy():
     mode      = request.args.get('mode', 'annual')
     years     = sorted(request.args.getlist('years', type=int))  # fiscal years (e.g. 2024 = Jul 2023–Jun 2024)
 
-    categories   = Category.query.filter(Category.is_active == True, Category.name != 'Circulation').order_by(Category.sort_order).all()
+    categories   = Category.query.filter(Category.is_active == True, ~Category.name.in_(['Circulation', 'Quarterly Reference Stats'])).order_by(Category.sort_order).all()
     metrics_json = metrics_by_category_json()
 
     # Derive available fiscal years from stored data
@@ -2011,20 +2011,34 @@ def director_dashboard():
 
 @app.route('/reports/quarterly_ref')
 def report_quarterly_ref():
-    year       = request.args.get('year',       type=int)
-    holidays   = request.args.get('holidays',   type=int, default=0)
-    unexpected = request.args.get('unexpected', type=int, default=0)
+    year = request.args.get('year', type=int)
 
-    available_years = sorted(
-        {r[0] for r in db.session.query(Entry.year).distinct().all()},
-        reverse=True
-    )
+    # Only show years that actually have Quarterly Reference Stats entries
+    cat_check = Category.query.filter_by(name='Quarterly Reference Stats').first()
+    if cat_check:
+        available_years = sorted(
+            {r[0] for r in db.session.query(Entry.year)
+                                      .filter_by(category_id=cat_check.id)
+                                      .distinct().all()},
+            reverse=True
+        )
+    else:
+        available_years = []
 
     table = quarterly_totals = None
     open_days = open_weeks = annual_estimate = None
+    closure_saved = False
+    holidays = unexpected = 0
 
     if year:
-        cat = Category.query.filter_by(name='Quarterly Reference Stats').first()
+        # Load saved closure days for this year (if any)
+        saved = QuarterlyRefClosureDays.query.filter_by(year=year).first()
+        if saved:
+            holidays = saved.holidays
+            unexpected = saved.unexpected
+            closure_saved = True
+
+        cat = cat_check
         if cat:
             metric = next((m for m in cat.metrics if m.name == 'Total Transactions for the Week'), None)
             all_branches = _branches_for_category(cat)
@@ -2037,20 +2051,18 @@ def report_quarterly_ref():
                         if ev.metric_id == metric.id and ev.value_number is not None:
                             raw[e.branch_id][e.quarter] = int(ev.value_number)
 
-            # Open-time calculation
-            closed_days = (holidays or 0) + (unexpected or 0)
+            closed_days = holidays + unexpected
             open_days   = 52 * 6 - closed_days
             open_weeks  = round(open_days / 6, 2)
 
             def _row(label, branch_ids, is_combined=False):
-                """Build one display row by summing across the given branch IDs."""
                 q_vals = {}
                 for q in range(1, 5):
                     parts = [raw[bid][q] for bid in branch_ids if raw[bid].get(q) is not None]
                     if parts:
                         q_vals[q] = sum(parts)
                 avg = round(sum(q_vals.values()) / len(q_vals), 1) if q_vals else None
-                est = round(avg * open_weeks) if avg else None
+                est = round(avg * open_weeks) if (avg and closure_saved) else None
                 return {
                     'label':       label,
                     'quarters':    [q_vals.get(q) for q in range(1, 5)],
@@ -2077,19 +2089,59 @@ def report_quarterly_ref():
                 if parts:
                     quarterly_totals[q] = sum(parts)
 
-            # Annual estimate = sum of per-branch estimates
-            annual_estimate = sum(r['estimate'] for r in table if r['estimate']) or None
+            # Annual estimate only when closure days have been saved
+            if closure_saved:
+                annual_estimate = sum(r['estimate'] for r in table if r['estimate']) or None
 
     return render_template('reports/quarterly_ref.html',
                            available_years=available_years,
                            sel_year=year,
-                           holidays=holidays or 0,
-                           unexpected=unexpected or 0,
+                           holidays=holidays,
+                           unexpected=unexpected,
+                           closure_saved=closure_saved,
                            table=table,
                            quarterly_totals=quarterly_totals,
                            open_days=open_days,
                            open_weeks=open_weeks,
                            annual_estimate=annual_estimate)
+
+
+@app.route('/reports/quarterly_ref/save_closure', methods=['POST'])
+def quarterly_ref_save_closure():
+    year       = request.form.get('year',       type=int)
+    holidays   = request.form.get('holidays',   type=int, default=0) or 0
+    unexpected = request.form.get('unexpected', type=int, default=0) or 0
+    if not year:
+        flash('Year is required.', 'danger')
+        return redirect(url_for('report_quarterly_ref'))
+    saved = QuarterlyRefClosureDays.query.filter_by(year=year).first()
+    if saved:
+        saved.holidays   = holidays
+        saved.unexpected = unexpected
+        saved.saved_by   = current_user.username
+        saved.saved_at   = datetime.utcnow()
+    else:
+        db.session.add(QuarterlyRefClosureDays(
+            year=year, holidays=holidays, unexpected=unexpected,
+            saved_by=current_user.username
+        ))
+    db.session.commit()
+    flash(f'Closure days saved for {year}.', 'success')
+    return redirect(url_for('report_quarterly_ref', year=year))
+
+
+@app.route('/reports/quarterly_ref/clear_closure', methods=['POST'])
+def quarterly_ref_clear_closure():
+    year = request.form.get('year', type=int)
+    if not year:
+        flash('Year is required.', 'danger')
+        return redirect(url_for('report_quarterly_ref'))
+    saved = QuarterlyRefClosureDays.query.filter_by(year=year).first()
+    if saved:
+        db.session.delete(saved)
+        db.session.commit()
+        flash(f'Closure days cleared for {year}.', 'info')
+    return redirect(url_for('report_quarterly_ref', year=year))
 
 
 # ── User Management ──────────────────────────────────────────────────────────

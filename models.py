@@ -181,6 +181,17 @@ class AnnualSurveyValue(db.Model):
         return f'{self.value:,.2f}'.rstrip('0').rstrip('.')
 
 
+class QuarterlyRefClosureDays(db.Model):
+    """Saved closure-days configuration per year for the Quarterly Reference Stats report."""
+    __tablename__ = 'quarterly_ref_closure_days'
+    id         = db.Column(db.Integer, primary_key=True)
+    year       = db.Column(db.Integer, nullable=False, unique=True)
+    holidays   = db.Column(db.Integer, default=0, nullable=False)
+    unexpected = db.Column(db.Integer, default=0, nullable=False)
+    saved_by   = db.Column(db.String(200))
+    saved_at   = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 class EntryValue(db.Model):
     __tablename__ = 'entry_values'
     id = db.Column(db.Integer, primary_key=True)

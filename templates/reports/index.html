@@ -3,8 +3,7 @@
 {% block content %}
 <h1 class="h4 fw-bold mb-4"><i class="bi bi-bar-chart-line me-2 text-primary"></i>Reports</h1>
 
-<div class="mb-3 sidebar-label">Standard Reports</div>
-<div class="row g-3 mb-4">
+<div class="row g-3">
 
   <div class="col-md-4">
     <a href="{{ url_for('report_monthly_stats') }}" class="text-decoration-none">
@@ -51,7 +50,7 @@
       <div class="card h-100 p-3">
         <div class="fs-2 text-info mb-2"><i class="bi bi-arrow-left-right"></i></div>
         <h5 class="fw-bold">Year-over-Year</h5>
-        <p class="text-muted small mb-0">Compare two or more calendar years side-by-side, with % change columns.</p>
+        <p class="text-muted small mb-0">Compare two or more fiscal years side-by-side, with % change columns.</p>
       </div>
     </a>
   </div>
@@ -66,34 +65,9 @@
     </a>
   </div>
 
-</div>
-
-<div class="mb-3 sidebar-label">Cross-tab &amp; Analysis Reports</div>
-<div class="row g-3">
-
-  <div class="col-md-4">
-    <a href="{{ url_for('report_annual') }}" class="text-decoration-none">
-      <div class="card h-100 p-3" style="border-top: 3px solid #f39c12">
-        <div class="fs-2 text-warning mb-2"><i class="bi bi-trophy"></i></div>
-        <h5 class="fw-bold">Branch Scorecard</h5>
-        <p class="text-muted small mb-0">All branches &times; all key metrics in one table. Shading highlights the top performer per column. Choose a month or full year.</p>
-      </div>
-    </a>
-  </div>
-
-  <div class="col-md-4">
-    <a href="{{ url_for('report_programming') }}" class="text-decoration-none">
-      <div class="card h-100 p-3" style="border-top: 3px solid #e74c3c">
-        <div class="fs-2 text-danger mb-2"><i class="bi bi-people"></i></div>
-        <h5 class="fw-bold">Programming Summary</h5>
-        <p class="text-muted small mb-0">System-wide program totals by age group and type for a selected period.</p>
-      </div>
-    </a>
-  </div>
-
   <div class="col-md-4">
     <a href="{{ url_for('report_online') }}" class="text-decoration-none">
-      <div class="card h-100 p-3" style="border-top: 3px solid #117a65">
+      <div class="card h-100 p-3">
         <div class="fs-2 mb-2" style="color:#117a65"><i class="bi bi-globe"></i></div>
         <h5 class="fw-bold">Online Stats</h5>
         <p class="text-muted small mb-0">Website, app, and social media metrics with month-over-month change indicators.</p>

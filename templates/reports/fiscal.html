@@ -65,14 +65,16 @@
         </thead>
         <tbody>
           {% for group in table %}
+            {% set grp_id = loop.index %}
             {% if group.name %}
-            <tr>
-              <td colspan="{{ (branches|length if branches else 1) + (2 if branches|length > 1 else 1) }}"
-                  class="group-header">{{ group.name }}</td>
+            <tr class="group-header" data-grp-toggle="{{ grp_id }}">
+              <td colspan="{{ (branches|length if branches else 1) + (2 if branches|length > 1 else 1) }}">
+                {{ group.name }}<i class="bi bi-chevron-down grp-chevron"></i>
+              </td>
             </tr>
             {% endif %}
             {% for row in group.rows %}
-            <tr>
+            <tr data-grp="{{ grp_id if group.name else '' }}">
               <td>{{ row.metric.name }}</td>
               {% for val in row.cells %}
               <td class="text-center {{ 'text-muted' if val == '—' }}">{{ val }}</td>
@@ -101,6 +103,16 @@
 
 {% block scripts %}
 <script>
+document.querySelectorAll('.group-header[data-grp-toggle]').forEach(hdr => {
+  hdr.addEventListener('click', () => {
+    const id = hdr.dataset.grpToggle;
+    const collapsed = hdr.classList.toggle('grp-collapsed');
+    document.querySelectorAll(`tr[data-grp="${id}"]`).forEach(r => {
+      r.style.display = collapsed ? 'none' : '';
+    });
+  });
+});
+
 (function () {
   const KEY  = 'filters_fiscal';
   const form = document.querySelector('form[method="get"]');

@@ -1,0 +1,210 @@
+{% extends 'base.html' %}
+{% block title %}Annual Overview{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4 fw-bold mb-0"><i class="bi bi-bar-chart-fill me-2 text-primary"></i>Annual Overview</h1>
+  {% if stats %}
+  <div class="d-flex gap-2 d-print-none">
+    <button class="btn btn-outline-secondary btn-sm" onclick="window.print()">
+      <i class="bi bi-printer me-1"></i>Print / Save as PDF
+    </button>
+  </div>
+  {% endif %}
+</div>
+
+{% if not stats %}
+
+<div class="card">
+  <div class="card-body text-center py-5 text-muted">
+    <i class="bi bi-calendar-x fs-1 opacity-25 d-block mb-3"></i>
+    {% if full_fy_years | length == 1 %}
+    <p class="mb-1">Only one complete fiscal year found (<strong>FY{{ full_fy_years[0] }}</strong>).</p>
+    <p class="text-muted small">At least two complete fiscal years (all 12 months of Branch Stats data) are needed.</p>
+    {% elif full_fy_years | length == 0 %}
+    <p class="mb-1">No complete fiscal years found.</p>
+    <p class="text-muted small">A complete fiscal year requires Branch Stats entries for all 12 months (Jul – Jun).</p>
+    {% endif %}
+  </div>
+</div>
+
+{% else %}
+
+{# ── Title ── #}
+<div class="text-center mb-4 d-print-block">
+  <h2 class="h3 fw-bold mb-1">York County Library</h2>
+  <p class="text-muted mb-0">Year-over-Year Highlights &nbsp;·&nbsp;
+    FY{{ fy1 }} (Jul {{ fy1 - 1 }}–Jun {{ fy1 }}) vs FY{{ fy2 }} (Jul {{ fy2 - 1 }}–Jun {{ fy2 }})
+  </p>
+</div>
+
+{# ── Metric Cards ── #}
+{% set COLORS = ['#1a5276','#1e8449','#6c3483','#117a65','#784212','#922b21','#1a6078'] %}
+<div class="row g-3 mb-4">
+  {% for icon, label, v1, v2, up_good in stats %}
+  {% set color = COLORS[loop.index0 % COLORS|length] %}
+  {% if v1 and v2 %}
+    {% set pct = ((v2 - v1) / v1 * 100) | round(1) %}
+    {% set improved = (pct > 0 and up_good) or (pct < 0 and not up_good) %}
+  {% else %}
+    {% set pct = none %}
+    {% set improved = none %}
+  {% endif %}
+  <div class="col-sm-6 col-lg-4">
+    <div class="card h-100" style="border-top:4px solid {{ color }}">
+      <div class="card-body p-3">
+        <div class="d-flex align-items-start justify-content-between mb-2">
+          <div>
+            <i class="bi {{ icon }} me-1" style="color:{{ color }}"></i>
+            <span class="fw-semibold" style="font-size:.9rem">{{ label }}</span>
+          </div>
+          {% if pct is not none %}
+          <span class="badge rounded-pill ms-2 flex-shrink-0
+            {% if improved %}bg-success{% elif pct == 0 %}bg-secondary{% else %}bg-danger{% endif %}"
+            style="font-size:.78rem">
+            {% if pct > 0 %}+{% endif %}{{ pct }}%
+          </span>
+          {% endif %}
+        </div>
+
+        <div class="row g-2 mb-2">
+          <div class="col-6 text-center p-2 rounded" style="background:#f8f9fa">
+            <div class="text-muted" style="font-size:.7rem;font-weight:600;letter-spacing:.4px">FY{{ fy1 }}</div>
+            <div class="fw-bold" style="font-size:1.25rem;color:#333">
+              {% if v1 is not none %}{{ '{:,}'.format(v1 | int) }}{% else %}—{% endif %}
+            </div>
+          </div>
+          <div class="col-6 text-center p-2 rounded" style="background:{{ color }}18">
+            <div class="text-muted" style="font-size:.7rem;font-weight:600;letter-spacing:.4px">FY{{ fy2 }}</div>
+            <div class="fw-bold" style="font-size:1.25rem;color:{{ color }}">
+              {% if v2 is not none %}{{ '{:,}'.format(v2 | int) }}{% else %}—{% endif %}
+            </div>
+          </div>
+        </div>
+
+        {# Mini bar chart #}
+        <canvas id="chart{{ loop.index }}" height="60"
+                data-v1="{{ v1 if v1 is not none else 0 }}"
+                data-v2="{{ v2 if v2 is not none else 0 }}"
+                data-color="{{ color }}"
+                data-fy1="FY{{ fy1 }}"
+                data-fy2="FY{{ fy2 }}">
+        </canvas>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{# ── Summary table ── #}
+<div class="card">
+  <div class="card-header-custom fw-bold">
+    <i class="bi bi-table me-2 text-primary"></i>Summary
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered mb-0" style="font-size:.9rem">
+      <thead class="table-dark">
+        <tr>
+          <th>Metric</th>
+          <th class="text-end">FY{{ fy1 }}<br><small class="fw-normal opacity-75">Jul {{ fy1 - 1 }}–Jun {{ fy1 }}</small></th>
+          <th class="text-end">FY{{ fy2 }}<br><small class="fw-normal opacity-75">Jul {{ fy2 - 1 }}–Jun {{ fy2 }}</small></th>
+          <th class="text-center" style="width:90px">Change</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for icon, label, v1, v2, up_good in stats %}
+        {% if v1 and v2 %}
+          {% set pct = ((v2 - v1) / v1 * 100) | round(1) %}
+          {% set improved = (pct > 0 and up_good) or (pct < 0 and not up_good) %}
+        {% else %}
+          {% set pct = none %}
+          {% set improved = none %}
+        {% endif %}
+        <tr>
+          <td><i class="bi {{ icon }} me-2 text-muted"></i>{{ label }}</td>
+          <td class="text-end">{% if v1 is not none %}{{ '{:,}'.format(v1 | int) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end fw-semibold">{% if v2 is not none %}{{ '{:,}'.format(v2 | int) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-center">
+            {% if pct is not none %}
+            <span class="badge rounded-pill
+              {% if improved %}bg-success{% elif pct == 0 %}bg-secondary{% else %}bg-danger{% endif %}">
+              {% if pct > 0 %}+{% endif %}{{ pct }}%
+            </span>
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<script>
+document.querySelectorAll('canvas[id^="chart"]').forEach(function(canvas) {
+  var v1    = parseFloat(canvas.dataset.v1) || 0;
+  var v2    = parseFloat(canvas.dataset.v2) || 0;
+  var color = canvas.dataset.color;
+  var fy1   = canvas.dataset.fy1;
+  var fy2   = canvas.dataset.fy2;
+
+  new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: [fy1, fy2],
+      datasets: [{
+        data: [v1, v2],
+        backgroundColor: [color + '55', color],
+        borderColor:     [color, color],
+        borderWidth: 1,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) {
+              return ' ' + ctx.parsed.y.toLocaleString();
+            }
+          }
+        }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+        y: {
+          beginAtZero: true,
+          grid: { color: '#f0f0f0' },
+          ticks: {
+            font: { size: 9 },
+            callback: function(v) {
+              if (v >= 1000000) return (v / 1000000).toFixed(1) + 'M';
+              if (v >= 1000)    return (v / 1000).toFixed(0) + 'K';
+              return v;
+            }
+          }
+        }
+      }
+    }
+  });
+});
+</script>
+
+<style>
+@media print {
+  .d-print-none { display: none !important; }
+  body { background: white !important; font-size: 11px; }
+  .card { box-shadow: none !important; border: 1px solid #ccc !important; break-inside: avoid; }
+  .row.g-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  nav, footer { display: none !important; }
+  .container-lg { padding: 0 !important; max-width: 100% !important; }
+}
+</style>
+{% endblock %}

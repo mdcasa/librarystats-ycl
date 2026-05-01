@@ -2704,6 +2704,9 @@ def report_impact():
             id_to_name = {m.id: m.name for m in bs_cat.metrics}
             totals = {}
             for e in entries:
+                bname = e.branch.name if e.branch else ''
+                if bname == 'YCL (System Wide)' or 'Lockers' in bname:
+                    continue
                 for ev in e.values:
                     n = id_to_name.get(ev.metric_id)
                     if n and ev.value_number is not None:
@@ -2818,6 +2821,9 @@ def report_impact_pdf():
         id_to_name = {m.id: m.name for m in bs_cat.metrics}
         totals = {}
         for e in entries:
+            bname = e.branch.name if e.branch else ''
+            if bname == 'YCL (System Wide)' or 'Lockers' in bname:
+                continue
             for ev in e.values:
                 n = id_to_name.get(ev.metric_id)
                 if n and ev.value_number is not None:

@@ -2678,15 +2678,20 @@ def report_impact():
         now = datetime.now()
         cur_fy = now.year + 1 if now.month >= 7 else now.year
         full_fy_years = sorted(
-            [fy for fy, months in fy_months.items() if fy < cur_fy and fy <= 2025 and is_full_fy(fy, months)],
+            [fy for fy, months in fy_months.items() if fy < cur_fy and is_full_fy(fy, months)],
             reverse=True
         )
 
     fy1 = fy2 = data = None
-
-    if len(full_fy_years) >= 2:
+    selectable_years = [fy for fy in full_fy_years if (fy - 1) in full_fy_years]
+    sel_fy = request.args.get('fy', type=int)
+    if sel_fy and sel_fy in full_fy_years and (sel_fy - 1) in full_fy_years:
+        fy2 = sel_fy
+        fy1 = sel_fy - 1
+    elif len(full_fy_years) >= 2:
         fy2, fy1 = full_fy_years[0], full_fy_years[1]
 
+    if fy1 and fy2:
         def fy_totals(fy_year):
             entries = Entry.query.options(joinedload(Entry.values)).filter_by(
                 category_id=bs_cat.id
@@ -2756,6 +2761,8 @@ def report_impact():
 
     return render_template('reports/impact.html',
                            full_fy_years=full_fy_years,
+                           selectable_years=selectable_years,
+                           sel_fy=sel_fy or (fy2 if fy2 else None),
                            fy1=fy1, fy2=fy2,
                            data=data)
 
@@ -2785,15 +2792,19 @@ def report_impact_pdf():
         now = datetime.now()
         cur_fy = now.year + 1 if now.month >= 7 else now.year
         full_fy_years = sorted(
-            [fy for fy, months in fy_months.items() if fy < cur_fy and fy <= 2025 and is_full_fy(fy, months)],
+            [fy for fy, months in fy_months.items() if fy < cur_fy and is_full_fy(fy, months)],
             reverse=True
         )
 
     if len(full_fy_years) < 2:
-        flash('Cannot generate PDF: need at least two complete fiscal years of data (through FY2025).', 'warning')
+        flash('Cannot generate PDF: need at least two complete fiscal years of data.', 'warning')
         return redirect(url_for('report_impact'))
 
-    fy2, fy1 = full_fy_years[0], full_fy_years[1]
+    sel_fy = request.args.get('fy', type=int)
+    if sel_fy and sel_fy in full_fy_years and (sel_fy - 1) in full_fy_years:
+        fy2, fy1 = sel_fy, sel_fy - 1
+    else:
+        fy2, fy1 = full_fy_years[0], full_fy_years[1]
 
     def fy_totals(fy_year):
         entries = Entry.query.options(joinedload(Entry.values)).filter_by(

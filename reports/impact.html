@@ -6,7 +6,7 @@
   <h1 class="h4 fw-bold mb-0"><i class="bi bi-file-earmark-bar-graph me-2 text-primary"></i>Community Impact Report</h1>
   {% if data %}
   <div class="d-flex gap-2">
-    <a href="{{ url_for('report_impact_pdf') }}" class="btn btn-outline-danger btn-sm">
+    <a href="{{ url_for('report_impact_pdf', fy=sel_fy) }}" class="btn btn-outline-danger btn-sm">
       <i class="bi bi-file-earmark-pdf me-1"></i>Download PDF
     </a>
     <button class="btn btn-outline-secondary btn-sm" onclick="window.print()">
@@ -15,6 +15,24 @@
   </div>
   {% endif %}
 </div>
+
+{% if selectable_years and selectable_years | length > 1 %}
+<div class="card mb-3 d-print-none">
+  <div class="card-body py-2 px-3">
+    <form method="get" class="d-flex align-items-center gap-2">
+      <label class="sidebar-label mb-0 flex-shrink-0">Fiscal Year</label>
+      <select name="fy" class="form-select form-select-sm" style="max-width:240px">
+        {% for fy in selectable_years %}
+        <option value="{{ fy }}" {% if sel_fy == fy %}selected{% endif %}>
+          FY{{ fy }} vs FY{{ fy - 1 }} &nbsp;(Jul {{ fy - 2 }}–Jun {{ fy }})
+        </option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-primary btn-sm">View</button>
+    </form>
+  </div>
+</div>
+{% endif %}
 
 {% if not data %}
 <div class="card">

@@ -100,7 +100,7 @@
 {% set _data    = ['upload_data','entries_list','entry_view'] %}
 {% set _dash    = ['director_dashboard','annual_survey_dashboard','annual_survey_enter','annual_survey_calculate'] %}
 {% set _reports = ['report_monthly_stats','report_monthly','report_fiscal','report_trend',
-                   'report_yoy','report_quarterly_ref','report_online','report_overview'] %}
+                   'report_yoy','report_quarterly_ref','report_online','report_overview','report_impact'] %}
 {% set _admin   = ['admin_categories','admin_category_edit','admin_branches',
                    'admin_import','admin_export','admin_metric_edit',
                    'admin_users','admin_user_new','admin_user_edit'] %}
@@ -202,6 +202,9 @@
             <li><a class="dropdown-item {% if ep == 'report_overview' %}active{% endif %}"
                    href="{{ url_for('report_overview') }}">
               <i class="bi bi-bar-chart-fill me-2 text-primary"></i>Annual Overview</a></li>
+            <li><a class="dropdown-item {% if ep == 'report_impact' %}active{% endif %}"
+                   href="{{ url_for('report_impact') }}">
+              <i class="bi bi-file-earmark-bar-graph me-2 text-primary"></i>Community Impact Report</a></li>
             <li><hr class="dropdown-divider"></li>
             <li><a class="dropdown-item {% if ep == 'report_monthly_stats' %}active{% endif %}"
                    href="{{ url_for('report_monthly_stats') }}">

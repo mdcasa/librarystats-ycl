@@ -198,13 +198,28 @@ document.querySelectorAll('canvas[id^="chart"]').forEach(function(canvas) {
 </script>
 
 <style>
+@page { margin: 0.55in 0.5in; }
 @media print {
   .d-print-none { display: none !important; }
-  body { background: white !important; font-size: 11px; }
-  .card { box-shadow: none !important; border: 1px solid #ccc !important; break-inside: avoid; }
-  .row.g-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  body { background: white !important; font-size: 10px; }
   nav, footer { display: none !important; }
-  .container-lg { padding: 0 !important; max-width: 100% !important; }
+  .container-lg { padding: 0 !important; max-width: 100% !important; width: 100% !important; }
+  /* neutralise Bootstrap gutter negative margins then switch to CSS grid */
+  .row.g-3 {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 6px !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+  .row.g-3 > [class*="col"] {
+    padding: 0 !important;
+    width: auto !important;
+    max-width: none !important;
+    flex: none !important;
+  }
+  .card { box-shadow: none !important; border: 1px solid #ccc !important; break-inside: avoid; }
+  .card-body { padding: .5rem !important; }
 }
 </style>
 {% endblock %}

@@ -2760,5 +2760,109 @@ def report_impact():
                            data=data)
 
 
+@app.route('/reports/impact.pdf')
+def report_impact_pdf():
+    from weasyprint import HTML as WeasyprintHTML
+    bs_cat = Category.query.filter_by(name='Branch Stats').first()
+
+    full_fy_years = []
+    if bs_cat:
+        bs_months = db.session.query(Entry.year, Entry.month).filter(
+            Entry.category_id == bs_cat.id, Entry.month.isnot(None)
+        ).distinct().all()
+        fy_months = {}
+        for yr, mo in bs_months:
+            fy = yr + 1 if mo >= 7 else yr
+            fy_months.setdefault(fy, set()).add((yr, mo))
+
+        def is_full_fy(fy_year, month_set):
+            needed = (
+                {(fy_year - 1, m) for m in range(7, 13)} |
+                {(fy_year, m) for m in range(1, 7)}
+            )
+            return needed.issubset(month_set)
+
+        now = datetime.now()
+        cur_fy = now.year + 1 if now.month >= 7 else now.year
+        full_fy_years = sorted(
+            [fy for fy, months in fy_months.items() if fy < cur_fy and fy <= 2025 and is_full_fy(fy, months)],
+            reverse=True
+        )
+
+    if len(full_fy_years) < 2:
+        flash('Cannot generate PDF: need at least two complete fiscal years of data (through FY2025).', 'warning')
+        return redirect(url_for('report_impact'))
+
+    fy2, fy1 = full_fy_years[0], full_fy_years[1]
+
+    def fy_totals(fy_year):
+        entries = Entry.query.options(joinedload(Entry.values)).filter_by(
+            category_id=bs_cat.id
+        ).filter(
+            or_(
+                and_(Entry.year == fy_year - 1, Entry.month >= 7),
+                and_(Entry.year == fy_year, Entry.month <= 6)
+            )
+        ).all()
+        id_to_name = {m.id: m.name for m in bs_cat.metrics}
+        totals = {}
+        for e in entries:
+            for ev in e.values:
+                n = id_to_name.get(ev.metric_id)
+                if n and ev.value_number is not None:
+                    totals[n] = totals.get(n, 0) + ev.value_number
+        return totals
+
+    d1 = fy_totals(fy1)
+    d2 = fy_totals(fy2)
+    AGE   = ['0-5', '6-11', '12-18', '19+', 'General Interest']
+    TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
+
+    def iv(d, key):
+        val = d.get(key)
+        if val is None:
+            return None
+        return int(val) if val == int(val) else round(val, 1)
+
+    def pct(old, new):
+        if not old or not new:
+            return None
+        return round((new - old) / old * 100, 1)
+
+    circ1   = iv(d1, 'Total Branch Circulation')
+    circ2   = iv(d2, 'Total Branch Circulation')
+    hot1    = iv(d1, 'Hotspots Circulation')
+    hot2    = iv(d2, 'Hotspots Circulation')
+    gate1   = iv(d1, 'Gate Count')
+    gate2   = iv(d2, 'Gate Count')
+    sess1   = sum((iv(d1, f'{t} Sessions {a}') or 0) for t in TYPES for a in AGE) or None
+    sess2   = sum((iv(d2, f'{t} Sessions {a}') or 0) for t in TYPES for a in AGE) or None
+    att1    = sum((iv(d1, f'{t} Attendance {a}') or 0) for t in TYPES for a in AGE) or None
+    att2    = sum((iv(d2, f'{t} Attendance {a}') or 0) for t in TYPES for a in AGE) or None
+    cards1  = (iv(d1, 'New Library Card Registrations, Adult') or 0) + \
+              (iv(d1, 'New Library Card Registrations, Juvenile') or 0) or None
+    cards2  = (iv(d2, 'New Library Card Registrations, Adult') or 0) + \
+              (iv(d2, 'New Library Card Registrations, Juvenile') or 0) or None
+    prints1 = iv(d1, 'Total Prints per Month')
+    prints2 = iv(d2, 'Total Prints per Month')
+
+    data = {
+        'circulation': {'v1': circ1,   'v2': circ2,   'pct': pct(circ1,  circ2)},
+        'hotspots':    {'v1': hot1,    'v2': hot2,    'pct': pct(hot1,   hot2)},
+        'gate':        {'v1': gate1,   'v2': gate2,   'pct': pct(gate1,  gate2)},
+        'sessions':    {'v1': sess1,   'v2': sess2,   'pct': pct(sess1,  sess2)},
+        'attendance':  {'v1': att1,    'v2': att2,    'pct': pct(att1,   att2)},
+        'cards':       {'v1': cards1,  'v2': cards2,  'pct': pct(cards1, cards2)},
+        'prints':      {'v1': prints1, 'v2': prints2, 'pct': pct(prints1,prints2)},
+    }
+
+    html_str = render_template('reports/impact_pdf.html', fy1=fy1, fy2=fy2, data=data)
+    pdf_bytes = WeasyprintHTML(string=html_str).write_pdf()
+
+    filename = f'YCL_Impact_Report_FY{fy1}-FY{fy2}.pdf'
+    return send_file(io.BytesIO(pdf_bytes), mimetype='application/pdf',
+                     as_attachment=True, download_name=filename)
+
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

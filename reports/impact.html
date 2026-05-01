@@ -1,0 +1,388 @@
+{% extends 'base.html' %}
+{% block title %}Community Impact Report{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 d-print-none">
+  <h1 class="h4 fw-bold mb-0"><i class="bi bi-file-earmark-bar-graph me-2 text-primary"></i>Community Impact Report</h1>
+  {% if data %}
+  <button class="btn btn-outline-secondary btn-sm" onclick="window.print()">
+    <i class="bi bi-printer me-1"></i>Print / Save as PDF
+  </button>
+  {% endif %}
+</div>
+
+{% if not data %}
+<div class="card">
+  <div class="card-body text-center py-5 text-muted">
+    <i class="bi bi-calendar-x fs-1 opacity-25 d-block mb-3"></i>
+    <p>At least two complete fiscal years of Branch Stats data (through FY2025) are needed to generate this report.</p>
+  </div>
+</div>
+{% else %}
+
+{# ═══════════════════════════════════
+   SCREEN VIEW  (hidden when printing)
+   ═══════════════════════════════════ #}
+<div class="d-print-none">
+
+  <div class="text-center mb-4">
+    <img src="{{ url_for('static', filename='ycl-logo.png') }}" alt="YCL" style="height:44px" class="mb-2 d-block mx-auto">
+    <h2 class="fw-bold mb-1" style="font-size:1.5rem">York County Library &mdash; Community Impact Report</h2>
+    <p class="text-muted mb-0" style="font-size:.88rem">
+      FY{{ fy1 }} &amp; FY{{ fy2 }} Statistical Highlights &nbsp;&middot;&nbsp;
+      <em>Strategic Plan Public Survey, April 2026 (n&nbsp;=&nbsp;544)</em>
+    </p>
+  </div>
+
+  <div class="card mb-4" style="border-left:4px solid var(--ycl-blue)">
+    <div class="card-body py-3 px-4">
+      In spring 2026, York County Library asked the community what it values most. <strong>544 patrons responded</strong> &mdash;
+      affirming what our data shows: YCL is a vital, deeply used community institution. This report pairs those survey findings
+      with two full fiscal years of statistics to tell the story of how York County uses its library.
+    </div>
+  </div>
+
+  {% macro stat_card(color, title, d1, d2, pct, note) %}
+  <div class="mb-3" style="border:2px solid {{ color }};border-radius:8px;overflow:hidden">
+    <div style="background:{{ color }};color:#fff;font-size:.72rem;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:.3rem .75rem">{{ title }}</div>
+    <div class="p-3">
+      <div class="d-flex gap-3 align-items-end">
+        <div class="text-center">
+          <div style="font-size:.65rem;font-weight:600;text-transform:uppercase;color:#999">FY{{ fy1 }}</div>
+          <div style="font-size:1.5rem;font-weight:700;color:#6c757d">{{ '{:,}'.format(d1|int) if d1 is not none else '&mdash;' }}</div>
+        </div>
+        <div class="text-muted pb-1">&rarr;</div>
+        <div class="text-center">
+          <div style="font-size:.65rem;font-weight:600;text-transform:uppercase;color:#999">FY{{ fy2 }}</div>
+          <div style="font-size:1.5rem;font-weight:700;color:{{ color }}">{{ '{:,}'.format(d2|int) if d2 is not none else '&mdash;' }}</div>
+        </div>
+        {% if pct is not none %}
+        <div class="pb-1">
+          <span class="badge rounded-pill {% if pct > 0 %}bg-success{% elif pct == 0 %}bg-secondary{% else %}bg-danger{% endif %}">
+            {% if pct > 0 %}+{% endif %}{{ pct }}%
+          </span>
+        </div>
+        {% endif %}
+      </div>
+      <div class="text-muted mt-1" style="font-size:.78rem">{{ note }}</div>
+    </div>
+  </div>
+  {% endmacro %}
+
+  {# Circulation #}
+  <div class="card mb-4" style="border-left:5px solid #1a5276">
+    <div class="card-body p-4">
+      <div class="row g-4 align-items-start">
+        <div class="col-md-7">
+          <div style="font-size:.7rem;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#1a5276;margin-bottom:.3rem"><i class="bi bi-arrow-repeat me-1"></i>Circulation</div>
+          <h4 class="fw-bold mb-2">Patrons love checking out books &mdash; the numbers back it up</h4>
+          <p>In our patron survey, <strong>borrowing books was rated the most important library service by every single age group</strong> &mdash; the highest scores across all four service categories (avg. 3.79&ndash;4.00 out of 5). It is the bedrock of everything we do.</p>
+          <p class="mb-0">Patrons highlighted frustration with hold waitlists and small in-branch collections &mdash; particularly at Fort Mill. <em>"It is hard to browse books as the selection is small in person."</em></p>
+        </div>
+        <div class="col-md-5">
+          {{ stat_card('#1a5276','Total Checkouts',data.circulation.v1,data.circulation.v2,data.circulation.pct,'Total items checked out across all YCL branches.') }}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# Gate Count #}
+  <div class="card mb-4" style="border-left:5px solid #1e8449">
+    <div class="card-body p-4">
+      <div class="row g-4 align-items-start">
+        <div class="col-md-7">
+          <div style="font-size:.7rem;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#1e8449;margin-bottom:.3rem"><i class="bi bi-door-open me-1"></i>Library Visits</div>
+          <h4 class="fw-bold mb-2">People are coming through the door &mdash; and coming back</h4>
+          <p><strong>92.3% of survey respondents visited YCL in the past year.</strong> Teens (12&ndash;18) lead at 57.1% weekly. Adults 25&ndash;40 follow at 49.7% weekly. Even seniors (65+) visit at 36&ndash;41% weekly.</p>
+          <p class="mb-0">The primary barrier for non-users is simply being too busy (17 of 42 non-users) &mdash; a scheduling gap, not a service-quality problem.</p>
+        </div>
+        <div class="col-md-5">
+          {{ stat_card('#1e8449','Gate Count',data.gate.v1,data.gate.v2,data.gate.pct,'Total patron visits counted at branch entrances.') }}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# Programming #}
+  <div class="card mb-4" style="border-left:5px solid #6c3483">
+    <div class="card-body p-4">
+      <div class="row g-4 align-items-start">
+        <div class="col-md-7">
+          <div style="font-size:.7rem;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#6c3483;margin-bottom:.3rem"><i class="bi bi-calendar-event me-1"></i>Programs &amp; Events</div>
+          <h4 class="fw-bold mb-2">Demand for programs far exceeds what our spaces allow</h4>
+          <p><strong>Children's programming is the most-requested service category</strong> &mdash; programs fill up immediately due to space limits. Working parents asked for evening and weekend storytime; a tween gap (ages 8&ndash;12) was flagged independently across dozens of responses.</p>
+          <p class="mb-0">61.2% of respondents attended at least one YCL signature event. The Summer Learning Challenge (272 selections) and Winter Reading Challenge (218) led all events.</p>
+        </div>
+        <div class="col-md-5">
+          {{ stat_card('#6c3483','Program Sessions',data.sessions.v1,data.sessions.v2,data.sessions.pct,'Total programs offered (on-site, off-site, virtual).') }}
+          {{ stat_card('#6c3483','Program Attendance',data.attendance.v1,data.attendance.v2,data.attendance.pct,'Total participants across all program types and age groups.') }}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# Hotspots #}
+  <div class="card mb-4" style="border-left:5px solid #117a65">
+    <div class="card-body p-4">
+      <div class="row g-4 align-items-start">
+        <div class="col-md-7">
+          <div style="font-size:.7rem;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#117a65;margin-bottom:.3rem"><i class="bi bi-wifi me-1"></i>Digital Access &amp; Hotspots</div>
+          <h4 class="fw-bold mb-2">Connectivity is a core library service &mdash; and demand is growing</h4>
+          <p>Internet access and Wi-Fi ranked as the <strong>top technology service</strong>, leading for patrons 41+. YCL's hotspot lending extends connectivity into patrons' homes &mdash; a critical equity service.</p>
+          <p class="mb-0"><strong>50&ndash;64% of every age group uses the YCL app</strong>, including 59.3% of seniors, proving digital-first services work across generations.</p>
+        </div>
+        <div class="col-md-5">
+          {{ stat_card('#117a65','Hotspot Checkouts',data.hotspots.v1,data.hotspots.v2,data.hotspots.pct,'Total hotspot device checkouts, each representing home internet access.') }}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# New Cards #}
+  <div class="card mb-4" style="border-left:5px solid #784212">
+    <div class="card-body p-4">
+      <div class="row g-4 align-items-start">
+        <div class="col-md-7">
+          <div style="font-size:.7rem;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#784212;margin-bottom:.3rem"><i class="bi bi-credit-card me-1"></i>New Library Cards</div>
+          <h4 class="fw-bold mb-2">Every new card is a new member of the YCL community</h4>
+          <p>New card registrations reflect YCL's reach into a fast-growing county. <strong>Word of mouth is the strongest non-website channel</strong> for teens and young adults &mdash; outperforming every digital platform.</p>
+          <p class="mb-0">The primary barrier for non-users is being too busy, pointing to scheduling convenience as the key lever for reaching new cardholders.</p>
+        </div>
+        <div class="col-md-5">
+          {{ stat_card('#784212','New Library Cards Issued',data.cards.v1,data.cards.v2,data.cards.pct,'Adult and juvenile new card registrations combined.') }}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# Prints #}
+  <div class="card mb-4" style="border-left:5px solid #1a6078">
+    <div class="card-body p-4">
+      <div class="row g-4 align-items-start">
+        <div class="col-md-7">
+          <div style="font-size:.7rem;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#1a6078;margin-bottom:.3rem"><i class="bi bi-printer me-1"></i>Printing &amp; Computer Access</div>
+          <h4 class="fw-bold mb-2">Public technology access remains an essential equity service</h4>
+          <p>Printing serves patrons without home office access &mdash; job applications, government forms, school materials. Survey respondents asked for more technology literacy programming (AI tools, computer basics, cybersecurity for seniors).</p>
+          <p class="mb-0"><strong>86&ndash;93% of every age group uses the YCL website</strong>; app adoption is strong and cross-generational.</p>
+        </div>
+        <div class="col-md-5">
+          {{ stat_card('#1a6078','Total Pages Printed',data.prints.v1,data.prints.v2,data.prints.pct,'Total pages printed across all YCL branch printers.') }}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# Community priorities #}
+  <div class="card mb-4" style="background:#f8f9fa;border:none">
+    <div class="card-body p-4">
+      <h4 class="fw-bold mb-3" style="color:#1a4f9e"><i class="bi bi-chat-square-quote me-2"></i>What the Community Is Asking For Next</h4>
+      <p class="mb-3">The survey's 430 open-ended responses produced a clear signal about where the community wants YCL to grow:</p>
+      <div class="row g-2">
+        {% set items = [
+          ('#1a5276','bi-building-fill-up','New or expanded Fort Mill branch','Cited by name more than any topic. Described as "too small" and dramatically outgrown by population growth.'),
+          ('#1e8449','bi-geo-alt-fill','New branches: western YC, Tega Cay, Newport','Hickory Grove, Tega Cay, and Newport/Rock Hill identified as underserved.'),
+          ('#6c3483','bi-balloon-heart','Expanded children\'s programs & enclosed spaces','Programs fill up immediately. Tween gap (ages 8-12) flagged independently across dozens of responses.'),
+          ('#117a65','bi-moon-stars','Evening & weekend programming for all ages','Most consistent ask across the dataset: book clubs, craft classes, storytime, adult education after 5 pm.'),
+          ('#784212','bi-tools','Makerspace and Library of Things','Richland County makerspace cited as model. Library of Things: widest generational interest (78.6% of 19-24 vs 38% of 65+).'),
+          ('#922b21','bi-people','Community meeting space, flexible booking','Groups need recurring reservations. 30-day advance booking limit prevents regular club scheduling.'),
+          ('#1a6078','bi-phone-fill','Growing digital collections (Libby/Hoopla)','Long ebook waitlists and incomplete series are the top friction points in digital feedback.'),
+          ('#6c3483','bi-chat-dots','Tween (8-12) and young adult (18-28) programs','Two age gaps left unserved by existing programming, identified across dozens of independent responses.'),
+          ('#1e8449','bi-book-half','Collections policy grounded in professional standards','Open-collections voices outnumbered restriction voices approximately 4-to-1 among those who addressed it.'),
+          ('#117a65','bi-ear','Sensory-friendly and accessible design','Sensory rooms, dimmable lighting, modular furniture, and neurodivergent-friendly spaces.'),
+        ] %}
+        {% for color, icon, title, body in items %}
+        <div class="col-md-6">
+          <div class="d-flex gap-2 mb-1">
+            <i class="bi {{ icon }} mt-1 flex-shrink-0" style="color:{{ color }}"></i>
+            <div>
+              <span class="fw-semibold" style="font-size:.88rem">{{ title }}</span>
+              <div class="text-muted" style="font-size:.78rem">{{ body }}</div>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="text-muted text-center mb-3" style="font-size:.75rem">
+    Statistical data: YCL internal records, FY{{ fy1 }}&ndash;FY{{ fy2 }}.
+    Survey: <em>York County Library Strategic Plan Public Survey</em>, preliminary as of April 27, 2026 (n=544); final analysis pending May 15, 2026 close.
+  </div>
+
+</div>{# /d-print-none #}
+
+
+{# ═══════════════════════════════════
+   PRINT VIEW  (hidden on screen)
+   PAGE 1: metrics  |  PAGE 2: priorities
+   ═══════════════════════════════════ #}
+<div class="d-none d-print-block">
+
+  {# ── PAGE 1 ── #}
+  <div class="pr-header">
+    <span class="pr-logo">YCL</span>
+    <div>
+      <div class="pr-title">York County Library &mdash; Community Impact Report</div>
+      <div class="pr-sub">FY{{ fy1 }} (Jul {{ fy1-1 }}&ndash;Jun {{ fy1 }}) &amp; FY{{ fy2 }} (Jul {{ fy2-1 }}&ndash;Jun {{ fy2 }}) &nbsp;&middot;&nbsp; Strategic Plan Public Survey, April 2026 &nbsp;&middot;&nbsp; n=544</div>
+    </div>
+  </div>
+
+  <p class="pr-intro">
+    In spring 2026, YCL surveyed 544 patrons on what they value most. This report pairs those findings with two full fiscal years
+    of statistics. Survey respondents skew toward existing library users (92.3% used YCL in the past year) and the 41&ndash;64 age group.
+  </p>
+
+  <div class="pr-grid">
+
+    {% macro pm(color, icon, label, finding, d) %}
+    <div class="pm" style="border-top:3px solid {{ color }}">
+      <div class="pm-lbl" style="color:{{ color }}"><i class="bi {{ icon }}"></i> {{ label }}</div>
+      <div class="pm-find">{{ finding }}</div>
+      <div class="pm-nums">
+        <div><div class="pm-yl">FY{{ fy1 }}</div><div class="pm-yv" style="color:#555">{{ '{:,}'.format(d.v1|int) if d.v1 is not none else '&mdash;' }}</div></div>
+        <div class="pm-arr">&rarr;</div>
+        <div><div class="pm-yl">FY{{ fy2 }}</div><div class="pm-yv" style="color:{{ color }}">{{ '{:,}'.format(d.v2|int) if d.v2 is not none else '&mdash;' }}</div></div>
+        {% if d.pct is not none %}
+        <div class="pm-pct {% if d.pct > 0 %}pct-up{% elif d.pct < 0 %}pct-dn{% else %}pct-flat{% endif %}">{% if d.pct > 0 %}+{% endif %}{{ d.pct }}%</div>
+        {% endif %}
+      </div>
+    </div>
+    {% endmacro %}
+
+    {{ pm('#1a5276','bi-arrow-repeat','Total Circulation',
+         'Borrowing books rated #1 service by every age group (avg. 4.00/5). Demand outpaces collection size, especially at Fort Mill.',
+         data.circulation) }}
+    {{ pm('#1e8449','bi-door-open','Gate Count',
+         '92.3% of patrons visited in the past year. Teens lead at 57.1% weekly; 25-40 follow at 49.7%. Non-use driven by scheduling gaps, not service quality.',
+         data.gate) }}
+    {{ pm('#6c3483','bi-calendar-event','Program Sessions',
+         "Children's programming is most-requested. Programs fill immediately due to space limits. 61.2% attended at least one signature event.",
+         data.sessions) }}
+    {{ pm('#6c3483','bi-people-fill','Program Attendance',
+         'Working adults in their 30s-50s repeatedly requested evening and weekend book clubs, craft classes, and adult education after 5 pm.',
+         data.attendance) }}
+    {{ pm('#117a65','bi-wifi','Hotspot Checkouts',
+         'Wi-Fi: top technology service for 41+. 50-64% of every age group uses the YCL app, including 59.3% of seniors.',
+         data.hotspots) }}
+    {{ pm('#784212','bi-credit-card','New Library Cards',
+         'Word of mouth is the strongest non-website channel for teens and young adults, outperforming all digital platforms.',
+         data.cards) }}
+    {{ pm('#1a6078','bi-printer','Total Pages Printed',
+         'Public printing serves patrons without home office access. Demand growing for tech literacy programs: AI tools, computer basics, cybersecurity.',
+         data.prints) }}
+
+  </div>
+
+  <div class="pr-footer">
+    Statistical data: YCL internal records, FY{{ fy1 }}&ndash;FY{{ fy2 }}.
+    Survey data: <em>York County Library Strategic Plan Public Survey</em>, preliminary analysis as of April 27, 2026 (n=544); final analysis pending May 15, 2026.
+  </div>
+
+  {# ── PAGE 2 ── #}
+  <div style="page-break-before:always">
+
+    <div class="pr-header">
+      <span class="pr-logo">YCL</span>
+      <div>
+        <div class="pr-title">What the Community Is Asking For Next</div>
+        <div class="pr-sub">Open-ended survey responses &nbsp;&middot;&nbsp; 430 analyzed &nbsp;&middot;&nbsp; April 2026</div>
+      </div>
+    </div>
+
+    <p class="pr-intro">
+      The same survey that validated our core services surfaced clear community priorities for the next strategic plan.
+      The ten themes named most consistently across 430 independent open-ended responses:
+    </p>
+
+    <div class="pr-pri">
+      {% macro pp(n, color, title, body) %}
+      <div class="pp">
+        <div class="pp-n" style="background:{{ color }}">{{ n }}</div>
+        <div><div class="pp-t">{{ title }}</div><div class="pp-b">{{ body }}</div></div>
+      </div>
+      {% endmacro %}
+      {{ pp(1,'#1a5276','New or expanded Fort Mill branch',
+           'Fort Mill cited by name more than any single topic. Described as "too small" and outgrown by dramatic county population growth. New locations also named: east of I-77, Springfield Pkwy, 29715 zip code.') }}
+      {{ pp(2,'#1e8449','New branches: western York County, Tega Cay, Newport',
+           'Hickory Grove, Tega Cay, and the Newport side of Rock Hill identified as underserved. Respondents ask for even a small satellite with internet, computers, and holds pickup.') }}
+      {{ pp(3,'#6c3483',"Expanded children's programs & dedicated enclosed spaces",
+           "Programs fill immediately due to space. Working parents asked for evening/weekend storytime. A tween gap (ages 8-12) flagged: too old for children's, not fully served by teen programs.") }}
+      {{ pp(4,'#117a65','Evening & weekend programming for all ages',
+           'Most consistent operational ask across the full dataset. Book clubs, craft classes, adult education, and storytime need hours that working families can reach.') }}
+      {{ pp(5,'#784212','Makerspace and Library of Things',
+           "Richland County's makerspace cited by name as model. Library of Things shows widest generational gap: 78.6% of 19-24 year-olds vs. 38.0% of 65+.") }}
+      {{ pp(6,'#922b21','Community meeting space with flexible booking',
+           'Non-library-led groups need recurring reservations. The 30-day advance booking limit prevents book clubs and organizations from scheduling regular meetings.') }}
+      {{ pp(7,'#1a6078','Growing digital collections (Libby / Hoopla)',
+           'Long ebook waitlists and incomplete digital series are the top friction points. Respondents called for expanded Hoopla binge passes and faster new-release arrivals.') }}
+      {{ pp(8,'#6c3483','Tween (8-12) and young adult (18-28) programming',
+           'Two age gaps identified independently across dozens of responses. Young adults (18-28) are an entirely uncatered demographic.') }}
+      {{ pp(9,'#1e8449','Collections policy grounded in professional standards',
+           'Open-collections voices outnumbered restriction voices approximately 4-to-1 among respondents who addressed the topic.') }}
+      {{ pp(10,'#117a65','Sensory-friendly and accessible design',
+           'Sensory rooms, dimmable lighting, modular furniture, and neurodivergent-friendly spaces requested. Framed as a design principle for renovated or new facilities.') }}
+    </div>
+
+    <div class="pr-footer">
+      Statistical data: YCL internal records, FY{{ fy1 }}&ndash;FY{{ fy2 }}.
+      Survey: <em>York County Library Strategic Plan Public Survey</em>, preliminary as of April 27, 2026 (n=544); final analysis pending May 15, 2026.
+    </div>
+
+  </div>{# /page 2 #}
+
+</div>{# /d-print-block #}
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<style>
+@page { size: letter portrait; margin: 0.45in 0.45in; }
+
+@media print {
+  body, html { background: white !important; font-size: 9pt; color: #111; }
+  nav, footer, .d-print-none { display: none !important; }
+  .container-lg { padding: 0 !important; max-width: 100% !important; width: 100% !important; }
+
+  /* ── Shared header / footer ── */
+  .pr-header { display: flex; align-items: center; gap: 10px;
+               border-bottom: 2pt solid #1a4f9e; padding-bottom: 5px; margin-bottom: 7px; }
+  .pr-logo   { font-size: 16pt; font-weight: 900; color: #1a4f9e;
+               letter-spacing: -1px; flex-shrink: 0; }
+  .pr-title  { font-size: 11pt; font-weight: 700; color: #1a4f9e; line-height: 1.2; }
+  .pr-sub    { font-size: 7pt; color: #555; margin-top: 1px; }
+  .pr-intro  { font-size: 7.5pt; color: #444; margin: 0 0 7px; line-height: 1.4; }
+  .pr-footer { font-size: 6.5pt; color: #888; border-top: 1px solid #ddd;
+               margin-top: 8px; padding-top: 4px; }
+
+  /* ── Metric grid (3 cols) ── */
+  .pr-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+
+  .pm { padding: 5px 7px; border: 1px solid #e0e0e0; border-radius: 3px;
+        break-inside: avoid; background: #fff; }
+  .pm-lbl  { font-size: 7pt; font-weight: 700; text-transform: uppercase;
+             letter-spacing: .3px; margin-bottom: 3px; }
+  .pm-find { font-size: 6.5pt; color: #444; line-height: 1.3; margin-bottom: 4px; min-height: 2.6em; }
+  .pm-nums { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+  .pm-yl   { font-size: 6pt; font-weight: 600; text-transform: uppercase; color: #aaa; line-height: 1; }
+  .pm-yv   { font-size: 11pt; font-weight: 700; line-height: 1.1; }
+  .pm-arr  { font-size: 9pt; color: #ccc; }
+  .pm-pct  { font-size: 7pt; font-weight: 700; padding: 1px 5px;
+             border-radius: 20px; color: #fff; margin-left: 1px; }
+  .pct-up   { background: #1e8449; }
+  .pct-dn   { background: #c0392b; }
+  .pct-flat { background: #7f8c8d; }
+
+  /* ── Priorities (2-col) ── */
+  .pr-pri { column-count: 2; column-gap: 12px; margin-top: 4px; }
+  .pp      { break-inside: avoid; display: flex; gap: 6px;
+             align-items: flex-start; margin-bottom: 6px; }
+  .pp-n    { flex-shrink: 0; width: 15px; height: 15px; border-radius: 50%;
+             color: #fff; font-size: 6.5pt; font-weight: 700;
+             display: flex; align-items: center; justify-content: center; }
+  .pp-t    { font-size: 7.5pt; font-weight: 700; color: #1a4f9e; line-height: 1.3; }
+  .pp-b    { font-size: 6.5pt; color: #444; line-height: 1.3; margin-top: 1px; }
+}
+</style>
+{% endblock %}

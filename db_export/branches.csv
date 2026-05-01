@@ -1,0 +1,19 @@
+id,name,is_active,is_desk,sort_order
+1,Rock Hill,True,False,1
+2,Clover,True,False,2
+3,Fort Mill,True,False,3
+4,Lake Wylie,True,False,4
+5,York,True,False,5
+6,Bookmobile/Outreach,True,False,6
+7,YCL (System Wide),True,False,7
+12,Clover - Lockers,True,False,90
+13,Fort Mill - Lockers,True,False,91
+14,Lake Wylie - Lockers,True,False,92
+15,York - Lockers,True,False,93
+16,Rock Hill - Lockers,True,False,12
+8,Rock Hill - Circulation,True,True,8
+10,Rock Hill - YA,True,True,10
+9,Rock Hill - Reference,True,True,9
+17,Rock Hill - Children's,True,True,94
+18,Rock Hill - Childrens,False,True,95
+11,Outreach / BKM,False,False,11

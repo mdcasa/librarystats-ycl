@@ -3,6 +3,7 @@ from flask_login import LoginManager, login_user, logout_user, current_user
 from models import db, Category, Metric, Branch, Entry, EntryValue, User, QuarterlyRefClosureDays
 from sqlalchemy.orm import joinedload
 from sqlalchemy import or_, and_
+from jinja2 import ChoiceLoader, FileSystemLoader
 from datetime import datetime
 from functools import wraps
 import hmac
@@ -21,6 +22,12 @@ app.config['SQLALCHEMY_DATABASE_URI'] = _db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
+
+# Allow report templates to live in /reports/ at the project root
+app.jinja_loader = ChoiceLoader([
+    app.jinja_loader,
+    FileSystemLoader(os.path.dirname(__file__)),
+])
 
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -2578,7 +2585,7 @@ def report_overview():
         now = datetime.now()
         cur_fy = now.year + 1 if now.month >= 7 else now.year
         full_fy_years = sorted(
-            [fy for fy, months in fy_months.items() if fy < cur_fy and is_full_fy(fy, months)],
+            [fy for fy, months in fy_months.items() if fy < cur_fy and fy <= 2025 and is_full_fy(fy, months)],
             reverse=True
         )
 
@@ -2671,7 +2678,7 @@ def report_impact():
         now = datetime.now()
         cur_fy = now.year + 1 if now.month >= 7 else now.year
         full_fy_years = sorted(
-            [fy for fy, months in fy_months.items() if fy < cur_fy and is_full_fy(fy, months)],
+            [fy for fy, months in fy_months.items() if fy < cur_fy and fy <= 2025 and is_full_fy(fy, months)],
             reverse=True
         )
 

@@ -213,9 +213,13 @@ body {
   </div>
   {% endmacro %}
 
-  {{ mc('#1a5276', 'Total Circulation',
-       'Borrowing books: rated #1 service by every age group (avg. 4.00/5). Demand outpaces collection size, especially at Fort Mill. Patrons cited long hold waitlists and limited in-branch browsing.',
+  {{ mc('#1a5276', 'Physical Checkout',
+       'Borrowing books: rated #1 service by every age group (avg. 4.00/5). Demand outpaces collection size, especially at Fort Mill. Patrons cited long hold waitlists and limited in-branch browsing. Source: Annual Comparables (books, AV &amp; other physical).',
        data.circulation) }}
+
+  {{ mc('#1a6078', 'Digital Checkout',
+       'E-books, e-audio, e-video, and e-periodicals via Libby / Hoopla. 50&ndash;64% of every age group uses the YCL app. Annual Comparables source; FY{{ fy2 % 100 }} figures pending state report filing.',
+       data.digital) }}
 
   {{ mc('#1e8449', 'Gate Count',
        '92.3% of survey respondents visited YCL in the past year. Teens lead at 57.1% weekly; adults 25&ndash;40 follow at 49.7%. Non-use driven by scheduling gaps, not service quality.',

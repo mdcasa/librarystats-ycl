@@ -103,7 +103,8 @@
           <p class="mb-0">Patrons highlighted frustration with hold waitlists and small in-branch collections &mdash; particularly at Fort Mill. <em>"It is hard to browse books as the selection is small in person."</em></p>
         </div>
         <div class="col-md-5">
-          {{ stat_card('#1a5276','Total Checkouts',data.circulation.v1,data.circulation.v2,data.circulation.pct,'Total items checked out across all YCL branches.') }}
+          {{ stat_card('#1a5276','Physical Checkout',data.circulation.v1,data.circulation.v2,data.circulation.pct,'Physical items checked out across all branches (Annual Comparables, incl. books, AV, and other materials).') }}
+          {{ stat_card('#1a6078','Digital Checkout',data.digital.v1,data.digital.v2,data.digital.pct,'E-books, e-audio, e-video, and e-periodicals via Libby / Hoopla (Annual Comparables; FY25 pending state report).') }}
         </div>
       </div>
     </div>

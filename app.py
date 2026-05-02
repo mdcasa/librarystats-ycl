@@ -2735,8 +2735,39 @@ def report_impact():
         def prog_attendance(d):
             return sum((iv(d, f'{t} Attendance {a}') or 0) for t in TYPES for a in AGE) or None
 
-        circ1      = iv(d1, 'Total Branch Circulation')
-        circ2      = iv(d2, 'Total Branch Circulation')
+        # Annual Comparables: physical + digital from system-wide annual entries
+        eres_cat = Category.query.filter_by(name='eResources').first()
+
+        def ac_totals(fy_year):
+            sw = Branch.query.filter(Branch.name == 'YCL (System Wide)').first()
+            if not sw:
+                return None, None
+            phys = None
+            bs_e = Entry.query.options(joinedload(Entry.values)).filter_by(
+                category_id=bs_cat.id, branch_id=sw.id, year=fy_year, month=None
+            ).first()
+            if bs_e:
+                circ_m = next((m for m in bs_cat.metrics if m.name == 'Total Branch Circulation'), None)
+                if circ_m:
+                    ev = next((v for v in bs_e.values if v.metric_id == circ_m.id), None)
+                    if ev and ev.value_number is not None:
+                        phys = int(ev.value_number)
+            dig = None
+            if eres_cat:
+                er_e = Entry.query.options(joinedload(Entry.values)).filter_by(
+                    category_id=eres_cat.id, branch_id=sw.id, year=fy_year, month=None
+                ).first()
+                if er_e:
+                    total = sum(v.value_number for v in er_e.values if v.value_number is not None)
+                    if total > 0:
+                        dig = int(total)
+            return phys, dig
+
+        ac_phys1, digital1 = ac_totals(fy1)
+        ac_phys2, digital2 = ac_totals(fy2)
+
+        circ1      = ac_phys1 if ac_phys1 is not None else iv(d1, 'Total Branch Circulation')
+        circ2      = ac_phys2 if ac_phys2 is not None else iv(d2, 'Total Branch Circulation')
         hot1       = iv(d1, 'Hotspots Circulation')
         hot2       = iv(d2, 'Hotspots Circulation')
         gate1      = iv(d1, 'Gate Count')
@@ -2752,14 +2783,18 @@ def report_impact():
         prints1    = iv(d1, 'Total Prints per Month')
         prints2    = iv(d2, 'Total Prints per Month')
 
+        # Only show physical % change when both years come from Annual Comparables
+        phys_pct = pct(circ1, circ2) if (ac_phys1 is not None and ac_phys2 is not None) else None
+
         data = {
-            'circulation': {'v1': circ1,   'v2': circ2,   'pct': pct(circ1,   circ2)},
-            'hotspots':    {'v1': hot1,    'v2': hot2,    'pct': pct(hot1,    hot2)},
-            'gate':        {'v1': gate1,   'v2': gate2,   'pct': pct(gate1,   gate2)},
-            'sessions':    {'v1': sess1,   'v2': sess2,   'pct': pct(sess1,   sess2)},
-            'attendance':  {'v1': att1,    'v2': att2,    'pct': pct(att1,    att2)},
-            'cards':       {'v1': cards1,  'v2': cards2,  'pct': pct(cards1,  cards2)},
-            'prints':      {'v1': prints1, 'v2': prints2, 'pct': pct(prints1, prints2)},
+            'circulation': {'v1': circ1,    'v2': circ2,    'pct': phys_pct},
+            'digital':     {'v1': digital1, 'v2': digital2, 'pct': pct(digital1, digital2)},
+            'hotspots':    {'v1': hot1,     'v2': hot2,     'pct': pct(hot1,     hot2)},
+            'gate':        {'v1': gate1,    'v2': gate2,    'pct': pct(gate1,    gate2)},
+            'sessions':    {'v1': sess1,    'v2': sess2,    'pct': pct(sess1,    sess2)},
+            'attendance':  {'v1': att1,     'v2': att2,     'pct': pct(att1,     att2)},
+            'cards':       {'v1': cards1,   'v2': cards2,   'pct': pct(cards1,   cards2)},
+            'prints':      {'v1': prints1,  'v2': prints2,  'pct': pct(prints1,  prints2)},
         }
 
     return render_template('reports/impact.html',
@@ -2846,8 +2881,39 @@ def report_impact_pdf():
             return None
         return round((new - old) / old * 100, 1)
 
-    circ1   = iv(d1, 'Total Branch Circulation')
-    circ2   = iv(d2, 'Total Branch Circulation')
+    # Annual Comparables: physical + digital from system-wide annual entries
+    eres_cat = Category.query.filter_by(name='eResources').first()
+
+    def ac_totals(fy_year):
+        sw = Branch.query.filter(Branch.name == 'YCL (System Wide)').first()
+        if not sw:
+            return None, None
+        phys = None
+        bs_e = Entry.query.options(joinedload(Entry.values)).filter_by(
+            category_id=bs_cat.id, branch_id=sw.id, year=fy_year, month=None
+        ).first()
+        if bs_e:
+            circ_m = next((m for m in bs_cat.metrics if m.name == 'Total Branch Circulation'), None)
+            if circ_m:
+                ev = next((v for v in bs_e.values if v.metric_id == circ_m.id), None)
+                if ev and ev.value_number is not None:
+                    phys = int(ev.value_number)
+        dig = None
+        if eres_cat:
+            er_e = Entry.query.options(joinedload(Entry.values)).filter_by(
+                category_id=eres_cat.id, branch_id=sw.id, year=fy_year, month=None
+            ).first()
+            if er_e:
+                total = sum(v.value_number for v in er_e.values if v.value_number is not None)
+                if total > 0:
+                    dig = int(total)
+        return phys, dig
+
+    ac_phys1, digital1 = ac_totals(fy1)
+    ac_phys2, digital2 = ac_totals(fy2)
+
+    circ1   = ac_phys1 if ac_phys1 is not None else iv(d1, 'Total Branch Circulation')
+    circ2   = ac_phys2 if ac_phys2 is not None else iv(d2, 'Total Branch Circulation')
     hot1    = iv(d1, 'Hotspots Circulation')
     hot2    = iv(d2, 'Hotspots Circulation')
     gate1   = iv(d1, 'Gate Count')
@@ -2863,14 +2929,18 @@ def report_impact_pdf():
     prints1 = iv(d1, 'Total Prints per Month')
     prints2 = iv(d2, 'Total Prints per Month')
 
+    # Only show physical % change when both years come from Annual Comparables
+    phys_pct = pct(circ1, circ2) if (ac_phys1 is not None and ac_phys2 is not None) else None
+
     data = {
-        'circulation': {'v1': circ1,   'v2': circ2,   'pct': pct(circ1,  circ2)},
-        'hotspots':    {'v1': hot1,    'v2': hot2,    'pct': pct(hot1,   hot2)},
-        'gate':        {'v1': gate1,   'v2': gate2,   'pct': pct(gate1,  gate2)},
-        'sessions':    {'v1': sess1,   'v2': sess2,   'pct': pct(sess1,  sess2)},
-        'attendance':  {'v1': att1,    'v2': att2,    'pct': pct(att1,   att2)},
-        'cards':       {'v1': cards1,  'v2': cards2,  'pct': pct(cards1, cards2)},
-        'prints':      {'v1': prints1, 'v2': prints2, 'pct': pct(prints1,prints2)},
+        'circulation': {'v1': circ1,    'v2': circ2,    'pct': phys_pct},
+        'digital':     {'v1': digital1, 'v2': digital2, 'pct': pct(digital1, digital2)},
+        'hotspots':    {'v1': hot1,     'v2': hot2,     'pct': pct(hot1,     hot2)},
+        'gate':        {'v1': gate1,    'v2': gate2,    'pct': pct(gate1,    gate2)},
+        'sessions':    {'v1': sess1,    'v2': sess2,    'pct': pct(sess1,    sess2)},
+        'attendance':  {'v1': att1,     'v2': att2,     'pct': pct(att1,     att2)},
+        'cards':       {'v1': cards1,   'v2': cards2,   'pct': pct(cards1,   cards2)},
+        'prints':      {'v1': prints1,  'v2': prints2,  'pct': pct(prints1,  prints2)},
     }
 
     html_str = render_template('reports/impact_pdf.html', fy1=fy1, fy2=fy2, data=data)

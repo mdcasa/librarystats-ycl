@@ -2654,42 +2654,14 @@ def report_overview():
 
 
 @app.route('/reports/impact')
+@admin_required
 def report_impact():
     bs_cat = Category.query.filter_by(name='Branch Stats').first()
 
-    full_fy_years = []
-    if bs_cat:
-        bs_months = db.session.query(Entry.year, Entry.month).filter(
-            Entry.category_id == bs_cat.id,
-            Entry.month.isnot(None)
-        ).distinct().all()
-        fy_months = {}
-        for yr, mo in bs_months:
-            fy = yr + 1 if mo >= 7 else yr
-            fy_months.setdefault(fy, set()).add((yr, mo))
-
-        def is_full_fy(fy_year, month_set):
-            needed = (
-                {(fy_year - 1, m) for m in range(7, 13)} |
-                {(fy_year, m) for m in range(1, 7)}
-            )
-            return needed.issubset(month_set)
-
-        now = datetime.now()
-        cur_fy = now.year + 1 if now.month >= 7 else now.year
-        full_fy_years = sorted(
-            [fy for fy, months in fy_months.items() if fy < cur_fy and is_full_fy(fy, months)],
-            reverse=True
-        )
-
-    fy1 = fy2 = data = None
-    selectable_years = [fy for fy in full_fy_years if (fy - 1) in full_fy_years]
-    sel_fy = request.args.get('fy', type=int)
-    if sel_fy and sel_fy in full_fy_years and (sel_fy - 1) in full_fy_years:
-        fy2 = sel_fy
-        fy1 = sel_fy - 1
-    elif len(full_fy_years) >= 2:
-        fy2, fy1 = full_fy_years[0], full_fy_years[1]
+    fy1, fy2 = 2023, 2024
+    data = None
+    selectable_years = []
+    sel_fy = fy2
 
     if fy1 and fy2:
         def fy_totals(fy_year):
@@ -2802,51 +2774,19 @@ def report_impact():
         }
 
     return render_template('reports/impact.html',
-                           full_fy_years=full_fy_years,
                            selectable_years=selectable_years,
-                           sel_fy=sel_fy or (fy2 if fy2 else None),
+                           sel_fy=sel_fy,
                            fy1=fy1, fy2=fy2,
                            data=data)
 
 
 @app.route('/reports/impact.pdf')
+@admin_required
 def report_impact_pdf():
     from weasyprint import HTML as WeasyprintHTML
     bs_cat = Category.query.filter_by(name='Branch Stats').first()
 
-    full_fy_years = []
-    if bs_cat:
-        bs_months = db.session.query(Entry.year, Entry.month).filter(
-            Entry.category_id == bs_cat.id, Entry.month.isnot(None)
-        ).distinct().all()
-        fy_months = {}
-        for yr, mo in bs_months:
-            fy = yr + 1 if mo >= 7 else yr
-            fy_months.setdefault(fy, set()).add((yr, mo))
-
-        def is_full_fy(fy_year, month_set):
-            needed = (
-                {(fy_year - 1, m) for m in range(7, 13)} |
-                {(fy_year, m) for m in range(1, 7)}
-            )
-            return needed.issubset(month_set)
-
-        now = datetime.now()
-        cur_fy = now.year + 1 if now.month >= 7 else now.year
-        full_fy_years = sorted(
-            [fy for fy, months in fy_months.items() if fy < cur_fy and is_full_fy(fy, months)],
-            reverse=True
-        )
-
-    if len(full_fy_years) < 2:
-        flash('Cannot generate PDF: need at least two complete fiscal years of data.', 'warning')
-        return redirect(url_for('report_impact'))
-
-    sel_fy = request.args.get('fy', type=int)
-    if sel_fy and sel_fy in full_fy_years and (sel_fy - 1) in full_fy_years:
-        fy2, fy1 = sel_fy, sel_fy - 1
-    else:
-        fy2, fy1 = full_fy_years[0], full_fy_years[1]
+    fy1, fy2 = 2023, 2024
 
     def fy_totals(fy_year):
         entries = Entry.query.options(joinedload(Entry.values)).filter_by(

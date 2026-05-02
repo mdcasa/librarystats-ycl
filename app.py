@@ -2783,18 +2783,22 @@ def report_impact():
         prints1    = iv(d1, 'Total Prints per Month')
         prints2    = iv(d2, 'Total Prints per Month')
 
-        # Only show physical % change when both years come from Annual Comparables
-        phys_pct = pct(circ1, circ2) if (ac_phys1 is not None and ac_phys2 is not None) else None
+        # Only show physical/total % change when both years come from Annual Comparables
+        phys_pct  = pct(circ1, circ2) if (ac_phys1 is not None and ac_phys2 is not None) else None
+        total1    = (circ1 + digital1) if (ac_phys1 is not None and digital1 is not None) else None
+        total2    = (circ2 + digital2) if (ac_phys2 is not None and digital2 is not None) else None
+        total_pct = pct(total1, total2) if (total1 is not None and total2 is not None) else None
 
         data = {
-            'circulation': {'v1': circ1,    'v2': circ2,    'pct': phys_pct},
-            'digital':     {'v1': digital1, 'v2': digital2, 'pct': pct(digital1, digital2)},
-            'hotspots':    {'v1': hot1,     'v2': hot2,     'pct': pct(hot1,     hot2)},
-            'gate':        {'v1': gate1,    'v2': gate2,    'pct': pct(gate1,    gate2)},
-            'sessions':    {'v1': sess1,    'v2': sess2,    'pct': pct(sess1,    sess2)},
-            'attendance':  {'v1': att1,     'v2': att2,     'pct': pct(att1,     att2)},
-            'cards':       {'v1': cards1,   'v2': cards2,   'pct': pct(cards1,   cards2)},
-            'prints':      {'v1': prints1,  'v2': prints2,  'pct': pct(prints1,  prints2)},
+            'circulation':    {'v1': circ1,    'v2': circ2,    'pct': phys_pct},
+            'digital':        {'v1': digital1, 'v2': digital2, 'pct': pct(digital1, digital2)},
+            'total_checkout': {'v1': total1,   'v2': total2,   'pct': total_pct},
+            'hotspots':       {'v1': hot1,     'v2': hot2,     'pct': pct(hot1,     hot2)},
+            'gate':           {'v1': gate1,    'v2': gate2,    'pct': pct(gate1,    gate2)},
+            'sessions':       {'v1': sess1,    'v2': sess2,    'pct': pct(sess1,    sess2)},
+            'attendance':     {'v1': att1,     'v2': att2,     'pct': pct(att1,     att2)},
+            'cards':          {'v1': cards1,   'v2': cards2,   'pct': pct(cards1,   cards2)},
+            'prints':         {'v1': prints1,  'v2': prints2,  'pct': pct(prints1,  prints2)},
         }
 
     return render_template('reports/impact.html',
@@ -2929,18 +2933,22 @@ def report_impact_pdf():
     prints1 = iv(d1, 'Total Prints per Month')
     prints2 = iv(d2, 'Total Prints per Month')
 
-    # Only show physical % change when both years come from Annual Comparables
-    phys_pct = pct(circ1, circ2) if (ac_phys1 is not None and ac_phys2 is not None) else None
+    # Only show physical/total % change when both years come from Annual Comparables
+    phys_pct  = pct(circ1, circ2) if (ac_phys1 is not None and ac_phys2 is not None) else None
+    total1    = (circ1 + digital1) if (ac_phys1 is not None and digital1 is not None) else None
+    total2    = (circ2 + digital2) if (ac_phys2 is not None and digital2 is not None) else None
+    total_pct = pct(total1, total2) if (total1 is not None and total2 is not None) else None
 
     data = {
-        'circulation': {'v1': circ1,    'v2': circ2,    'pct': phys_pct},
-        'digital':     {'v1': digital1, 'v2': digital2, 'pct': pct(digital1, digital2)},
-        'hotspots':    {'v1': hot1,     'v2': hot2,     'pct': pct(hot1,     hot2)},
-        'gate':        {'v1': gate1,    'v2': gate2,    'pct': pct(gate1,    gate2)},
-        'sessions':    {'v1': sess1,    'v2': sess2,    'pct': pct(sess1,    sess2)},
-        'attendance':  {'v1': att1,     'v2': att2,     'pct': pct(att1,     att2)},
-        'cards':       {'v1': cards1,   'v2': cards2,   'pct': pct(cards1,   cards2)},
-        'prints':      {'v1': prints1,  'v2': prints2,  'pct': pct(prints1,  prints2)},
+        'circulation':    {'v1': circ1,    'v2': circ2,    'pct': phys_pct},
+        'digital':        {'v1': digital1, 'v2': digital2, 'pct': pct(digital1, digital2)},
+        'total_checkout': {'v1': total1,   'v2': total2,   'pct': total_pct},
+        'hotspots':       {'v1': hot1,     'v2': hot2,     'pct': pct(hot1,     hot2)},
+        'gate':           {'v1': gate1,    'v2': gate2,    'pct': pct(gate1,    gate2)},
+        'sessions':       {'v1': sess1,    'v2': sess2,    'pct': pct(sess1,    sess2)},
+        'attendance':     {'v1': att1,     'v2': att2,     'pct': pct(att1,     att2)},
+        'cards':          {'v1': cards1,   'v2': cards2,   'pct': pct(cards1,   cards2)},
+        'prints':         {'v1': prints1,  'v2': prints2,  'pct': pct(prints1,  prints2)},
     }
 
     html_str = render_template('reports/impact_pdf.html', fy1=fy1, fy2=fy2, data=data)

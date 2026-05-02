@@ -213,13 +213,30 @@ body {
   </div>
   {% endmacro %}
 
-  {{ mc('#1a5276', 'Physical Checkout',
-       'Borrowing books: rated #1 service by every age group (avg. 4.00/5). Demand outpaces collection size, especially at Fort Mill. Patrons cited long hold waitlists and limited in-branch browsing. Source: Annual Comparables (books, AV &amp; other physical).',
-       data.circulation) }}
-
-  {{ mc('#1a6078', 'Digital Checkout',
-       'E-books, e-audio, e-video, and e-periodicals via Libby / Hoopla. 50&ndash;64% of every age group uses the YCL app. Annual Comparables source; FY{{ fy2 % 100 }} figures pending state report filing.',
-       data.digital) }}
+  {# Combined Checkouts cell with physical / digital / total breakdown #}
+  <div class="metric-cell" style="border-top: 3pt solid #1a5276">
+    <div class="metric-label" style="color: #1a5276">Checkouts</div>
+    <div class="metric-finding">Borrowing books rated #1 by every age group (avg. 4.00/5). Physical from Annual Comparables (books, AV &amp; other). Digital via Libby/Hoopla. FY{{ fy2 % 100 }} digital pending state report.</div>
+    {% macro csub(label, color, d) %}
+    <div style="display:flex;align-items:center;gap:3pt;margin-bottom:2pt">
+      <span style="font-size:5.5pt;font-weight:700;color:{{ color }};width:28pt;flex-shrink:0">{{ label }}</span>
+      <div class="yr-label">FY{{ fy1 % 100 }}</div>
+      <div style="font-size:8.5pt;font-weight:700;color:#666;min-width:32pt">{{ '{:,}'.format(d.v1|int) if d.v1 is not none else '&mdash;' }}</div>
+      <div class="arrow">&rarr;</div>
+      <div class="yr-label">FY{{ fy2 % 100 }}</div>
+      <div style="font-size:8.5pt;font-weight:700;color:{{ color }};min-width:32pt">{{ '{:,}'.format(d.v2|int) if d.v2 is not none else '&mdash;' }}</div>
+      {% if d.pct is not none %}
+      <div class="pct {% if d.pct > 0 %}pct-up{% elif d.pct < 0 %}pct-dn{% else %}pct-flat{% endif %}">{% if d.pct > 0 %}+{% endif %}{{ d.pct }}%</div>
+      {% endif %}
+    </div>
+    {% endmacro %}
+    <div style="border-top:0.5pt solid #ddd;padding-top:3pt;margin-top:2pt">
+      {{ csub('Physical', '#1a5276', data.circulation) }}
+      {{ csub('Digital',  '#1a6078', data.digital) }}
+      <div style="border-top:0.5pt solid #ddd;margin:2pt 0"></div>
+      {{ csub('Total',    '#1a5276', data.total_checkout) }}
+    </div>
+  </div>
 
   {{ mc('#1e8449', 'Gate Count',
        '92.3% of survey respondents visited YCL in the past year. Teens lead at 57.1% weekly; adults 25&ndash;40 follow at 49.7%. Non-use driven by scheduling gaps, not service quality.',

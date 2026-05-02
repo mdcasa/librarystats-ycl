@@ -103,8 +103,36 @@
           <p class="mb-0">Patrons highlighted frustration with hold waitlists and small in-branch collections &mdash; particularly at Fort Mill. <em>"It is hard to browse books as the selection is small in person."</em></p>
         </div>
         <div class="col-md-5">
-          {{ stat_card('#1a5276','Physical Checkout',data.circulation.v1,data.circulation.v2,data.circulation.pct,'Physical items checked out across all branches (Annual Comparables, incl. books, AV, and other materials).') }}
-          {{ stat_card('#1a6078','Digital Checkout',data.digital.v1,data.digital.v2,data.digital.pct,'E-books, e-audio, e-video, and e-periodicals via Libby / Hoopla (Annual Comparables; FY25 pending state report).') }}
+          {%- macro circ_row(label, color, d, bold) -%}
+          <div class="d-flex justify-content-between align-items-end">
+            <span style="font-size:.78rem;font-weight:{{ '700' if bold else '600' }};color:{{ color }};min-width:64px">{{ label }}</span>
+            <div class="d-flex align-items-end gap-2">
+              <div class="text-center">
+                <div style="font-size:.6rem;font-weight:600;text-transform:uppercase;color:#aaa">FY{{ fy1 % 100 }}</div>
+                <div style="font-size:{{ '1.25rem' if bold else '1.1rem' }};font-weight:700;color:#6c757d">{{ '{:,}'.format(d.v1|int) if d.v1 is not none else '&mdash;' }}</div>
+              </div>
+              <span class="text-muted" style="padding-bottom:3px">&rarr;</span>
+              <div class="text-center">
+                <div style="font-size:.6rem;font-weight:600;text-transform:uppercase;color:#aaa">FY{{ fy2 % 100 }}</div>
+                <div style="font-size:{{ '1.25rem' if bold else '1.1rem' }};font-weight:700;color:{{ color }}">{{ '{:,}'.format(d.v2|int) if d.v2 is not none else '&mdash;' }}</div>
+              </div>
+              {% if d.pct is not none %}
+              <span class="badge rounded-pill {% if d.pct > 0 %}bg-success{% elif d.pct == 0 %}bg-secondary{% else %}bg-danger{% endif %}" style="margin-bottom:3px;font-size:.65rem">{% if d.pct > 0 %}+{% endif %}{{ d.pct }}%</span>
+              {% endif %}
+            </div>
+          </div>
+          {%- endmacro -%}
+          <div style="border:2px solid #1a5276;border-radius:8px;overflow:hidden">
+            <div style="background:#1a5276;color:#fff;font-size:.72rem;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:.35rem .75rem"><i class="bi bi-arrow-repeat me-1"></i>Checkouts</div>
+            <div class="p-3">
+              <div class="mb-2">{{ circ_row('Physical', '#1a5276', data.circulation, false) }}</div>
+              <div class="mb-2">{{ circ_row('Digital',  '#1a6078', data.digital,     false) }}</div>
+              <div style="border-top:1px solid #dee2e6;padding-top:.5rem">
+                {{ circ_row('Total', '#1a5276', data.total_checkout, true) }}
+              </div>
+              <div class="text-muted mt-2" style="font-size:.7rem">Physical &amp; digital from Annual Comparables (state report). FY{{ fy2 % 100 }} digital pending filing.</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

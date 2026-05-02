@@ -176,7 +176,7 @@ body {
   <div>
     <div class="page-title">York County Library &mdash; Community Impact Report</div>
     <div class="page-sub">
-      FY{{ fy1 }} (Jul {{ fy1-1 }}&ndash;Jun {{ fy1 }}) &amp; FY{{ fy2 }} (Jul {{ fy2-1 }}&ndash;Jun {{ fy2 }})
+      FY{{ fy1 % 100 }} (Jul {{ fy1-1 }}&ndash;Jun {{ fy1 }}) &amp; FY{{ fy2 % 100 }} (Jul {{ fy2-1 }}&ndash;Jun {{ fy2 }})
       &nbsp;&middot;&nbsp; Strategic Plan Public Survey, April 2026 &nbsp;&middot;&nbsp; n&nbsp;=&nbsp;544 respondents
     </div>
   </div>
@@ -196,12 +196,12 @@ body {
     <div class="metric-finding">{{ finding }}</div>
     <div class="metric-numbers">
       <div>
-        <div class="yr-label">FY{{ fy1 }}</div>
+        <div class="yr-label">FY{{ fy1 % 100 }}</div>
         <div class="yr-val" style="color: #666">{{ '{:,}'.format(d.v1|int) if d.v1 is not none else '&mdash;' }}</div>
       </div>
       <div class="arrow">&rarr;</div>
       <div>
-        <div class="yr-label">FY{{ fy2 }}</div>
+        <div class="yr-label">FY{{ fy2 % 100 }}</div>
         <div class="yr-val" style="color: {{ color }}">{{ '{:,}'.format(d.v2|int) if d.v2 is not none else '&mdash;' }}</div>
       </div>
       {% if d.pct is not none %}
@@ -244,7 +244,7 @@ body {
 </div>
 
 <div class="page-footer">
-  Statistical data: YCL internal records, FY{{ fy1 }}&ndash;FY{{ fy2 }}.
+  Statistical data: YCL internal records, FY{{ fy1 % 100 }}&ndash;FY{{ fy2 % 100 }}.
   Survey: <em>York County Library Strategic Plan Public Survey</em>, preliminary analysis as of April 27, 2026 (n=544);
   final analysis pending survey close May 15, 2026.
 </div>
@@ -314,7 +314,7 @@ body {
   </div>
 
   <div class="page-footer">
-    Statistical data: YCL internal records, FY{{ fy1 }}&ndash;FY{{ fy2 }}.
+    Statistical data: YCL internal records, FY{{ fy1 % 100 }}&ndash;FY{{ fy2 % 100 }}.
     Survey: <em>York County Library Strategic Plan Public Survey</em>, preliminary as of April 27, 2026 (n=544);
     final analysis pending survey close date of May 15, 2026.
   </div>

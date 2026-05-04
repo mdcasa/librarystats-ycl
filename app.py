@@ -2921,8 +2921,14 @@ def report_impact_pdf():
         'ya_sess':        {'v1': ya1,      'v2': ya2,      'pct': pct(ya1,      ya2)},
     }
 
-    html_str = render_template('reports/impact_pdf.html', fy1=fy1, fy2=fy2, data=data)
-    pdf_bytes = WeasyprintHTML(string=html_str).write_pdf()
+    import traceback
+    try:
+        html_str = render_template('reports/impact_pdf.html', fy1=fy1, fy2=fy2, data=data)
+        pdf_bytes = WeasyprintHTML(string=html_str, base_url=request.url_root).write_pdf()
+    except Exception:
+        tb = traceback.format_exc()
+        app.logger.error('PDF generation failed:\n%s', tb)
+        return f'<pre>PDF generation error:\n\n{tb}</pre>', 500
 
     filename = f'YCL_Impact_Report_FY{fy1}-FY{fy2}.pdf'
     return send_file(io.BytesIO(pdf_bytes), mimetype='application/pdf',

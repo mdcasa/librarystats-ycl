@@ -1,16 +1,15 @@
-# System packages required by WeasyPrint (Pango, Cairo, fontconfig, fonts)
-# Without these the PDF route either ImportErrors or produces a blank/corrupted PDF.
+# WeasyPrint needs Pango/Cairo/GLib shared libraries at runtime.
+# aptPkgs installs into standard /usr/lib paths so CFFI can find them;
+# nixPkgs go into /nix/store and are NOT on the default ld path.
 [phases.setup]
-nixPkgs = [
-  "pango",
-  "cairo",
-  "gdk_pixbuf",
-  "gobject-introspection",
+aptPkgs = [
+  "libpango-1.0-0",
+  "libpangocairo-1.0-0",
+  "libcairo2",
+  "libgdk-pixbuf-2.0-0",
+  "libglib2.0-0",
+  "libffi8",
   "fontconfig",
-  "freetype",
-  "libffi",
-  "harfbuzz",
-  "glib",
-  "liberation_ttf",
-  "dejavu_fonts",
+  "fonts-liberation",
+  "fonts-dejavu-core",
 ]

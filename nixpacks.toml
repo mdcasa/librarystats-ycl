@@ -1,0 +1,14 @@
+# System packages required by WeasyPrint (Pango, Cairo, fontconfig, etc.)
+# Without these, the PDF download route fails with an ImportError on Railway.
+[phases.setup]
+nixPkgs = [
+  "pango",
+  "cairo",
+  "gdk_pixbuf",
+  "gobject-introspection",
+  "fontconfig",
+  "freetype",
+  "libffi",
+  "harfbuzz",
+  "glib",
+]

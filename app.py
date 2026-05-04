@@ -2765,8 +2765,8 @@ def report_impact():
                      (iv(d1, 'New Library Card Registrations, Juvenile') or 0) or None
         cards2     = (iv(d2, 'New Library Card Registrations, Adult') or 0) + \
                      (iv(d2, 'New Library Card Registrations, Juvenile') or 0) or None
-        prints1    = iv(d1, 'Total Prints per Month')
-        prints2    = iv(d2, 'Total Prints per Month')
+        pc_res1    = iv(d1, 'PC Reservations')
+        pc_res2    = iv(d2, 'PC Reservations')
 
         # Only show physical/total % change when both years come from Annual Comparables
         phys_pct  = pct(circ1, circ2) if (ac_phys1 is not None and ac_phys2 is not None) else None
@@ -2783,7 +2783,7 @@ def report_impact():
             'sessions':       {'v1': sess1,    'v2': sess2,    'pct': pct(sess1,    sess2)},
             'attendance':     {'v1': att1,     'v2': att2,     'pct': pct(att1,     att2)},
             'cards':          {'v1': cards1,   'v2': cards2,   'pct': pct(cards1,   cards2)},
-            'prints':         {'v1': prints1,  'v2': prints2,  'pct': pct(prints1,  prints2)},
+            'pc_reservations': {'v1': pc_res1, 'v2': pc_res2,  'pct': pct(pc_res1,  pc_res2)},
         }
 
     return render_template('reports/impact.html',
@@ -2883,8 +2883,8 @@ def report_impact_pdf():
               (iv(d1, 'New Library Card Registrations, Juvenile') or 0) or None
     cards2  = (iv(d2, 'New Library Card Registrations, Adult') or 0) + \
               (iv(d2, 'New Library Card Registrations, Juvenile') or 0) or None
-    prints1 = iv(d1, 'Total Prints per Month')
-    prints2 = iv(d2, 'Total Prints per Month')
+    pc_res1 = iv(d1, 'PC Reservations')
+    pc_res2 = iv(d2, 'PC Reservations')
 
     # Only show physical/total % change when both years come from Annual Comparables
     phys_pct  = pct(circ1, circ2) if (ac_phys1 is not None and ac_phys2 is not None) else None
@@ -2901,7 +2901,7 @@ def report_impact_pdf():
         'sessions':       {'v1': sess1,    'v2': sess2,    'pct': pct(sess1,    sess2)},
         'attendance':     {'v1': att1,     'v2': att2,     'pct': pct(att1,     att2)},
         'cards':          {'v1': cards1,   'v2': cards2,   'pct': pct(cards1,   cards2)},
-        'prints':         {'v1': prints1,  'v2': prints2,  'pct': pct(prints1,  prints2)},
+        'pc_reservations': {'v1': pc_res1, 'v2': pc_res2,  'pct': pct(pc_res1,  pc_res2)},
     }
 
     html_str = render_template('reports/impact_pdf.html', fy1=fy1, fy2=fy2, data=data)

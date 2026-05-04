@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>YCL Community Impact Report FY{{ fy1 }}–FY{{ fy2 }}</title>
+  <style>
+    @page { size: letter portrait; margin: 1in 0.85in; }
+    body { font-family: Arial, sans-serif; font-size: 11pt; color: #222; margin: 0; }
+
+    h1 { font-size: 18pt; color: #1a4f9e; margin: 0 0 2px; }
+    h2 { font-size: 11pt; font-weight: normal; color: #555; margin: 0 0 18px; }
+
+    .header { text-align: center; border-bottom: 3px solid #1a4f9e; padding-bottom: 12px; margin-bottom: 24px; }
+    .logo-line { font-size: 9pt; color: #888; margin-top: 4px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 10.5pt; margin-top: 8px; }
+    thead tr { background: #1a4f9e; color: #fff; }
+    thead th { padding: 7px 10px; text-align: left; }
+    thead th.num { text-align: right; }
+    thead th.ctr { text-align: center; }
+    tbody tr:nth-child(even) { background: #f0f5ff; }
+    tbody td { padding: 6px 10px; border-bottom: 1px solid #dde4f0; }
+    tbody td.num { text-align: right; }
+    tbody td.ctr { text-align: center; }
+
+    .up   { color: #1a7a3c; font-weight: bold; }
+    .down { color: #c0392b; font-weight: bold; }
+    .na   { color: #999; }
+
+    .section-title { font-size: 12pt; font-weight: bold; color: #1a4f9e;
+                     border-left: 4px solid #1a4f9e; padding-left: 8px; margin: 0 0 6px; }
+    .footnote { font-size: 8.5pt; color: #777; margin-top: 20px; border-top: 1px solid #ddd; padding-top: 8px; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>York County Library</h1>
+  <h2>Community Impact Report &nbsp;·&nbsp;
+    FY{{ fy1 }} (Jul {{ fy1 - 1 }}–Jun {{ fy1 }})
+    compared to
+    FY{{ fy2 }} (Jul {{ fy2 - 1 }}–Jun {{ fy2 }})
+  </h2>
+</div>
+
+{% macro fmt(v) %}{{ '{:,}'.format(v|int) if v is not none else '—' }}{% endmacro %}
+
+{% macro pct_cell(pct) %}
+  {% if pct is not none %}
+    {% if pct >= 0 %}<span class="up">+{{ pct }}%</span>
+    {% else %}<span class="down">{{ pct }}%</span>{% endif %}
+  {% else %}<span class="na">—</span>{% endif %}
+{% endmacro %}
+
+{% set rows = [
+  ('Total Physical Checkouts',         data.circulation),
+  ('Digital Checkouts',                data.digital),
+  ('Total Checkouts (Physical + Digital)', data.total_checkout),
+  ('Hotspot Circulation',              data.hotspots),
+  ('Gate Count',                       data.gate),
+  ('Program Sessions',                 data.sessions),
+  ('Program Attendance',               data.attendance),
+  ('New Library Cards',                data.cards),
+  ('PC Reservations',                  data.pc_reservations),
+] %}
+
+<p class="section-title">Key Metrics</p>
+<table>
+  <thead>
+    <tr>
+      <th>Metric</th>
+      <th class="num">FY{{ fy1 }}</th>
+      <th class="num">FY{{ fy2 }}</th>
+      <th class="ctr">Change</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for label, row in rows %}
+    <tr>
+      <td>{{ label }}</td>
+      <td class="num">{{ fmt(row.v1) }}</td>
+      <td class="num">{{ fmt(row.v2) }}</td>
+      <td class="ctr">{{ pct_cell(row.pct) }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<p class="footnote">
+  York County Library Statistics System &nbsp;·&nbsp;
+  Fiscal year runs July – June.
+</p>
+
+</body>
+</html>

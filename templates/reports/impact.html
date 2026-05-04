@@ -1,0 +1,90 @@
+{% extends 'base.html' %}
+{% block title %}Community Impact Report{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4 fw-bold mb-0">
+    <i class="bi bi-bar-chart-line me-2 text-primary"></i>Community Impact Report
+  </h1>
+  <a href="{{ url_for('report_impact_pdf') }}" class="btn btn-outline-danger btn-sm d-print-none">
+    <i class="bi bi-file-earmark-pdf me-1"></i>Download PDF
+  </a>
+</div>
+
+{% if data %}
+
+<div class="text-center mb-4">
+  <h2 class="h5 fw-bold mb-1">York County Library</h2>
+  <p class="text-muted mb-0">
+    FY{{ fy1 }} (Jul {{ fy1 - 1 }}–Jun {{ fy1 }})
+    &nbsp;vs&nbsp;
+    FY{{ fy2 }} (Jul {{ fy2 - 1 }}–Jun {{ fy2 }})
+  </p>
+</div>
+
+{% macro pct_badge(pct) %}
+  {% if pct is not none %}
+    {% if pct >= 0 %}<span class="badge bg-success">+{{ pct }}%</span>
+    {% else %}<span class="badge bg-danger">{{ pct }}%</span>{% endif %}
+  {% else %}<span class="text-muted">—</span>{% endif %}
+{% endmacro %}
+
+{% macro fmt(v) %}{{ '{:,}'.format(v|int) if v is not none else '—' }}{% endmacro %}
+
+{% set rows = [
+  ('bi-book',           'Total Physical Checkouts',        data.circulation),
+  ('bi-cloud-download', 'Digital Checkouts',               data.digital),
+  ('bi-collection',     'Total Checkouts (Physical + Digital)', data.total_checkout),
+  ('bi-wifi',           'Hotspot Circulation',             data.hotspots),
+  ('bi-door-open',      'Gate Count',                      data.gate),
+  ('bi-calendar-event', 'Program Sessions',                data.sessions),
+  ('bi-people-fill',    'Program Attendance',              data.attendance),
+  ('bi-credit-card',    'New Library Cards',               data.cards),
+  ('bi-pc-display',     'PC Reservations',                 data.pc_reservations),
+] %}
+
+<div class="card">
+  <div class="card-header-custom fw-bold" style="color:var(--ycl-blue)">
+    <i class="bi bi-table me-2"></i>Year-over-Year Comparison
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered mb-0" style="font-size:.9rem">
+      <thead class="table-light">
+        <tr>
+          <th>Metric</th>
+          <th class="text-end" style="width:130px">FY{{ fy1 }}</th>
+          <th class="text-end" style="width:130px">FY{{ fy2 }}</th>
+          <th class="text-center" style="width:100px">Change</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for icon, label, row in rows %}
+        <tr>
+          <td><i class="bi {{ icon }} me-2 text-muted"></i>{{ label }}</td>
+          <td class="text-end {{ 'text-muted' if row.v1 is none }}">{{ fmt(row.v1) }}</td>
+          <td class="text-end fw-semibold {{ 'text-muted' if row.v2 is none }}">{{ fmt(row.v2) }}</td>
+          <td class="text-center">{{ pct_badge(row.pct) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% else %}
+<div class="alert alert-info mt-3">No data available for the selected fiscal years.</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<style>
+@media print {
+  .d-print-none { display: none !important; }
+  body { background: white !important; font-size: 11px; }
+  .card { box-shadow: none !important; border: 1px solid #ccc !important; }
+  nav, footer { display: none !important; }
+  .container-lg { padding: 0 !important; max-width: 100% !important; }
+}
+</style>
+{% endblock %}

@@ -25,9 +25,14 @@
       FY{{ fy2 }} (Jul {{ fy2 - 1 }}–Jun {{ fy2 }})
     </p>
   </div>
-  <a href="{{ url_for('report_impact_pdf') }}" class="btn btn-outline-danger btn-sm d-print-none">
-    <i class="bi bi-file-earmark-pdf me-1"></i>Download PDF
-  </a>
+  <div class="d-flex gap-2 d-print-none">
+    <a href="{{ url_for('report_impact_pdf') }}" class="btn btn-outline-danger btn-sm">
+      <i class="bi bi-file-earmark-pdf me-1"></i>Download PDF
+    </a>
+    <a href="{{ url_for('report_impact_docx') }}" class="btn btn-outline-primary btn-sm">
+      <i class="bi bi-file-earmark-word me-1"></i>Download Word
+    </a>
+  </div>
 </div>
 
 {% if data %}

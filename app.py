@@ -2937,5 +2937,418 @@ def report_impact_pdf():
                      as_attachment=True, download_name=filename)
 
 
+@app.route('/reports/impact.docx')
+@admin_required
+def report_impact_docx():
+    from docx import Document
+    from docx.shared import Pt, RGBColor, Inches
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    bs_cat   = Category.query.filter_by(name='Branch Stats').first()
+    eres_cat = Category.query.filter_by(name='eResources').first()
+    fy1, fy2 = 2023, 2024
+
+    def _fy_totals(fy_year):
+        entries = Entry.query.options(joinedload(Entry.values)).filter_by(
+            category_id=bs_cat.id
+        ).filter(
+            or_(
+                and_(Entry.year == fy_year - 1, Entry.month >= 7),
+                and_(Entry.year == fy_year, Entry.month <= 6)
+            )
+        ).all()
+        id_to_name = {m.id: m.name for m in bs_cat.metrics}
+        totals = {}
+        for e in entries:
+            bname = e.branch.name if e.branch else ''
+            if bname == 'YCL (System Wide)' or 'Lockers' in bname:
+                continue
+            for ev in e.values:
+                n = id_to_name.get(ev.metric_id)
+                if n and ev.value_number is not None:
+                    totals[n] = totals.get(n, 0) + ev.value_number
+        return totals
+
+    def _iv(d, key):
+        val = d.get(key)
+        if val is None:
+            return None
+        return int(val) if val == int(val) else round(val, 1)
+
+    def _ac_totals(fy_year):
+        sw = Branch.query.filter(Branch.name == 'YCL (System Wide)').first()
+        if not sw:
+            return None, None
+        phys = None
+        bs_e = Entry.query.options(joinedload(Entry.values)).filter_by(
+            category_id=bs_cat.id, branch_id=sw.id, year=fy_year, month=None
+        ).first()
+        if bs_e:
+            circ_m = next((m for m in bs_cat.metrics if m.name == 'Total Branch Circulation'), None)
+            if circ_m:
+                ev = next((v for v in bs_e.values if v.metric_id == circ_m.id), None)
+                if ev and ev.value_number is not None:
+                    phys = int(ev.value_number)
+        dig = None
+        if eres_cat:
+            er_e = Entry.query.options(joinedload(Entry.values)).filter_by(
+                category_id=eres_cat.id, branch_id=sw.id, year=fy_year, month=None
+            ).first()
+            if er_e:
+                total = sum(v.value_number for v in er_e.values if v.value_number is not None)
+                if total > 0:
+                    dig = int(total)
+        return phys, dig
+
+    d2 = _fy_totals(fy2)
+    AGE   = ['0-5', '6-11', '12-18', '19+', 'General Interest']
+    TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
+
+    ac_phys2, digital2 = _ac_totals(fy2)
+    circ2   = ac_phys2 if ac_phys2 is not None else _iv(d2, 'Total Branch Circulation')
+    hot2    = _iv(d2, 'Hotspots Circulation')
+    gate2   = _iv(d2, 'Gate Count')
+    sess2   = sum((_iv(d2, f'{t} Sessions {a}') or 0) for t in TYPES for a in AGE) or None
+    att2    = sum((_iv(d2, f'{t} Attendance {a}') or 0) for t in TYPES for a in AGE) or None
+    cards2  = (_iv(d2, 'New Library Card Registrations, Adult') or 0) + \
+              (_iv(d2, 'New Library Card Registrations, Juvenile') or 0) or None
+    pc_res2 = _iv(d2, 'PC Reservations')
+    total2  = (circ2 + digital2) if (ac_phys2 is not None and digital2 is not None) else None
+
+    def fmt(v):
+        return f'{int(v):,}' if v is not None else '—'
+
+    # ── Build document ──
+    doc = Document()
+    sec = doc.sections[0]
+    sec.top_margin    = Inches(0.75)
+    sec.bottom_margin = Inches(0.75)
+    sec.left_margin   = Inches(1.0)
+    sec.right_margin  = Inches(1.0)
+
+    BLUE   = RGBColor(0x1a, 0x4f, 0x9e)
+    GREEN  = RGBColor(0x1e, 0x84, 0x49)
+    PURPLE = RGBColor(0x6c, 0x34, 0x83)
+    TEAL   = RGBColor(0x11, 0x7a, 0x65)
+    BROWN  = RGBColor(0x78, 0x42, 0x12)
+    DKBLUE = RGBColor(0x1a, 0x52, 0x76)
+    GREY   = RGBColor(0x55, 0x55, 0x55)
+    LGREY  = RGBColor(0x88, 0x88, 0x88)
+
+    def shade_cell(cell, hex_color):
+        tc   = cell._tc
+        tcPr = tc.get_or_add_tcPr()
+        shd  = OxmlElement('w:shd')
+        shd.set(qn('w:val'),   'clear')
+        shd.set(qn('w:color'), 'auto')
+        shd.set(qn('w:fill'),  hex_color)
+        tcPr.append(shd)
+
+    def add_heading2(text, color):
+        h = doc.add_heading(text, level=2)
+        for run in h.runs:
+            run.font.color.rgb = color
+
+    def add_body(parts):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(6)
+        for text, bold in parts:
+            r = p.add_run(text)
+            r.bold       = bold
+            r.font.size  = Pt(10)
+        return p
+
+    def add_quote(text, source):
+        p = doc.add_paragraph(style='No Spacing')
+        p.paragraph_format.left_indent  = Inches(0.4)
+        p.paragraph_format.right_indent = Inches(0.4)
+        p.paragraph_format.space_before = Pt(6)
+        p.paragraph_format.space_after  = Pt(2)
+        pPr  = p._p.get_or_add_pPr()
+        pBdr = OxmlElement('w:pBdr')
+        lel  = OxmlElement('w:left')
+        lel.set(qn('w:val'),   'single')
+        lel.set(qn('w:sz'),    '18')
+        lel.set(qn('w:space'), '6')
+        lel.set(qn('w:color'), '4a7fce')
+        pBdr.append(lel)
+        pPr.append(pBdr)
+        r = p.add_run(f'“{text}”')
+        r.italic     = True
+        r.font.size  = Pt(10)
+        r.font.color.rgb = RGBColor(0x33, 0x33, 0x33)
+        sp = doc.add_paragraph(style='No Spacing')
+        sp.paragraph_format.left_indent = Inches(0.4)
+        sp.paragraph_format.space_after = Pt(10)
+        sr = sp.add_run(source)
+        sr.font.size      = Pt(9)
+        sr.font.color.rgb = LGREY
+
+    # Title
+    tp = doc.add_paragraph()
+    tp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    tp.paragraph_format.space_after = Pt(2)
+    tr = tp.add_run('Community Impact Report')
+    tr.bold = True; tr.font.size = Pt(22); tr.font.color.rgb = BLUE
+
+    sp = doc.add_paragraph()
+    sp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    sp.paragraph_format.space_after = Pt(12)
+    sr = sp.add_run(f'York County Library  ·  FY{fy2} (Jul {fy2 - 1}–Jun {fy2})')
+    sr.font.size = Pt(11); sr.font.color.rgb = GREY
+
+    # Survey intro
+    bp = doc.add_paragraph()
+    bp.paragraph_format.space_after = Pt(10)
+    br = bp.add_run(
+        'In our 2026 patron survey, 544 community members shared what the library means to them. '
+        '92.3% had visited in the past year — and their responses, shown throughout this report, '
+        'tell the story behind the numbers.'
+    )
+    br.italic = True; br.font.size = Pt(10)
+
+    # At a Glance table
+    add_heading2(f'At a Glance — FY{fy2}', BLUE)
+    at_a_glance = [
+        ('Total Physical Checkouts', circ2),
+        ('Digital Checkouts',        digital2),
+        ('Visits (Gate Count)',      gate2),
+        ('Program Attendance',       att2),
+        ('New Library Cards',        cards2),
+        ('PC Reservations',          pc_res2),
+        ('Program Sessions',         sess2),
+        ('Hotspot Circulation',      hot2),
+    ]
+    tbl = doc.add_table(rows=2, cols=4)
+    tbl.style = 'Table Grid'
+    for i, (label, val) in enumerate(at_a_glance):
+        cell = tbl.cell(i // 4, i % 4)
+        shade_cell(cell, 'e8f0ff')
+        cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        nr = cell.paragraphs[0].add_run(fmt(val) + '\n')
+        nr.bold = True; nr.font.size = Pt(14); nr.font.color.rgb = BLUE
+        lr = cell.paragraphs[0].add_run(label)
+        lr.font.size = Pt(8); lr.font.color.rgb = GREY
+    doc.add_paragraph()
+
+    # Section 1: You Keep Coming Back
+    add_heading2('You Keep Coming Back', GREEN)
+    add_body([
+        ('The library recorded ', False), (f'{fmt(gate2)} visits', True),
+        (f' in FY{fy2}. Our survey confirms the pattern: ', False),
+        ('92.3% of respondents had visited in the past year', True),
+        (', with teens leading the way — ', False), ('57.1% visit every week', True),
+        (', and nearly half of 25–40 year-olds (49.7%) do the same.', False),
+    ])
+    add_body([
+        (f'{fmt(pc_res2)} PC reservation sessions', True),
+        (' show that for many patrons, the library is their primary point of internet and computer '
+         'access — a function that survey respondents consistently rated among our most valued services.', False),
+    ])
+    add_body([
+        ('Even patrons who visit less frequently stay connected: ', False),
+        ('86–93% use our website', True),
+        (' across all age groups, and ', False), ('50–64% use the YCL mobile app', True),
+        (' — including 59% of seniors aged 65 and older.', False),
+    ])
+    add_quote(
+        'Western York County needs another library. It doesn’t have to have all the programs… '
+        'but a location with computers, books, and a hold shelf so people in Hickory Grove don’t '
+        'have to plan their trips based on when they’re running to York.',
+        '— Survey respondent'
+    )
+
+    # Section 2: Connecting You to Stories
+    add_heading2('Connecting You to Stories & Ideas', DKBLUE)
+    add_body([
+        ('Borrowing books', True),
+        (' is the single highest-rated service across every age group in our survey — averaging ', False),
+        ('3.79 to 4.00 out of 5', True), (' (“Very Important”). That demand shows in the numbers:', False),
+    ])
+    for label, val in [('Physical checkouts', circ2), ('Digital checkouts', digital2)]:
+        pb = doc.add_paragraph(style='List Bullet')
+        pb.paragraph_format.space_after = Pt(2)
+        pb.add_run(f'{label}: ').font.size = Pt(10)
+        vr = pb.add_run(fmt(val)); vr.bold = True; vr.font.size = Pt(10)
+    if total2 is not None:
+        pb = doc.add_paragraph(style='List Bullet')
+        pb.paragraph_format.space_after = Pt(6)
+        pb.add_run('Combined total: ').font.size = Pt(10)
+        vr = pb.add_run(fmt(total2)); vr.bold = True; vr.font.size = Pt(10)
+    add_body([
+        ('Patron feedback points to clear growth opportunities: more physical copies at smaller branches, '
+         'complete series in digital collections, and reduced hold wait times for new releases on '
+         'Libby and Hoopla. These are gaps the library is actively working to address.', False),
+    ])
+    add_quote(
+        'It is hard to browse books as the selection is small in person. I do appreciate being able to '
+        'get them online, but I love spontaneously getting books.',
+        '— Survey respondent'
+    )
+
+    # Section 3: Learning Together
+    add_heading2('Learning Together', PURPLE)
+    add_body([
+        ('YCL offered ', False), (f'{fmt(sess2)} program sessions', True),
+        (f' in FY{fy2}, drawing ', False), (f'{fmt(att2)} participants', True),
+        ('. Our survey found that ', False),
+        ('61.2% of patrons attended at least one YCL signature event', True),
+        (', with teens and young adults leading at 71.4%.', False),
+    ])
+    add_body([
+        ('Signature events were a particular strength: the ', False),
+        ('Summer Learning Challenge', True), (' received 272 selections and the ', False),
+        ('Winter Reading Challenge', True),
+        (' 218 — showing that structured reading programs resonate across age groups.', False),
+    ])
+    add_body([
+        ('Lifelong learning programs', True),
+        (' topped the list of what patrons want more of, chosen by ', False),
+        ('53% of respondents', True),
+        (' (288 selections). But a clear barrier emerged: the majority of employed adults simply cannot '
+         'attend programs held during working hours. Evening (after 5 p.m.) and Saturday programming '
+         'were among the most-requested changes.', False),
+    ])
+    add_body([
+        ('Equity note: ', True),
+        ('Fort Mill-only patrons attended signature events at a rate of 51.6% — nearly 20 points '
+         'below Rock Hill patrons (71.5%). Capacity and space constraints at Fort Mill are a key driver '
+         'of this gap.', False),
+    ])
+    add_quote(
+        'The majority of the programs I am interested in are held during working hours. I’m only '
+        'in my 40s and work full time but would love to connect with other people through these clubs '
+        '— and it’s just not possible during the week. Why are there no weekend clubs?',
+        '— Survey respondent'
+    )
+    add_quote(
+        'More events for kids aged 8–13. More science programs. I would love to see more Tween '
+        'programming — my 10-year-old feels stuck between little kid programs and teen programs.',
+        '— Survey respondent (composite)'
+    )
+
+    # Section 4: Growing Our Community
+    add_heading2('Growing Our Community', TEAL)
+    add_body([
+        ('YCL issued ', False), (f'{fmt(cards2)} new library cards', True),
+        (f' in FY{fy2}. New cardholders represent fresh connections to the community — and an '
+         'opportunity to retain them through the services they value most.', False),
+    ])
+    add_body([
+        ('Our survey skews toward established users (92.3% had visited in the past year), which means '
+         'the 7.7% of respondents who are non-users or lapsed visitors are a window into who we’re '
+         'not yet reaching. Among non-users, ', False),
+        ('17 of 42 cited being too busy', True),
+        (' — pointing again to scheduling and convenience as the primary barrier.', False),
+    ])
+    add_body([
+        ('Young adults aged 19–24 show the most untapped potential: only ', False),
+        ('15.4% visit weekly', True),
+        (' (vs. 57.1% of teens), suggesting that the transition out of school-age programming '
+         'leaves a gap the library can fill with targeted young adult services.', False),
+    ])
+    add_quote(
+        'Events for 20–30 somethings looking to make friends. Young adult activities (18–28)? '
+        'More programs for the 18–22 college age range.',
+        '— Survey respondents'
+    )
+
+    # Section 5: Expanding Access
+    add_heading2('Expanding Access Beyond Our Walls', BROWN)
+    add_body([
+        (f'{fmt(hot2)} hotspot checkouts', True),
+        (' put internet access in the hands of patrons who need it most — at home, at work, and '
+         'in transit. For many families, a YCL hotspot is the difference between connected and left behind.', False),
+    ])
+    add_body([
+        ('In-branch, ', False), (f'{fmt(pc_res2)} PC reservation sessions', True),
+        (' reflect the library’s role as a technology access point. Help from librarians — '
+         'rated ', False), ('3.62 to 3.93 out of 5', True),
+        (' across all age groups — is the trusted guide that makes that access meaningful.', False),
+    ])
+    add_quote(
+        'Having a tool rental/makerspace or woodshop area would be incredible! The Richland library '
+        'in Columbia has a great makerspace that creates accessibility for a lot of people.',
+        '— Survey respondent'
+    )
+
+    # Section 6: What You're Asking For Next
+    add_heading2('What You’re Asking For Next', BLUE)
+    add_body([
+        ('When asked what they want added or improved, ', False),
+        ('430 patrons wrote detailed open-ended responses', True),
+        (' (a 99.4% response rate). Their top strategic priorities, by selection:', False),
+    ])
+    for label, count, pct_val in [
+        ('Lifelong Learning Programs',     '288 selections', '53%'),
+        ('Library of Things',              '273 selections', '50%'),
+        ('Makerspace',                     '230 selections', '42%'),
+        ('Meeting Spaces',                 '183 selections', '34%'),
+        ('Career & Workforce Development', '176 selections', '32%'),
+    ]:
+        pb = doc.add_paragraph(style='List Bullet')
+        pb.paragraph_format.space_after = Pt(2)
+        br2 = pb.add_run(label); br2.bold = True; br2.font.size = Pt(10)
+        nr2 = pb.add_run(f' — {count} ({pct_val} of respondents)')
+        nr2.font.size = Pt(10)
+    doc.add_paragraph()
+    add_body([
+        ('The Fort Mill branch came up repeatedly — patrons called it “too small” and '
+         '“cramped,” and multiple respondents specifically requested a second location or major '
+         'expansion. Fort Mill patrons’ event attendance gap (51.6% vs. 71.5% system-wide) is a '
+         'measurable consequence of those space constraints.', False),
+    ])
+    add_quote(
+        'Fort Mill library is too small!!! We need a bigger location or another branch in Fort Mill desperately!',
+        '— Survey respondent'
+    )
+    add_quote(
+        'Heavy emphasis on Library of Things and Makerspaces. These spaces will encourage creativity '
+        'and provide community support by making it more accessible.',
+        '— Survey respondent'
+    )
+
+    # Full data table
+    add_heading2(f'Full Data — FY{fy2}', BLUE)
+    data_rows = [
+        ('Total Physical Checkouts',             circ2),
+        ('Digital Checkouts',                    digital2),
+        ('Total Checkouts (Physical + Digital)',  total2),
+        ('Hotspot Circulation',                  hot2),
+        ('Gate Count',                           gate2),
+        ('Program Sessions',                     sess2),
+        ('Program Attendance',                   att2),
+        ('New Library Cards',                    cards2),
+        ('PC Reservations',                      pc_res2),
+    ]
+    dtbl = doc.add_table(rows=len(data_rows) + 1, cols=2)
+    dtbl.style = 'Table Grid'
+    hdr_row = dtbl.rows[0]
+    for cell in hdr_row.cells:
+        shade_cell(cell, 'dce6f1')
+    hr0 = hdr_row.cells[0].paragraphs[0].add_run('Metric')
+    hr0.bold = True; hr0.font.size = Pt(10)
+    hr1 = hdr_row.cells[1].paragraphs[0].add_run(f'FY{fy2}')
+    hr1.bold = True; hr1.font.size = Pt(10)
+    hdr_row.cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    for i, (label, val) in enumerate(data_rows):
+        row = dtbl.rows[i + 1]
+        row.cells[0].paragraphs[0].add_run(label).font.size = Pt(10)
+        vr = row.cells[1].paragraphs[0].add_run(fmt(val))
+        vr.bold = True; vr.font.size = Pt(10)
+        row.cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    filename = f'YCL_Impact_Report_FY{fy2}.docx'
+    return send_file(buf,
+                     mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                     as_attachment=True,
+                     download_name=filename)
+
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

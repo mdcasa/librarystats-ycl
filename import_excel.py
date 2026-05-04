@@ -114,6 +114,15 @@ QRTLY_MAP = {
     'Total # of Transactions for the Week': 'Total Transactions for the Week',
 }
 
+# Metrics that must only be recorded under Rock Hill (Main branch).
+# Importers skip these for any other branch.
+_MAIN_ONLY_METRIC_NAMES = {
+    'ILL - Sent (Main ONLY)',
+    'ILL - Received (Main ONLY)',
+    'ICLs - Sent (Main ONLY)',
+    'ICLs - Received (Main ONLY)',
+}
+
 # Google Forms response export ("Form Responses 1" sheet).
 # OFFSITE/VIRTUAL totals stored in the 6-11 and General Interest buckets by convention
 # (matching existing patch scripts — the form has no per-age breakdown for those).
@@ -343,12 +352,16 @@ def import_branch_stats(ws, cat, metric_lookup, branch_lookup, year_override=Non
         if getattr(branch, 'is_desk', False):
             continue
 
+        is_rock_hill = 'rock hill' in branch.name.lower()
         key = (int(year), month, branch.id)
         if key not in buckets:
             buckets[key] = {}
         for i, val in enumerate(row):
             if i in col_metric and val is not None:
-                buckets[key][col_metric[i].id] = float(val)
+                m = col_metric[i]
+                if m.name in _MAIN_ONLY_METRIC_NAMES and not is_rock_hill:
+                    continue
+                buckets[key][m.id] = float(val)
 
     warnings = [f'Unrecognised branch skipped: {b}' for b in sorted(skipped_branches)]
     created = updated = 0
@@ -459,13 +472,17 @@ def import_google_forms_stats(ws, cat, metric_lookup, branch_lookup):
         sub_year = timestamp.year
         year = sub_year - 1 if month > timestamp.month else sub_year
 
+        is_rock_hill = 'rock hill' in branch.name.lower()
         key = (year, month, branch.id)
         if key not in buckets:
             buckets[key] = {}
         for i, val in enumerate(row):
             if i in col_metric and val is not None:
+                m = col_metric[i]
+                if m.name in _MAIN_ONLY_METRIC_NAMES and not is_rock_hill:
+                    continue
                 try:
-                    buckets[key][col_metric[i].id] = float(val)
+                    buckets[key][m.id] = float(val)
                 except (ValueError, TypeError):
                     pass
 

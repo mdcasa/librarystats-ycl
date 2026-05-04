@@ -114,6 +114,47 @@ QRTLY_MAP = {
     'Total # of Transactions for the Week': 'Total Transactions for the Week',
 }
 
+# Google Forms response export ("Form Responses 1" sheet).
+# OFFSITE/VIRTUAL totals stored in the 6-11 and General Interest buckets by convention
+# (matching existing patch scripts — the form has no per-age breakdown for those).
+GOOGLE_FORMS_STATS_MAP = {
+    # ONSITE programming
+    'Number of Synchronous Program Sessions Targeted at Children Ages 0-5':       'ONSITE Sessions 0-5',
+    'Number of Synchronous Program Sessions Targeted at Children Ages 6-11':      'ONSITE Sessions 6-11',
+    'Number of Synchronous Program Sessions Targeted at Young Adults Ages 12-18': 'ONSITE Sessions 12-18',
+    'Number of Synchronous Program Sessions Targeted at Adults Ages 19+':         'ONSITE Sessions 19+',
+    'Number of Synchronous General Interest Program Sessions':                     'ONSITE Sessions General Interest',
+    'Attendance at Synchronous Programs Targeted at Children Ages 0-5':           'ONSITE Attendance 0-5',
+    'Attendance at Synchronous Programs Targeted at Children Ages 6-11':          'ONSITE Attendance 6-11',
+    'Attendance at Synchronous Programs Targeted at Young Adults Ages 12-18':     'ONSITE Attendance 12-18',
+    'Attendance at Synchronous Programs Targeted at Adults Ages 19+':             'ONSITE Attendance 19+',
+    'Attendance at Synchronous General Interest Programs':                         'ONSITE Attendance General Interest',
+    # OFFSITE / VIRTUAL totals (no age breakdown in form)
+    'Number of Synchronous In-Person Offsite Program Sessions':                    'OFFSITE Sessions 6-11',
+    'Number of Synchronous Virtual Program Sessions':                              'VIRTUAL Sessions General Interest',
+    'Synchronous In-Person Offsite Program Attendance':                            'OFFSITE Attendance 6-11',
+    'Synchronous Virtual Program Attendance':                                      'VIRTUAL Attendance General Interest',
+    # Other branch stats
+    'Outreach Activities':                                                         'Number of Outreach Activities Conducted',
+    'Outreach Attendance':                                                         'Outreach Attendance',
+    'Take & Make Kits':                                                            'Take & Makes / Other Passive Program Participants',
+    'Door Count':                                                                  'Gate Count',
+    'PC Reservation Sessions':                                                     'PC Reservations',
+    'WiFi - Unique Clients':                                                       'WiFi - Unique Sessions',
+    'InterLibrary Loans  - Received':                                              'ILL - Received (Main ONLY)',
+    'InterLibrary Loans - Sent':                                                   'ILL - Sent (Main ONLY)',
+    'Number of times library facilities were used by external parties or groups for non library functions (Scheduled use only)':
+                                                                                   'External Party Library Room Use',
+    # Two spellings found in the wild (advice vs advise typo)
+    'Number of scheduled one-on-one sessions between staff and library patrons (Do not include reference transactions and directional advice)':
+                                                                                   '1-on-1 Total for Month',
+    'Number of scheduled one-on-one sessions between staff and library patrons (Do not include reference transactions and directional advise)':
+                                                                                   '1-on-1 Total for Month',
+    'Number of Staff Trained at Each Session':                                     'Number of Staff Taking Training',
+    'Monthly Total Hours of Staff Training':                                       'Number of Hours Staff Attended Training',
+    'Curbside':                                                                    'Curbside',
+}
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 _MONTH_NAMES = {
@@ -193,15 +234,18 @@ def build_branch_lookup():
 
     aliases = {
         # Outreach/Bookmobile variants
-        'OUTREACH / BOOKMOBILE':  'Bookmobile/Outreach',
-        'Outreach / Bookmobile':  'Bookmobile/Outreach',
-        'outreach / bookmobile':  'Bookmobile/Outreach',
-        'OUTREACH/BOOKMOBILE':    'Bookmobile/Outreach',
-        'Outreach/Bookmobile':    'Bookmobile/Outreach',
-        'outreach/bookmobile':    'Bookmobile/Outreach',
-        'BOOKMOBILE/OUTREACH':    'Bookmobile/Outreach',
-        'OUTREACH / BKM':         'Bookmobile/Outreach',
-        'Outreach / BKM':         'Bookmobile/Outreach',
+        'OUTREACH / BOOKMOBILE':      'Bookmobile/Outreach',
+        'Outreach / Bookmobile':      'Bookmobile/Outreach',
+        'outreach / bookmobile':      'Bookmobile/Outreach',
+        'OUTREACH/BOOKMOBILE':        'Bookmobile/Outreach',
+        'Outreach/Bookmobile':        'Bookmobile/Outreach',
+        'outreach/bookmobile':        'Bookmobile/Outreach',
+        'BOOKMOBILE/OUTREACH':        'Bookmobile/Outreach',
+        'OUTREACH / BKM':             'Bookmobile/Outreach',
+        'Outreach / BKM':             'Bookmobile/Outreach',
+        'Bookmobile and Outreach':    'Bookmobile/Outreach',
+        'BOOKMOBILE AND OUTREACH':    'Bookmobile/Outreach',
+        'bookmobile and outreach':    'Bookmobile/Outreach',
         # System-wide variants
         'YCL SYSTEM WIDE':        'YCL (System Wide)',
         'YCL (SYSTEM WIDE)':      'YCL (System Wide)',
@@ -307,6 +351,128 @@ def import_branch_stats(ws, cat, metric_lookup, branch_lookup, year_override=Non
                 buckets[key][col_metric[i].id] = float(val)
 
     warnings = [f'Unrecognised branch skipped: {b}' for b in sorted(skipped_branches)]
+    created = updated = 0
+    for (year, month, branch_id), values in buckets.items():
+        if not values:
+            continue
+        entry = Entry.query.filter_by(
+            category_id=cat.id, branch_id=branch_id, year=year, month=month
+        ).first()
+        if entry is None:
+            entry = Entry(category_id=cat.id, branch_id=branch_id,
+                          year=year, month=month, submitted_by='Excel Import')
+            db.session.add(entry)
+            db.session.flush()
+            created += 1
+        else:
+            updated += 1
+        ev_map = {ev.metric_id: ev for ev in entry.values}
+        for metric_id, val in values.items():
+            ev = ev_map.get(metric_id)
+            if ev:
+                ev.value_number = val
+            else:
+                db.session.add(EntryValue(entry_id=entry.id, metric_id=metric_id, value_number=val))
+
+    db.session.commit()
+    period_set = {(y, m) for y, m, _ in buckets.keys()}
+    return created, updated, period_set, warnings
+
+
+def import_google_forms_stats(ws, cat, metric_lookup, branch_lookup):
+    """Import monthly branch stats from a Google Forms response export.
+
+    Expects sheet 'Form Responses 1' with columns: Timestamp, Email Address,
+    Select Month, Select Branch, then metric columns.  Year is inferred from
+    the submission timestamp (if the reported month is later than the
+    submission month, the year rolls back by one).
+
+    OFFSITE/VIRTUAL session and attendance totals are stored in the 6-11 and
+    General Interest buckets by convention (the form has no per-age breakdown).
+    Registration metrics (SIRSI-sourced) are never overwritten.
+    """
+    # Metrics sourced from SIRSI — never overwrite with form data
+    SIRSI_METRIC_NAMES = {
+        'New Library Card Registrations, Adult',
+        'New Library Card Registrations, Juvenile',
+        'Total Branch Circulation',
+        'Hotspots Circulation',
+        'Locker Circulation',
+    }
+    sirsi_metric_ids = {m.id for name, m in metric_lookup.items() if name in SIRSI_METRIC_NAMES}
+
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return 0, 0, set(), ['Empty sheet']
+
+    headers = rows[0]
+
+    timestamp_idx = col_index(headers, 'Timestamp')
+    month_idx     = col_index(headers, 'Select Month')
+    branch_idx    = col_index(headers, 'Select Branch')
+    if None in (timestamp_idx, month_idx, branch_idx):
+        return 0, 0, set(), ['Missing required columns (Timestamp / Select Month / Select Branch)']
+
+    col_metric = {}
+    for i, h in enumerate(headers):
+        if h is None:
+            continue
+        h_str = str(h).strip()
+        metric_name = GOOGLE_FORMS_STATS_MAP.get(h_str)
+        if metric_name:
+            m = metric_lookup.get(metric_name)
+            if m and m.id not in sirsi_metric_ids:
+                col_metric[i] = m
+
+    # Rows are in ascending timestamp order; later rows overwrite earlier ones
+    # for the same branch+month (picks up the most recent correction).
+    buckets = {}
+    skipped_branches = set()
+    bad_rows = 0
+
+    for row in rows[1:]:
+        if all(v is None for v in row):
+            continue
+
+        timestamp   = row[timestamp_idx]
+        month_name  = row[month_idx]
+        branch_name = row[branch_idx]
+
+        if not isinstance(timestamp, datetime):
+            bad_rows += 1
+            continue
+
+        month = parse_month(month_name)
+        if not month or not branch_name:
+            bad_rows += 1
+            continue
+
+        branch_name = str(branch_name).strip()
+        if 'system wide' in branch_name.lower():
+            continue
+
+        branch = branch_lookup.get(branch_name) or branch_lookup.get(branch_name.lower())
+        if branch is None:
+            skipped_branches.add(branch_name)
+            continue
+
+        sub_year = timestamp.year
+        year = sub_year - 1 if month > timestamp.month else sub_year
+
+        key = (year, month, branch.id)
+        if key not in buckets:
+            buckets[key] = {}
+        for i, val in enumerate(row):
+            if i in col_metric and val is not None:
+                try:
+                    buckets[key][col_metric[i].id] = float(val)
+                except (ValueError, TypeError):
+                    pass
+
+    warnings = [f'Unrecognised branch skipped: {b}' for b in sorted(skipped_branches)]
+    if bad_rows:
+        warnings.append(f'{bad_rows} rows skipped (unparseable timestamp or missing month/branch)')
+
     created = updated = 0
     for (year, month, branch_id), values in buckets.items():
         if not values:
@@ -1041,6 +1207,17 @@ def detect_and_import(wb, year_override=None):
             results.append({'sheet': 'Gate Count (Door Counter)',
                              'created': created, 'updated': updated, 'skipped': 0, 'warnings': w,
                              'periods': sorted(periods)})
+
+        elif sheet_name == 'Form Responses 1' and 'Timestamp' in header_row and 'Select Month' in header_row:
+            bs_metrics, bs_cat = build_metric_lookup('Branch Stats')
+            if bs_cat:
+                c, u, periods, w = import_google_forms_stats(ws, bs_cat, bs_metrics, branch_lookup)
+                results.append({'sheet': 'Google Forms Branch Stats',
+                                 'created': c, 'updated': u, 'skipped': 0, 'warnings': w,
+                                 'periods': sorted(periods)})
+            else:
+                results.append({'sheet': sheet_name, 'created': 0, 'skipped': 0,
+                                 'warnings': ['Branch Stats category not found in DB']})
 
         elif sheet_name in ('Branch Stats', 'Online Stats', 'Qrtly Ref Stats') or \
              any(sheet_name in wb.sheetnames for sheet_name in ('Branch Stats', 'Online Stats')):

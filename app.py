@@ -2671,7 +2671,7 @@ def report_overview():
 def report_impact():
     bs_cat = Category.query.filter_by(name='Branch Stats').first()
 
-    fy1, fy2 = 2024, 2025
+    fy1, fy2 = 2023, 2024
     data = None
     selectable_years = []
     sel_fy = fy2
@@ -2808,7 +2808,7 @@ def report_impact_pdf():
     from weasyprint import HTML as WeasyprintHTML
     bs_cat = Category.query.filter_by(name='Branch Stats').first()
 
-    fy1, fy2 = 2024, 2025
+    fy1, fy2 = 2023, 2024
 
     def fy_totals(fy_year):
         entries = Entry.query.options(joinedload(Entry.values)).filter_by(

@@ -2671,7 +2671,7 @@ def report_overview():
 def report_impact():
     bs_cat = Category.query.filter_by(name='Branch Stats').first()
 
-    fy1, fy2 = 2023, 2024
+    fy1, fy2 = 2024, 2025
     data = None
     selectable_years = []
     sel_fy = fy2
@@ -2774,6 +2774,13 @@ def report_impact():
         total2    = (circ2 + digital2) if (ac_phys2 is not None and digital2 is not None) else None
         total_pct = pct(total1, total2) if (total1 is not None and total2 is not None) else None
 
+        CHILD_AGES = ['0-5', '6-11']
+        YA_AGES    = ['12-18']
+        child1 = sum((iv(d1, f'{t} Sessions {a}') or 0) for t in TYPES for a in CHILD_AGES) or None
+        child2 = sum((iv(d2, f'{t} Sessions {a}') or 0) for t in TYPES for a in CHILD_AGES) or None
+        ya1    = sum((iv(d1, f'{t} Sessions {a}') or 0) for t in TYPES for a in YA_AGES) or None
+        ya2    = sum((iv(d2, f'{t} Sessions {a}') or 0) for t in TYPES for a in YA_AGES) or None
+
         data = {
             'circulation':    {'v1': circ1,    'v2': circ2,    'pct': phys_pct},
             'digital':        {'v1': digital1, 'v2': digital2, 'pct': pct(digital1, digital2)},
@@ -2784,6 +2791,8 @@ def report_impact():
             'attendance':     {'v1': att1,     'v2': att2,     'pct': pct(att1,     att2)},
             'cards':          {'v1': cards1,   'v2': cards2,   'pct': pct(cards1,   cards2)},
             'pc_reservations': {'v1': pc_res1, 'v2': pc_res2,  'pct': pct(pc_res1,  pc_res2)},
+            'children_sess':  {'v1': child1,   'v2': child2,   'pct': pct(child1,   child2)},
+            'ya_sess':        {'v1': ya1,      'v2': ya2,      'pct': pct(ya1,      ya2)},
         }
 
     return render_template('reports/impact.html',
@@ -2799,7 +2808,7 @@ def report_impact_pdf():
     from weasyprint import HTML as WeasyprintHTML
     bs_cat = Category.query.filter_by(name='Branch Stats').first()
 
-    fy1, fy2 = 2023, 2024
+    fy1, fy2 = 2024, 2025
 
     def fy_totals(fy_year):
         entries = Entry.query.options(joinedload(Entry.values)).filter_by(
@@ -2875,10 +2884,16 @@ def report_impact_pdf():
     hot2    = iv(d2, 'Hotspots Circulation')
     gate1   = iv(d1, 'Gate Count')
     gate2   = iv(d2, 'Gate Count')
+    CHILD_AGES = ['0-5', '6-11']
+    YA_AGES    = ['12-18']
     sess1   = sum((iv(d1, f'{t} Sessions {a}') or 0) for t in TYPES for a in AGE) or None
     sess2   = sum((iv(d2, f'{t} Sessions {a}') or 0) for t in TYPES for a in AGE) or None
     att1    = sum((iv(d1, f'{t} Attendance {a}') or 0) for t in TYPES for a in AGE) or None
     att2    = sum((iv(d2, f'{t} Attendance {a}') or 0) for t in TYPES for a in AGE) or None
+    child1  = sum((iv(d1, f'{t} Sessions {a}') or 0) for t in TYPES for a in CHILD_AGES) or None
+    child2  = sum((iv(d2, f'{t} Sessions {a}') or 0) for t in TYPES for a in CHILD_AGES) or None
+    ya1     = sum((iv(d1, f'{t} Sessions {a}') or 0) for t in TYPES for a in YA_AGES) or None
+    ya2     = sum((iv(d2, f'{t} Sessions {a}') or 0) for t in TYPES for a in YA_AGES) or None
     cards1  = (iv(d1, 'New Library Card Registrations, Adult') or 0) + \
               (iv(d1, 'New Library Card Registrations, Juvenile') or 0) or None
     cards2  = (iv(d2, 'New Library Card Registrations, Adult') or 0) + \
@@ -2902,6 +2917,8 @@ def report_impact_pdf():
         'attendance':     {'v1': att1,     'v2': att2,     'pct': pct(att1,     att2)},
         'cards':          {'v1': cards1,   'v2': cards2,   'pct': pct(cards1,   cards2)},
         'pc_reservations': {'v1': pc_res1, 'v2': pc_res2,  'pct': pct(pc_res1,  pc_res2)},
+        'children_sess':  {'v1': child1,   'v2': child2,   'pct': pct(child1,   child2)},
+        'ya_sess':        {'v1': ya1,      'v2': ya2,      'pct': pct(ya1,      ya2)},
     }
 
     html_str = render_template('reports/impact_pdf.html', fy1=fy1, fy2=fy2, data=data)

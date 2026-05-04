@@ -401,13 +401,20 @@
     margin-top: 8px;
   }
   @media print {
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     .d-print-none { display: none !important; }
-    body { background: white !important; font-size: 11px; }
-    .card { box-shadow: none !important; border: 1px solid #ccc !important; break-inside: avoid; }
-    nav, footer { display: none !important; }
-    .container-lg { padding: 0 !important; max-width: 100% !important; }
-    .impact-quote { border-left: 3px solid #1a4f9e; }
-    .impact-stat-box { background: #f0f5ff; }
+    nav, footer, .navbar { display: none !important; }
+    body { background: white !important; font-size: 10px; margin: 0; }
+    .container, .container-lg { padding: 0 !important; max-width: 100% !important; margin: 0 !important; }
+    .card { box-shadow: none !important; border: 1px solid #ddd !important; break-inside: avoid; margin-bottom: 8px !important; }
+    .card-body { padding: 8px !important; }
+    .impact-stat-box { background: #e8f0ff !important; padding: 8px !important; }
+    .impact-stat-num { font-size: 1.2rem !important; }
+    .impact-quote { border-left: 3px solid #1a4f9e !important; background: #f8f9fa !important; padding: 8px !important; }
+    .alert { border: 1px solid #f0a500 !important; background: #fff8e1 !important; }
+    a { color: inherit !important; text-decoration: none !important; }
+    .row { display: flex !important; flex-wrap: wrap !important; }
+    .col-6 { width: 25% !important; }
   }
 </style>
 {% endblock %}

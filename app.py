@@ -2923,7 +2923,9 @@ def report_impact_pdf():
     import traceback
     try:
         from weasyprint import HTML as WeasyprintHTML
-        html_str = render_template('reports/impact_pdf.html', fy1=fy1, fy2=fy2, data=data)
+        html_str = render_template('reports/impact.html',
+                                   fy1=fy1, fy2=fy2, data=data,
+                                   selectable_years=[], sel_fy=fy2)
         pdf_bytes = WeasyprintHTML(string=html_str, base_url=request.url_root).write_pdf()
     except Exception:
         tb = traceback.format_exc()

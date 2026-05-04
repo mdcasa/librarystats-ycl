@@ -4,90 +4,272 @@
   <meta charset="UTF-8">
   <title>YCL Community Impact Report FY{{ fy1 }}–FY{{ fy2 }}</title>
   <style>
-    @page { size: letter portrait; margin: 1in 0.85in; }
-    body { font-family: Arial, sans-serif; font-size: 11pt; color: #222; margin: 0; }
+    @page { size: letter portrait; margin: 0.85in 0.75in; }
+    body { font-family: Arial, sans-serif; font-size: 10.5pt; color: #222; margin: 0; }
 
-    h1 { font-size: 18pt; color: #1a4f9e; margin: 0 0 2px; }
-    h2 { font-size: 11pt; font-weight: normal; color: #555; margin: 0 0 18px; }
+    /* Header */
+    .report-header { text-align: center; border-bottom: 3px solid #1a4f9e; padding-bottom: 10px; margin-bottom: 18px; }
+    .report-header h1 { font-size: 20pt; color: #1a4f9e; margin: 0 0 2px; }
+    .report-header h2 { font-size: 10.5pt; font-weight: normal; color: #555; margin: 0; }
 
-    .header { text-align: center; border-bottom: 3px solid #1a4f9e; padding-bottom: 12px; margin-bottom: 24px; }
-    .logo-line { font-size: 9pt; color: #888; margin-top: 4px; }
+    /* Survey banner */
+    .survey-banner { background: #e8f0fb; border-left: 4px solid #1a4f9e; padding: 8px 12px;
+                     font-size: 9.5pt; margin-bottom: 16px; border-radius: 3px; }
 
-    table { width: 100%; border-collapse: collapse; font-size: 10.5pt; margin-top: 8px; }
-    thead tr { background: #1a4f9e; color: #fff; }
-    thead th { padding: 7px 10px; text-align: left; }
-    thead th.num { text-align: right; }
-    thead th.ctr { text-align: center; }
-    tbody tr:nth-child(even) { background: #f0f5ff; }
-    tbody td { padding: 6px 10px; border-bottom: 1px solid #dde4f0; }
-    tbody td.num { text-align: right; }
-    tbody td.ctr { text-align: center; }
-
+    /* At-a-glance stat grid */
+    .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 18px; }
+    .stat-box { background: #f0f5ff; border-radius: 4px; padding: 8px; text-align: center; }
+    .stat-num { font-size: 13pt; font-weight: bold; color: #1a4f9e; line-height: 1.1; }
+    .stat-label { font-size: 7.5pt; color: #555; margin-top: 2px; line-height: 1.2; }
+    .stat-change { font-size: 7.5pt; color: #555; margin-top: 2px; }
     .up   { color: #1a7a3c; font-weight: bold; }
     .down { color: #c0392b; font-weight: bold; }
-    .na   { color: #999; }
 
-    .section-title { font-size: 12pt; font-weight: bold; color: #1a4f9e;
+    /* Section */
+    .section { margin-bottom: 16px; page-break-inside: avoid; }
+    .section-title { font-size: 11.5pt; font-weight: bold; color: #1a4f9e;
                      border-left: 4px solid #1a4f9e; padding-left: 8px; margin: 0 0 6px; }
-    .footnote { font-size: 8.5pt; color: #777; margin-top: 20px; border-top: 1px solid #ddd; padding-top: 8px; }
+    .two-col { display: grid; grid-template-columns: 3fr 2fr; gap: 16px; }
+    p { margin: 0 0 6px; line-height: 1.5; }
+    ul { margin: 0 0 6px; padding-left: 18px; }
+    li { margin-bottom: 3px; }
+
+    /* Patron quote */
+    .quote { background: #f8f9fa; border-left: 3px solid #2563b8; padding: 8px 10px;
+             font-style: italic; font-size: 9pt; color: #333; border-radius: 2px; margin-bottom: 8px; }
+    .quote-source { font-style: normal; font-size: 8pt; color: #888; margin-top: 4px; }
+
+    /* Priority list */
+    .priority-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin: 8px 0; }
+    .priority-item { background: #f8f9fa; border-left: 3px solid #1a4f9e; padding: 5px 8px;
+                     font-size: 9pt; border-radius: 2px; }
+    .priority-item strong { display: block; }
+    .priority-item span { color: #666; font-size: 8pt; }
+
+    /* Data table */
+    table { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin-top: 6px; }
+    thead tr { background: #1a4f9e; color: #fff; }
+    thead th { padding: 5px 8px; }
+    thead th.r { text-align: right; }
+    thead th.c { text-align: center; }
+    tbody tr:nth-child(even) { background: #f0f5ff; }
+    tbody td { padding: 5px 8px; border-bottom: 1px solid #dde4f0; }
+    tbody td.r { text-align: right; }
+    tbody td.c { text-align: center; }
+
+    .equity-note { background: #fff8e1; border-left: 3px solid #f0a500; padding: 6px 10px;
+                   font-size: 9pt; border-radius: 2px; margin-top: 8px; }
+    .footnote { font-size: 8pt; color: #777; margin-top: 16px; border-top: 1px solid #ddd; padding-top: 6px; }
   </style>
 </head>
 <body>
 
-<div class="header">
-  <h1>York County Library</h1>
-  <h2>Community Impact Report &nbsp;·&nbsp;
-    FY{{ fy1 }} (Jul {{ fy1 - 1 }}–Jun {{ fy1 }})
-    compared to
-    FY{{ fy2 }} (Jul {{ fy2 - 1 }}–Jun {{ fy2 }})
-  </h2>
-</div>
-
 {% macro fmt(v) %}{{ '{:,}'.format(v|int) if v is not none else '—' }}{% endmacro %}
-
-{% macro pct_cell(pct) %}
+{% macro pct_span(pct) %}
   {% if pct is not none %}
     {% if pct >= 0 %}<span class="up">+{{ pct }}%</span>
     {% else %}<span class="down">{{ pct }}%</span>{% endif %}
-  {% else %}<span class="na">—</span>{% endif %}
+  {% endif %}
 {% endmacro %}
 
-{% set rows = [
-  ('Total Physical Checkouts',         data.circulation),
-  ('Digital Checkouts',                data.digital),
-  ('Total Checkouts (Physical + Digital)', data.total_checkout),
-  ('Hotspot Circulation',              data.hotspots),
-  ('Gate Count',                       data.gate),
-  ('Program Sessions',                 data.sessions),
-  ('Program Attendance',               data.attendance),
-  ('New Library Cards',                data.cards),
-  ('PC Reservations',                  data.pc_reservations),
-] %}
+<div class="report-header">
+  <h1>York County Library — Community Impact Report</h1>
+  <h2>
+    FY{{ fy2 }} (Jul {{ fy2 - 1 }}–Jun {{ fy2 }})
+    &nbsp;|&nbsp;
+    Year-over-Year Comparison with FY{{ fy1 }} (Jul {{ fy1 - 1 }}–Jun {{ fy1 }})
+  </h2>
+</div>
 
-<p class="section-title">Key Metrics</p>
-<table>
-  <thead>
-    <tr>
-      <th>Metric</th>
-      <th class="num">FY{{ fy1 }}</th>
-      <th class="num">FY{{ fy2 }}</th>
-      <th class="ctr">Change</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for label, row in rows %}
-    <tr>
-      <td>{{ label }}</td>
-      <td class="num">{{ fmt(row.v1) }}</td>
-      <td class="num">{{ fmt(row.v2) }}</td>
-      <td class="ctr">{{ pct_cell(row.pct) }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div class="survey-banner">
+  <strong>About this report:</strong> Statistical data is drawn from YCL's monthly reporting system.
+  Patron voice comes from our <strong>2026 community survey</strong> (544 respondents, 92.3% active
+  library users). Quotes are verbatim from open-ended survey responses.
+</div>
+
+{# At-a-glance #}
+<div class="stat-grid">
+  {% set glance = [
+    ('Physical Checkouts',  data.circulation),
+    ('Digital Checkouts',   data.digital),
+    ('Gate Count',          data.gate),
+    ('Program Attendance',  data.attendance),
+    ('New Library Cards',   data.cards),
+    ('PC Reservations',     data.pc_reservations),
+    ('Program Sessions',    data.sessions),
+    ('Hotspot Circulation', data.hotspots),
+  ] %}
+  {% for label, row in glance %}
+  <div class="stat-box">
+    <div class="stat-num">{{ fmt(row.v2) }}</div>
+    <div class="stat-label">{{ label }}</div>
+    {% if row.v1 is not none and row.v2 is not none %}
+    <div class="stat-change">{{ pct_span(row.pct) }} vs {{ fmt(row.v1) }}</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+{# Section 1 #}
+<div class="section">
+  <div class="section-title">You Keep Coming Back</div>
+  <div class="two-col">
+    <div>
+      <p>The library recorded <strong>{{ fmt(data.gate.v2) }} visits</strong> in FY{{ fy2 }}
+      ({{ pct_span(data.gate.pct) }} vs FY{{ fy1 }}). Our survey confirms the pattern:
+      <strong>92.3% of respondents visited in the past year</strong>, with teens leading —
+      <strong>57.1% visit every week</strong>.</p>
+      <p><strong>{{ fmt(data.pc_reservations.v2) }} PC reservation sessions</strong> show the library
+      remains a critical technology access point. Website use runs <strong>86–93%</strong> across all
+      age groups; <strong>50–64% use the YCL app</strong>, including 59% of seniors.</p>
+    </div>
+    <div>
+      <div class="quote">
+        Western York County needs another library. It doesn't have to have all the programs… but a
+        location with computers, books, and a hold shelf so people in Hickory Grove don't have to
+        plan their trips based on when they're running to York.
+        <div class="quote-source">— Survey respondent</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Section 2 #}
+<div class="section">
+  <div class="section-title">Connecting You to Stories &amp; Ideas</div>
+  <div class="two-col">
+    <div>
+      <p><strong>Borrowing books</strong> is the single highest-rated service across every age group
+      (average <strong>3.79–4.00 / 5</strong>). The numbers reflect that demand:</p>
+      <ul>
+        <li>Physical checkouts: <strong>{{ fmt(data.circulation.v2) }}</strong> {{ pct_span(data.circulation.pct) }}</li>
+        <li>Digital checkouts: <strong>{{ fmt(data.digital.v2) }}</strong> {{ pct_span(data.digital.pct) }}</li>
+        {% if data.total_checkout.v2 is not none %}
+        <li>Combined total: <strong>{{ fmt(data.total_checkout.v2) }}</strong> {{ pct_span(data.total_checkout.pct) }}</li>
+        {% endif %}
+      </ul>
+      <p>Patron feedback highlights growth areas: more physical copies at smaller branches,
+      complete series in digital collections, and shorter Libby/Hoopla hold times.</p>
+    </div>
+    <div>
+      <div class="quote">
+        It is hard to browse books as the selection is small in person. I do appreciate being able
+        to get them online, but I love spontaneously getting books.
+        <div class="quote-source">— Survey respondent</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Section 3 #}
+<div class="section">
+  <div class="section-title">Learning Together</div>
+  <div class="two-col">
+    <div>
+      <p>YCL offered <strong>{{ fmt(data.sessions.v2) }} program sessions</strong>, drawing
+      <strong>{{ fmt(data.attendance.v2) }} participants</strong> {{ pct_span(data.attendance.pct) }}.
+      <strong>61.2% of survey respondents attended a signature event</strong> — teens and young adults
+      at 71.4%. Summer Learning Challenge (272 selections) and Winter Reading Challenge (218) led attendance.</p>
+      <p><strong>Lifelong learning programs</strong> were the top strategic priority (53% of respondents),
+      but a clear barrier remains: employed adults need programming after 5 p.m. and on Saturdays.</p>
+      <div class="equity-note">
+        <strong>Equity note:</strong> Fort Mill event attendance (51.6%) trails Rock Hill (71.5%) by
+        nearly 20 points — a measurable consequence of space constraints at the Fort Mill branch.
+      </div>
+    </div>
+    <div>
+      <div class="quote">
+        The majority of the programs I'm interested in are held during working hours. I'm only in my
+        40s and work full time but would love to connect with other people — and it's just not
+        possible during the week. Why are there no weekend clubs?
+        <div class="quote-source">— Survey respondent</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Section 4 #}
+<div class="section">
+  <div class="section-title">Growing Our Community</div>
+  <div class="two-col">
+    <div>
+      <p>YCL issued <strong>{{ fmt(data.cards.v2) }} new library cards</strong> in FY{{ fy2 }}
+      {{ pct_span(data.cards.pct) }}, each representing a new connection to community resources.
+      Among non-users in the survey, <strong>17 of 42 cited being too busy</strong> — pointing to
+      scheduling and convenience as the primary barriers to broader engagement.</p>
+      <p>Young adults (19–24) show the most untapped potential: only 15.4% visit weekly, suggesting
+      the transition out of school-age programming leaves a gap we can fill.</p>
+    </div>
+    <div>
+      <div class="quote">
+        Events for 20–30 somethings looking to make friends. More programs for the 18–22
+        college age range.
+        <div class="quote-source">— Survey respondents</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Section 5: What's Next #}
+<div class="section">
+  <div class="section-title">What You're Asking For Next</div>
+  <p>430 patrons wrote detailed open-ended responses about what to add or improve (99.4% response rate).
+  Top strategic priorities:</p>
+  <div class="priority-grid">
+    <div class="priority-item"><strong>Lifelong Learning Programs</strong><span>288 selections — 53% of respondents</span></div>
+    <div class="priority-item"><strong>Library of Things</strong><span>273 selections — 50% of respondents</span></div>
+    <div class="priority-item"><strong>Makerspace</strong><span>230 selections — 42% of respondents</span></div>
+    <div class="priority-item"><strong>Meeting Spaces</strong><span>183 selections — 34% of respondents</span></div>
+    <div class="priority-item"><strong>Career &amp; Workforce Development</strong><span>176 selections — 32% of respondents</span></div>
+    <div class="priority-item"><strong>Dedicated Teen Areas</strong><span>169 selections — 31% of respondents</span></div>
+  </div>
+  <div class="quote" style="margin-top:8px">
+    Heavy emphasis on Library of Things and Makerspaces. These spaces will encourage creativity
+    and provide community support by making it more accessible.
+    <div class="quote-source">— Survey respondent</div>
+  </div>
+</div>
+
+{# Full data table #}
+<div class="section" style="margin-top:20px">
+  <div class="section-title">Full Year-over-Year Data</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Metric</th>
+        <th class="r">FY{{ fy1 }}</th>
+        <th class="r">FY{{ fy2 }}</th>
+        <th class="c">Change</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% set rows = [
+        ('Total Physical Checkouts',            data.circulation),
+        ('Digital Checkouts',                   data.digital),
+        ('Total Checkouts (Physical + Digital)',data.total_checkout),
+        ('Hotspot Circulation',                 data.hotspots),
+        ('Gate Count',                          data.gate),
+        ('Program Sessions',                    data.sessions),
+        ('Program Attendance',                  data.attendance),
+        ('New Library Cards',                   data.cards),
+        ('PC Reservations',                     data.pc_reservations),
+      ] %}
+      {% for label, row in rows %}
+      <tr>
+        <td>{{ label }}</td>
+        <td class="r">{{ fmt(row.v1) }}</td>
+        <td class="r">{{ fmt(row.v2) }}</td>
+        <td class="c">{{ pct_span(row.pct) if row.v1 is not none and row.v2 is not none }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 
 <p class="footnote">
   York County Library Statistics System &nbsp;·&nbsp;
+  Statistical data: YCL monthly branch reporting &nbsp;·&nbsp;
+  Survey data: 2026 YCL Community Survey (n=544, data as of April 27, 2026) &nbsp;·&nbsp;
   Fiscal year runs July – June.
 </p>
 

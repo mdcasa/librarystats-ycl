@@ -2,10 +2,41 @@
 {% block title %}Community Impact Report{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h1 class="h4 fw-bold mb-0">
-    <i class="bi bi-bar-chart-line me-2 text-primary"></i>Community Impact Report
-  </h1>
+
+{# ── helpers ── #}
+{% macro fmt(v) %}{{ '{:,}'.format(v|int) if v is not none else '—' }}{% endmacro %}
+{% macro pct_pill(pct) %}
+  {% if pct is not none %}
+    {% if pct >= 0 %}<span class="badge rounded-pill bg-success">+{{ pct }}%</span>
+    {% else %}<span class="badge rounded-pill bg-danger">{{ pct }}%</span>{% endif %}
+  {% endif %}
+{% endmacro %}
+{% macro stat_col(label, v1, v2, pct) %}
+<div class="col-6 col-md-3 text-center mb-3">
+  <div class="impact-stat-box">
+    <div class="impact-stat-num">{{ fmt(v2) }}</div>
+    <div class="impact-stat-label">{{ label }}</div>
+    {% if v1 is not none and v2 is not none %}
+    <div class="mt-1">{{ pct_pill(pct) }}
+      <span class="text-muted" style="font-size:.75rem"> vs {{ fmt(v1) }}</span>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endmacro %}
+
+{# ── page header ── #}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="h3 fw-bold mb-0" style="color:var(--ycl-blue)">
+      <i class="bi bi-bar-chart-line me-2"></i>Community Impact Report
+    </h1>
+    <p class="text-muted mb-0" style="font-size:.9rem">
+      York County Library &nbsp;·&nbsp;
+      FY{{ fy2 }} (Jul {{ fy2 - 1 }}–Jun {{ fy2 }})
+      {% if data %}&nbsp;·&nbsp; Comparing to FY{{ fy1 }} (Jul {{ fy1 - 1 }}–Jun {{ fy1 }}){% endif %}
+    </p>
+  </div>
   <a href="{{ url_for('report_impact_pdf') }}" class="btn btn-outline-danger btn-sm d-print-none">
     <i class="bi bi-file-earmark-pdf me-1"></i>Download PDF
   </a>
@@ -13,78 +44,395 @@
 
 {% if data %}
 
-<div class="text-center mb-4">
-  <h2 class="h5 fw-bold mb-1">York County Library</h2>
-  <p class="text-muted mb-0">
-    FY{{ fy1 }} (Jul {{ fy1 - 1 }}–Jun {{ fy1 }})
-    &nbsp;vs&nbsp;
-    FY{{ fy2 }} (Jul {{ fy2 - 1 }}–Jun {{ fy2 }})
-  </p>
+{# ── survey headline banner ── #}
+<div class="card mb-4" style="border-left:5px solid var(--ycl-blue); background:var(--ycl-blue-pale)">
+  <div class="card-body py-3">
+    <p class="mb-0" style="font-size:.95rem">
+      <i class="bi bi-chat-quote me-2" style="color:var(--ycl-blue)"></i>
+      In our <strong>2026 patron survey</strong>, <strong>544 community members</strong> shared what the library
+      means to them. <strong>92.3% had visited in the past year</strong> — and their responses, shown
+      throughout this report, tell the story behind the numbers.
+    </p>
+  </div>
 </div>
 
-{% macro pct_badge(pct) %}
-  {% if pct is not none %}
-    {% if pct >= 0 %}<span class="badge bg-success">+{{ pct }}%</span>
-    {% else %}<span class="badge bg-danger">{{ pct }}%</span>{% endif %}
-  {% else %}<span class="text-muted">—</span>{% endif %}
-{% endmacro %}
-
-{% macro fmt(v) %}{{ '{:,}'.format(v|int) if v is not none else '—' }}{% endmacro %}
-
-{% set rows = [
-  ('bi-book',           'Total Physical Checkouts',        data.circulation),
-  ('bi-cloud-download', 'Digital Checkouts',               data.digital),
-  ('bi-collection',     'Total Checkouts (Physical + Digital)', data.total_checkout),
-  ('bi-wifi',           'Hotspot Circulation',             data.hotspots),
-  ('bi-door-open',      'Gate Count',                      data.gate),
-  ('bi-calendar-event', 'Program Sessions',                data.sessions),
-  ('bi-people-fill',    'Program Attendance',              data.attendance),
-  ('bi-credit-card',    'New Library Cards',               data.cards),
-  ('bi-pc-display',     'PC Reservations',                 data.pc_reservations),
-] %}
-
-<div class="card">
+{# ── at-a-glance stats ── #}
+<div class="card mb-4">
   <div class="card-header-custom fw-bold" style="color:var(--ycl-blue)">
-    <i class="bi bi-table me-2"></i>Year-over-Year Comparison
+    <i class="bi bi-speedometer2 me-2"></i>At a Glance — FY{{ fy2 }}
   </div>
-  <div class="table-responsive">
-    <table class="table table-sm table-bordered mb-0" style="font-size:.9rem">
-      <thead class="table-light">
-        <tr>
-          <th>Metric</th>
-          <th class="text-end" style="width:130px">FY{{ fy1 }}</th>
-          <th class="text-end" style="width:130px">FY{{ fy2 }}</th>
-          <th class="text-center" style="width:100px">Change</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for icon, label, row in rows %}
-        <tr>
-          <td><i class="bi {{ icon }} me-2 text-muted"></i>{{ label }}</td>
-          <td class="text-end {{ 'text-muted' if row.v1 is none }}">{{ fmt(row.v1) }}</td>
-          <td class="text-end fw-semibold {{ 'text-muted' if row.v2 is none }}">{{ fmt(row.v2) }}</td>
-          <td class="text-center">{{ pct_badge(row.pct) }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="card-body pb-0">
+    <div class="row">
+      {{ stat_col('Total Physical Checkouts',     data.circulation.v1,    data.circulation.v2,    data.circulation.pct) }}
+      {{ stat_col('Digital Checkouts',            data.digital.v1,        data.digital.v2,        data.digital.pct) }}
+      {{ stat_col('Visits (Gate Count)',          data.gate.v1,           data.gate.v2,           data.gate.pct) }}
+      {{ stat_col('Program Attendance',           data.attendance.v1,     data.attendance.v2,     data.attendance.pct) }}
+      {{ stat_col('New Library Cards',            data.cards.v1,          data.cards.v2,          data.cards.pct) }}
+      {{ stat_col('PC Reservations',              data.pc_reservations.v1,data.pc_reservations.v2,data.pc_reservations.pct) }}
+      {{ stat_col('Program Sessions',             data.sessions.v1,       data.sessions.v2,       data.sessions.pct) }}
+      {{ stat_col('Hotspot Circulation',          data.hotspots.v1,       data.hotspots.v2,       data.hotspots.pct) }}
+    </div>
+  </div>
+</div>
+
+{# ── Section 1: You Keep Coming Back ── #}
+<div class="card mb-4">
+  <div class="card-header-custom fw-bold" style="color:#1e8449">
+    <i class="bi bi-door-open me-2"></i>You Keep Coming Back
+  </div>
+  <div class="card-body">
+    <div class="row align-items-start">
+      <div class="col-md-7">
+        <p>
+          The library recorded <strong>{{ fmt(data.gate.v2) }} visits</strong> in FY{{ fy2 }}
+          {{ pct_pill(data.gate.pct) }}
+          {% if data.gate.v1 is not none %} compared to {{ fmt(data.gate.v1) }} the year prior.{% endif %}
+          Our survey confirms the pattern: <strong>92.3% of respondents had visited in the past year</strong>,
+          with teens leading the way — <strong>57.1% visit every week</strong>, and nearly
+          half of 25–40 year-olds (49.7%) do the same.
+        </p>
+        <p>
+          <strong>{{ fmt(data.pc_reservations.v2) }} PC reservation sessions</strong> show that for many
+          patrons, the library is their primary point of internet and computer access — a function that
+          survey respondents consistently rated among our most valued services.
+        </p>
+        <p>
+          Even patrons who visit less frequently stay connected: <strong>86–93% use our website</strong>
+          across all age groups, and <strong>50–64% use the YCL mobile app</strong> — including 59% of
+          seniors aged 65 and older.
+        </p>
+      </div>
+      <div class="col-md-5">
+        <div class="impact-quote">
+          <i class="bi bi-quote fs-4 d-block mb-2" style="color:var(--ycl-blue-light)"></i>
+          Western York County needs another library. It doesn't have to have all the programs… but a
+          location with computers, books, and a hold shelf so people in Hickory Grove don't have to plan
+          their trips based on when they're running to York.
+          <div class="impact-quote-source">— Survey respondent</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Section 2: Connecting You to Stories ── #}
+<div class="card mb-4">
+  <div class="card-header-custom fw-bold" style="color:#1a5276">
+    <i class="bi bi-book me-2"></i>Connecting You to Stories &amp; Ideas
+  </div>
+  <div class="card-body">
+    <div class="row align-items-start">
+      <div class="col-md-5">
+        <div class="impact-quote mb-3">
+          <i class="bi bi-quote fs-4 d-block mb-2" style="color:var(--ycl-blue-light)"></i>
+          It is hard to browse books as the selection is small in person. I do appreciate being able to
+          get them online, but I love spontaneously getting books.
+          <div class="impact-quote-source">— Survey respondent</div>
+        </div>
+        <div class="impact-quote">
+          <i class="bi bi-quote fs-4 d-block mb-2" style="color:var(--ycl-blue-light)"></i>
+          For ebooks, if you have a series, get all books in series, not random selections.
+          <div class="impact-quote-source">— Survey respondent</div>
+        </div>
+      </div>
+      <div class="col-md-7">
+        <p>
+          <strong>Borrowing books</strong> is the single highest-rated service across every age group in our
+          survey — averaging <strong>3.79 to 4.00 out of 5</strong> ("Very Important"). That demand shows
+          in the numbers:
+        </p>
+        <ul>
+          <li>Physical checkouts: <strong>{{ fmt(data.circulation.v2) }}</strong> {{ pct_pill(data.circulation.pct) }}</li>
+          <li>Digital checkouts: <strong>{{ fmt(data.digital.v2) }}</strong> {{ pct_pill(data.digital.pct) }}</li>
+          {% if data.total_checkout.v2 is not none %}
+          <li>Combined total: <strong>{{ fmt(data.total_checkout.v2) }}</strong> {{ pct_pill(data.total_checkout.pct) }}</li>
+          {% endif %}
+        </ul>
+        <p>
+          Patron feedback points to clear growth opportunities: more physical copies at smaller branches,
+          complete series in digital collections, and reduced hold wait times for new releases on
+          Libby and Hoopla. These are gaps the library is actively working to address.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Section 3: Learning Together ── #}
+<div class="card mb-4">
+  <div class="card-header-custom fw-bold" style="color:#6c3483">
+    <i class="bi bi-calendar-event me-2"></i>Learning Together
+  </div>
+  <div class="card-body">
+    <div class="row align-items-start">
+      <div class="col-md-7">
+        <p>
+          YCL offered <strong>{{ fmt(data.sessions.v2) }} program sessions</strong> in FY{{ fy2 }},
+          drawing <strong>{{ fmt(data.attendance.v2) }} participants</strong> {{ pct_pill(data.attendance.pct) }}.
+          Our survey found that <strong>61.2% of patrons attended at least one YCL signature event</strong>,
+          with teens and young adults leading at 71.4%.
+        </p>
+        <p>
+          Signature events were a particular strength: the <strong>Summer Learning Challenge</strong>
+          received 272 selections and the <strong>Winter Reading Challenge</strong> 218 — showing that
+          structured reading programs resonate across age groups.
+        </p>
+        <p>
+          <strong>Lifelong learning programs</strong> topped the list of what patrons want more of,
+          chosen by <strong>53% of respondents</strong> (288 selections). But a clear barrier emerged:
+          the majority of employed adults simply cannot attend programs held during working hours.
+          Evening (after 5 p.m.) and Saturday programming were among the most-requested changes.
+        </p>
+        <div class="alert alert-warning py-2 mb-0" style="font-size:.85rem">
+          <i class="bi bi-exclamation-triangle me-1"></i>
+          <strong>Equity note:</strong> Fort Mill-only patrons attended signature events at a rate of
+          51.6% — nearly 20 points below Rock Hill patrons (71.5%). Capacity and space constraints at
+          Fort Mill are a key driver of this gap.
+        </div>
+      </div>
+      <div class="col-md-5">
+        <div class="impact-quote mb-3">
+          <i class="bi bi-quote fs-4 d-block mb-2" style="color:var(--ycl-blue-light)"></i>
+          The majority of the programs I am interested in are held during working hours. I'm only in my
+          40s and work full time but would love to connect with other people through these clubs —
+          and it's just not possible during the week. Why are there no weekend clubs?
+          <div class="impact-quote-source">— Survey respondent</div>
+        </div>
+        <div class="impact-quote">
+          <i class="bi bi-quote fs-4 d-block mb-2" style="color:var(--ycl-blue-light)"></i>
+          More events for kids aged 8–13. More science programs. I would love to see more Tween
+          programming — my 10-year-old feels stuck between little kid programs and teen programs.
+          <div class="impact-quote-source">— Survey respondent (composite)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Section 4: Growing Our Community ── #}
+<div class="card mb-4">
+  <div class="card-header-custom fw-bold" style="color:#117a65">
+    <i class="bi bi-credit-card me-2"></i>Growing Our Community
+  </div>
+  <div class="card-body">
+    <div class="row align-items-start">
+      <div class="col-md-5">
+        <div class="impact-quote">
+          <i class="bi bi-quote fs-4 d-block mb-2" style="color:var(--ycl-blue-light)"></i>
+          Events for 20–30 somethings looking to make friends. Young adult activities (18–28)?
+          More programs for the 18–22 college age range.
+          <div class="impact-quote-source">— Survey respondents</div>
+        </div>
+      </div>
+      <div class="col-md-7">
+        <p>
+          YCL issued <strong>{{ fmt(data.cards.v2) }} new library cards</strong> in FY{{ fy2 }}
+          {{ pct_pill(data.cards.pct) }}.
+          New cardholders represent fresh connections to the community — and an opportunity to retain
+          them through the services they value most.
+        </p>
+        <p>
+          Our survey skews toward established users (92.3% had visited in the past year), which means
+          the 7.7% of respondents who are non-users or lapsed visitors are a window into who we're
+          not yet reaching. Among non-users, <strong>17 of 42 cited being too busy</strong> —
+          pointing again to scheduling and convenience as the primary barrier to broader engagement.
+        </p>
+        <p>
+          Young adults aged 19–24 show the most untapped potential: only 15.4% visit weekly
+          (vs. 57.1% of teens), suggesting that the transition out of school-age programming
+          leaves a gap the library can fill with targeted young adult services.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Section 5: Expanding Access ── #}
+<div class="card mb-4">
+  <div class="card-header-custom fw-bold" style="color:#784212">
+    <i class="bi bi-wifi me-2"></i>Expanding Access Beyond Our Walls
+  </div>
+  <div class="card-body">
+    <div class="row align-items-start">
+      <div class="col-md-7">
+        <p>
+          <strong>{{ fmt(data.hotspots.v2) }} hotspot checkouts</strong> {{ pct_pill(data.hotspots.pct) }}
+          put internet access in the hands of patrons who need it most — at home, at work, and in
+          transit. For many families, a YCL hotspot is the difference between connected and left behind.
+        </p>
+        <p>
+          In-branch, <strong>{{ fmt(data.pc_reservations.v2) }} PC reservation sessions</strong>
+          {{ pct_pill(data.pc_reservations.pct) }}
+          reflect the library's role as a technology access point. Help from librarians — rated
+          <strong>3.62 to 3.93 out of 5</strong> across all age groups — is the trusted guide that makes
+          that access meaningful.
+        </p>
+      </div>
+      <div class="col-md-5">
+        <div class="impact-quote">
+          <i class="bi bi-quote fs-4 d-block mb-2" style="color:var(--ycl-blue-light)"></i>
+          Having a tool rental/makerspace or woodshop area would be incredible! The Richland library
+          in Columbia has a great makerspace that creates accessibility for a lot of people.
+          <div class="impact-quote-source">— Survey respondent</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Section 6: What You're Asking For ── #}
+<div class="card mb-4">
+  <div class="card-header-custom fw-bold" style="color:var(--ycl-blue)">
+    <i class="bi bi-lightbulb me-2"></i>What You're Asking For Next
+  </div>
+  <div class="card-body">
+    <p>
+      When asked what they want added or improved, <strong>430 patrons wrote detailed open-ended
+      responses</strong> (a 99.4% response rate). Their top strategic priorities, by selection:
+    </p>
+    <div class="row g-2 mb-3">
+      {% set priorities = [
+        ('bi-mortarboard',  'Lifelong Learning Programs', '288 selections', '53%', '#1a4f9e'),
+        ('bi-tools',        'Library of Things',          '273 selections', '50%', '#1e6f3e'),
+        ('bi-cpu',          'Makerspace',                 '230 selections', '42%', '#6c3483'),
+        ('bi-people',       'Meeting Spaces',             '183 selections', '34%', '#784212'),
+        ('bi-briefcase',    'Career &amp; Workforce Dev', '176 selections', '32%', '#117a65'),
+      ] %}
+      {% for icon, label, count, pct_val, color in priorities %}
+      <div class="col-6 col-md-4">
+        <div class="d-flex align-items-center gap-2 p-2 rounded" style="background:#f8f9fa;border-left:3px solid {{ color }}">
+          <i class="bi {{ icon }}" style="color:{{ color }};font-size:1.2rem"></i>
+          <div>
+            <div class="fw-semibold" style="font-size:.85rem">{{ label }}</div>
+            <div class="text-muted" style="font-size:.75rem">{{ count }} &nbsp;·&nbsp; {{ pct_val }} of respondents</div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <p>
+      The Fort Mill branch came up repeatedly — patrons called it "too small" and "cramped," and
+      multiple respondents specifically requested a second location or major expansion. Fort Mill
+      patrons' event attendance gap (51.6% vs. 71.5% system-wide) is a measurable consequence of
+      those space constraints.
+    </p>
+
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="impact-quote">
+          <i class="bi bi-quote fs-4 d-block mb-2" style="color:var(--ycl-blue-light)"></i>
+          Fort Mill library is too small!!! We need a bigger location or another branch in Fort Mill
+          desperately!
+          <div class="impact-quote-source">— Survey respondent</div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="impact-quote">
+          <i class="bi bi-quote fs-4 d-block mb-2" style="color:var(--ycl-blue-light)"></i>
+          Heavy emphasis on Library of Things and Makerspaces. These spaces will encourage creativity
+          and provide community support by making it more accessible.
+          <div class="impact-quote-source">— Survey respondent</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── full data table ── #}
+<div class="card mb-4 d-print-none">
+  <div class="card-header-custom">
+    <a class="fw-semibold text-decoration-none" data-bs-toggle="collapse" href="#fullDataTable" style="color:var(--ycl-blue)">
+      <i class="bi bi-table me-2"></i>Full Year-over-Year Data Table
+      <i class="bi bi-chevron-down ms-1" style="font-size:.8rem"></i>
+    </a>
+  </div>
+  <div class="collapse" id="fullDataTable">
+    <div class="table-responsive">
+      <table class="table table-sm table-bordered mb-0" style="font-size:.88rem">
+        <thead class="table-light">
+          <tr>
+            <th>Metric</th>
+            <th class="text-end" style="width:130px">FY{{ fy1 }}</th>
+            <th class="text-end" style="width:130px">FY{{ fy2 }}</th>
+            <th class="text-center" style="width:100px">Change</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set rows = [
+            ('Total Physical Checkouts',         data.circulation),
+            ('Digital Checkouts',                data.digital),
+            ('Total Checkouts (Physical + Digital)', data.total_checkout),
+            ('Hotspot Circulation',              data.hotspots),
+            ('Gate Count',                       data.gate),
+            ('Program Sessions',                 data.sessions),
+            ('Program Attendance',               data.attendance),
+            ('New Library Cards',                data.cards),
+            ('PC Reservations',                  data.pc_reservations),
+          ] %}
+          {% for label, row in rows %}
+          <tr>
+            <td>{{ label }}</td>
+            <td class="text-end {{ 'text-muted' if row.v1 is none }}">{{ fmt(row.v1) }}</td>
+            <td class="text-end fw-semibold {{ 'text-muted' if row.v2 is none }}">{{ fmt(row.v2) }}</td>
+            <td class="text-center">{{ pct_pill(row.pct) if row.v1 is not none and row.v2 is not none }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 </div>
 
 {% else %}
-<div class="alert alert-info mt-3">No data available for the selected fiscal years.</div>
+<div class="alert alert-info">No data available for the selected fiscal years.</div>
 {% endif %}
 
 {% endblock %}
 
 {% block scripts %}
 <style>
-@media print {
-  .d-print-none { display: none !important; }
-  body { background: white !important; font-size: 11px; }
-  .card { box-shadow: none !important; border: 1px solid #ccc !important; }
-  nav, footer { display: none !important; }
-  .container-lg { padding: 0 !important; max-width: 100% !important; }
-}
+  .impact-stat-box {
+    background: var(--ycl-blue-pale);
+    border-radius: 8px;
+    padding: 14px 8px;
+  }
+  .impact-stat-num {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--ycl-blue);
+    line-height: 1.1;
+  }
+  .impact-stat-label {
+    font-size: .72rem;
+    color: #555;
+    margin-top: 3px;
+    line-height: 1.2;
+  }
+  .impact-quote {
+    background: #f8f9fa;
+    border-left: 4px solid var(--ycl-blue-light);
+    border-radius: 4px;
+    padding: 14px 16px;
+    font-style: italic;
+    font-size: .88rem;
+    color: #333;
+    line-height: 1.5;
+  }
+  .impact-quote-source {
+    font-style: normal;
+    font-size: .78rem;
+    color: #888;
+    margin-top: 8px;
+  }
+  @media print {
+    .d-print-none { display: none !important; }
+    body { background: white !important; font-size: 11px; }
+    .card { box-shadow: none !important; border: 1px solid #ccc !important; break-inside: avoid; }
+    nav, footer { display: none !important; }
+    .container-lg { padding: 0 !important; max-width: 100% !important; }
+    .impact-quote { border-left: 3px solid #1a4f9e; }
+    .impact-stat-box { background: #f0f5ff; }
+  }
 </style>
 {% endblock %}

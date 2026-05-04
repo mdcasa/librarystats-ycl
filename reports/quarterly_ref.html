@@ -22,7 +22,7 @@
         <select name="year" class="form-select form-select-sm" onchange="this.form.submit()">
           <option value="">— select —</option>
           {% for y in available_years %}
-          <option value="{{ y }}" {% if sel_year == y %}selected{% endif %}>{{ y }}</option>
+          <option value="{{ y }}" {% if sel_year == y %}selected{% endif %}>FY{{ y-1 }}-{{ '%02d' % (y % 100) }}</option>
           {% endfor %}
         </select>
       </div>
@@ -42,7 +42,7 @@
 {# ── Per-branch sample table ── #}
 <div class="card mb-4">
   <div class="card-header-custom fw-semibold">
-    {{ sel_year }} — Weekly Sample Counts by Branch
+    FY{{ sel_year - 1 }}-{{ '%02d' % (sel_year % 100) }} — Weekly Sample Counts by Branch
   </div>
   <div class="table-responsive">
     <table class="table table-sm table-hover align-middle mb-0">
@@ -106,15 +106,15 @@
   <div class="card-header-custom fw-semibold d-flex align-items-center gap-2">
     Open Days &amp; Annual Estimate
     {% if closure_saved %}
-    <span class="badge bg-success ms-1"><i class="bi bi-check-circle me-1"></i>Saved for {{ sel_year }}</span>
+    <span class="badge bg-success ms-1"><i class="bi bi-check-circle me-1"></i>Saved for FY{{ sel_year - 1 }}-{{ '%02d' % (sel_year % 100) }}</span>
     {% else %}
-    <span class="badge bg-warning text-dark ms-1"><i class="bi bi-exclamation-circle me-1"></i>Not yet set for {{ sel_year }}</span>
+    <span class="badge bg-warning text-dark ms-1"><i class="bi bi-exclamation-circle me-1"></i>Not yet set for FY{{ sel_year - 1 }}-{{ '%02d' % (sel_year % 100) }}</span>
     {% endif %}
   </div>
   <div class="card-body">
     {% if not closure_saved %}
     <div class="alert alert-warning mb-3">
-      Enter the number of closure days for <strong>{{ sel_year }}</strong> and click
+      Enter the number of closure days for <strong>FY{{ sel_year - 1 }}-{{ '%02d' % (sel_year % 100) }}</strong> and click
       <strong>Save &amp; Calculate</strong> to generate the annual estimate.
       This only needs to be done once per year.
     </div>

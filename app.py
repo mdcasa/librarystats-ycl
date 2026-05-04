@@ -2018,17 +2018,22 @@ def director_dashboard():
 
 @app.route('/reports/quarterly_ref')
 def report_quarterly_ref():
-    year = request.args.get('year', type=int)
+    fy_year = request.args.get('year', type=int)
 
-    # Only show years that actually have Quarterly Reference Stats entries
+    # Derive available FY years from stored entries.
+    # Q1+Q2 belong to FY = calendar_year + 1; Q3+Q4 belong to FY = calendar_year.
     cat_check = Category.query.filter_by(name='Quarterly Reference Stats').first()
     if cat_check:
-        available_years = sorted(
-            {r[0] for r in db.session.query(Entry.year)
-                                      .filter_by(category_id=cat_check.id)
-                                      .distinct().all()},
-            reverse=True
-        )
+        rows = db.session.query(Entry.year, Entry.quarter).filter_by(
+            category_id=cat_check.id
+        ).distinct().all()
+        fy_set = set()
+        for yr, q in rows:
+            if q in (1, 2):
+                fy_set.add(yr + 1)
+            elif q in (3, 4):
+                fy_set.add(yr)
+        available_years = sorted(fy_set, reverse=True)
     else:
         available_years = []
 
@@ -2037,9 +2042,9 @@ def report_quarterly_ref():
     closure_saved = False
     holidays = unexpected = 0
 
-    if year:
-        # Load saved closure days for this year (if any)
-        saved = QuarterlyRefClosureDays.query.filter_by(year=year).first()
+    if fy_year:
+        # Load saved closure days keyed by FY year
+        saved = QuarterlyRefClosureDays.query.filter_by(year=fy_year).first()
         if saved:
             holidays = saved.holidays
             unexpected = saved.unexpected
@@ -2050,9 +2055,17 @@ def report_quarterly_ref():
             metric = next((m for m in cat.metrics if m.name == 'Total Transactions for the Week'), None)
             all_branches = _branches_for_category(cat)
 
-            # Raw data: {branch_id: {quarter: value}}
+            # Fetch entries spanning two calendar years:
+            # Q1+Q2 from year fy_year-1, Q3+Q4 from year fy_year
             raw = {b.id: {} for b in all_branches}
-            for e in Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat.id, year=year).all():
+            fy_entries = Entry.query.options(joinedload(Entry.values)).filter(
+                Entry.category_id == cat.id,
+                or_(
+                    and_(Entry.year == fy_year - 1, Entry.quarter.in_([1, 2])),
+                    and_(Entry.year == fy_year,     Entry.quarter.in_([3, 4]))
+                )
+            ).all()
+            for e in fy_entries:
                 if e.branch_id in raw and e.quarter and metric:
                     for ev in e.values:
                         if ev.metric_id == metric.id and ev.value_number is not None:
@@ -2102,7 +2115,7 @@ def report_quarterly_ref():
 
     return render_template('reports/quarterly_ref.html',
                            available_years=available_years,
-                           sel_year=year,
+                           sel_year=fy_year,
                            holidays=holidays,
                            unexpected=unexpected,
                            closure_saved=closure_saved,

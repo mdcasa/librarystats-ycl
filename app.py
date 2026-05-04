@@ -2805,7 +2805,6 @@ def report_impact():
 @app.route('/reports/impact.pdf')
 @admin_required
 def report_impact_pdf():
-    from weasyprint import HTML as WeasyprintHTML
     bs_cat = Category.query.filter_by(name='Branch Stats').first()
 
     fy1, fy2 = 2023, 2024
@@ -2923,12 +2922,13 @@ def report_impact_pdf():
 
     import traceback
     try:
+        from weasyprint import HTML as WeasyprintHTML
         html_str = render_template('reports/impact_pdf.html', fy1=fy1, fy2=fy2, data=data)
         pdf_bytes = WeasyprintHTML(string=html_str, base_url=request.url_root).write_pdf()
     except Exception:
         tb = traceback.format_exc()
         app.logger.error('PDF generation failed:\n%s', tb)
-        return f'<pre>PDF generation error:\n\n{tb}</pre>', 500
+        return f'<pre style="white-space:pre-wrap">PDF generation error — please send this to your admin:\n\n{tb}</pre>', 500
 
     filename = f'YCL_Impact_Report_FY{fy1}-FY{fy2}.pdf'
     return send_file(io.BytesIO(pdf_bytes), mimetype='application/pdf',

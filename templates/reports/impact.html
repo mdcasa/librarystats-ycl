@@ -5,22 +5,11 @@
 
 {# ── helpers ── #}
 {% macro fmt(v) %}{{ '{:,}'.format(v|int) if v is not none else '—' }}{% endmacro %}
-{% macro pct_pill(pct) %}
-  {% if pct is not none %}
-    {% if pct >= 0 %}<span class="badge rounded-pill bg-success">+{{ pct }}%</span>
-    {% else %}<span class="badge rounded-pill bg-danger">{{ pct }}%</span>{% endif %}
-  {% endif %}
-{% endmacro %}
-{% macro stat_col(label, v1, v2, pct) %}
+{% macro stat_col(label, v2) %}
 <div class="col-6 col-md-3 text-center mb-3">
   <div class="impact-stat-box">
     <div class="impact-stat-num">{{ fmt(v2) }}</div>
     <div class="impact-stat-label">{{ label }}</div>
-    {% if v1 is not none and v2 is not none %}
-    <div class="mt-1">{{ pct_pill(pct) }}
-      <span class="text-muted" style="font-size:.75rem"> vs {{ fmt(v1) }}</span>
-    </div>
-    {% endif %}
   </div>
 </div>
 {% endmacro %}
@@ -34,7 +23,6 @@
     <p class="text-muted mb-0" style="font-size:.9rem">
       York County Library &nbsp;·&nbsp;
       FY{{ fy2 }} (Jul {{ fy2 - 1 }}–Jun {{ fy2 }})
-      {% if data %}&nbsp;·&nbsp; Comparing to FY{{ fy1 }} (Jul {{ fy1 - 1 }}–Jun {{ fy1 }}){% endif %}
     </p>
   </div>
   <a href="{{ url_for('report_impact_pdf') }}" class="btn btn-outline-danger btn-sm d-print-none">
@@ -63,14 +51,14 @@
   </div>
   <div class="card-body pb-0">
     <div class="row">
-      {{ stat_col('Total Physical Checkouts',     data.circulation.v1,    data.circulation.v2,    data.circulation.pct) }}
-      {{ stat_col('Digital Checkouts',            data.digital.v1,        data.digital.v2,        data.digital.pct) }}
-      {{ stat_col('Visits (Gate Count)',          data.gate.v1,           data.gate.v2,           data.gate.pct) }}
-      {{ stat_col('Program Attendance',           data.attendance.v1,     data.attendance.v2,     data.attendance.pct) }}
-      {{ stat_col('New Library Cards',            data.cards.v1,          data.cards.v2,          data.cards.pct) }}
-      {{ stat_col('PC Reservations',              data.pc_reservations.v1,data.pc_reservations.v2,data.pc_reservations.pct) }}
-      {{ stat_col('Program Sessions',             data.sessions.v1,       data.sessions.v2,       data.sessions.pct) }}
-      {{ stat_col('Hotspot Circulation',          data.hotspots.v1,       data.hotspots.v2,       data.hotspots.pct) }}
+      {{ stat_col('Total Physical Checkouts', data.circulation.v2) }}
+      {{ stat_col('Digital Checkouts',       data.digital.v2) }}
+      {{ stat_col('Visits (Gate Count)',     data.gate.v2) }}
+      {{ stat_col('Program Attendance',      data.attendance.v2) }}
+      {{ stat_col('New Library Cards',       data.cards.v2) }}
+      {{ stat_col('PC Reservations',         data.pc_reservations.v2) }}
+      {{ stat_col('Program Sessions',        data.sessions.v2) }}
+      {{ stat_col('Hotspot Circulation',     data.hotspots.v2) }}
     </div>
   </div>
 </div>
@@ -84,9 +72,7 @@
     <div class="row align-items-start">
       <div class="col-md-7">
         <p>
-          The library recorded <strong>{{ fmt(data.gate.v2) }} visits</strong> in FY{{ fy2 }}
-          {{ pct_pill(data.gate.pct) }}
-          {% if data.gate.v1 is not none %} compared to {{ fmt(data.gate.v1) }} the year prior.{% endif %}
+          The library recorded <strong>{{ fmt(data.gate.v2) }} visits</strong> in FY{{ fy2 }}.
           Our survey confirms the pattern: <strong>92.3% of respondents had visited in the past year</strong>,
           with teens leading the way — <strong>57.1% visit every week</strong>, and nearly
           half of 25–40 year-olds (49.7%) do the same.
@@ -123,15 +109,10 @@
   <div class="card-body">
     <div class="row align-items-start">
       <div class="col-md-5">
-        <div class="impact-quote mb-3">
+        <div class="impact-quote">
           <i class="bi bi-quote fs-4 d-block mb-2" style="color:var(--ycl-blue-light)"></i>
           It is hard to browse books as the selection is small in person. I do appreciate being able to
           get them online, but I love spontaneously getting books.
-          <div class="impact-quote-source">— Survey respondent</div>
-        </div>
-        <div class="impact-quote">
-          <i class="bi bi-quote fs-4 d-block mb-2" style="color:var(--ycl-blue-light)"></i>
-          For ebooks, if you have a series, get all books in series, not random selections.
           <div class="impact-quote-source">— Survey respondent</div>
         </div>
       </div>
@@ -142,10 +123,10 @@
           in the numbers:
         </p>
         <ul>
-          <li>Physical checkouts: <strong>{{ fmt(data.circulation.v2) }}</strong> {{ pct_pill(data.circulation.pct) }}</li>
-          <li>Digital checkouts: <strong>{{ fmt(data.digital.v2) }}</strong> {{ pct_pill(data.digital.pct) }}</li>
+          <li>Physical checkouts: <strong>{{ fmt(data.circulation.v2) }}</strong></li>
+          <li>Digital checkouts: <strong>{{ fmt(data.digital.v2) }}</strong></li>
           {% if data.total_checkout.v2 is not none %}
-          <li>Combined total: <strong>{{ fmt(data.total_checkout.v2) }}</strong> {{ pct_pill(data.total_checkout.pct) }}</li>
+          <li>Combined total: <strong>{{ fmt(data.total_checkout.v2) }}</strong></li>
           {% endif %}
         </ul>
         <p>
@@ -168,7 +149,7 @@
       <div class="col-md-7">
         <p>
           YCL offered <strong>{{ fmt(data.sessions.v2) }} program sessions</strong> in FY{{ fy2 }},
-          drawing <strong>{{ fmt(data.attendance.v2) }} participants</strong> {{ pct_pill(data.attendance.pct) }}.
+          drawing <strong>{{ fmt(data.attendance.v2) }} participants</strong>.
           Our survey found that <strong>61.2% of patrons attended at least one YCL signature event</strong>,
           with teens and young adults leading at 71.4%.
         </p>
@@ -226,8 +207,7 @@
       </div>
       <div class="col-md-7">
         <p>
-          YCL issued <strong>{{ fmt(data.cards.v2) }} new library cards</strong> in FY{{ fy2 }}
-          {{ pct_pill(data.cards.pct) }}.
+          YCL issued <strong>{{ fmt(data.cards.v2) }} new library cards</strong> in FY{{ fy2 }}.
           New cardholders represent fresh connections to the community — and an opportunity to retain
           them through the services they value most.
         </p>
@@ -256,13 +236,12 @@
     <div class="row align-items-start">
       <div class="col-md-7">
         <p>
-          <strong>{{ fmt(data.hotspots.v2) }} hotspot checkouts</strong> {{ pct_pill(data.hotspots.pct) }}
+          <strong>{{ fmt(data.hotspots.v2) }} hotspot checkouts</strong>
           put internet access in the hands of patrons who need it most — at home, at work, and in
           transit. For many families, a YCL hotspot is the difference between connected and left behind.
         </p>
         <p>
           In-branch, <strong>{{ fmt(data.pc_reservations.v2) }} PC reservation sessions</strong>
-          {{ pct_pill(data.pc_reservations.pct) }}
           reflect the library's role as a technology access point. Help from librarians — rated
           <strong>3.62 to 3.93 out of 5</strong> across all age groups — is the trusted guide that makes
           that access meaningful.
@@ -343,7 +322,7 @@
 <div class="card mb-4 d-print-none">
   <div class="card-header-custom">
     <a class="fw-semibold text-decoration-none" data-bs-toggle="collapse" href="#fullDataTable" style="color:var(--ycl-blue)">
-      <i class="bi bi-table me-2"></i>Full Year-over-Year Data Table
+      <i class="bi bi-table me-2"></i>Full Data — FY{{ fy2 }}
       <i class="bi bi-chevron-down ms-1" style="font-size:.8rem"></i>
     </a>
   </div>
@@ -353,29 +332,25 @@
         <thead class="table-light">
           <tr>
             <th>Metric</th>
-            <th class="text-end" style="width:130px">FY{{ fy1 }}</th>
-            <th class="text-end" style="width:130px">FY{{ fy2 }}</th>
-            <th class="text-center" style="width:100px">Change</th>
+            <th class="text-end" style="width:150px">FY{{ fy2 }}</th>
           </tr>
         </thead>
         <tbody>
           {% set rows = [
-            ('Total Physical Checkouts',         data.circulation),
-            ('Digital Checkouts',                data.digital),
-            ('Total Checkouts (Physical + Digital)', data.total_checkout),
-            ('Hotspot Circulation',              data.hotspots),
-            ('Gate Count',                       data.gate),
-            ('Program Sessions',                 data.sessions),
-            ('Program Attendance',               data.attendance),
-            ('New Library Cards',                data.cards),
-            ('PC Reservations',                  data.pc_reservations),
+            ('Total Physical Checkouts',             data.circulation.v2),
+            ('Digital Checkouts',                    data.digital.v2),
+            ('Total Checkouts (Physical + Digital)', data.total_checkout.v2),
+            ('Hotspot Circulation',                  data.hotspots.v2),
+            ('Gate Count',                           data.gate.v2),
+            ('Program Sessions',                     data.sessions.v2),
+            ('Program Attendance',                   data.attendance.v2),
+            ('New Library Cards',                    data.cards.v2),
+            ('PC Reservations',                      data.pc_reservations.v2),
           ] %}
-          {% for label, row in rows %}
+          {% for label, val in rows %}
           <tr>
             <td>{{ label }}</td>
-            <td class="text-end {{ 'text-muted' if row.v1 is none }}">{{ fmt(row.v1) }}</td>
-            <td class="text-end fw-semibold {{ 'text-muted' if row.v2 is none }}">{{ fmt(row.v2) }}</td>
-            <td class="text-center">{{ pct_pill(row.pct) if row.v1 is not none and row.v2 is not none }}</td>
+            <td class="text-end fw-semibold {{ 'text-muted' if val is none }}">{{ fmt(val) }}</td>
           </tr>
           {% endfor %}
         </tbody>

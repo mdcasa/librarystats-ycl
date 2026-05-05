@@ -746,6 +746,12 @@ After each upload the results page shows:
 
 To verify a specific entry, go to `/entries`, filter by month and branch, and confirm the metrics from that file show numbers rather than dashes.
 
+### Undoing an Upload
+
+Every upload is recorded in the `import_logs` table (`ImportLog` model). The upload page shows the last 20 imports. Admins can click **Undo** on any active import to revert it: updated `entry_values` rows are restored to their previous numbers, newly created `entry_values` and `entries` rows are deleted, and `sirsi_checkouts` rows are restored or deleted as appropriate. Once undone, the log row is marked `undone_at` and cannot be undone again.
+
+The `changes_json` column stores a JSON diff with keys `ev_created`, `ev_updated` (with `old`/`new` values), `entries_created`, `sirsi_created`, and `sirsi_deleted`. The snapshot is taken immediately before `detect_and_import()` runs so it is always accurate.
+
 ---
 
 ## Branch Taxonomy
@@ -756,19 +762,23 @@ YCL has **6 real service locations**: Rock Hill (Main), Clover, Fort Mill, Lake 
 |---|---|---|---|
 | Service location | Rock Hill, Clover, Fort Mill, Lake Wylie, York, Outreach/Bookmobile | No | ✅ Yes |
 | Locker pickup | Rock Hill - Lockers, Clover - Lockers, Fort Mill - Lockers, Lake Wylie - Lockers, York - Lockers | No | ❌ No — filtered out |
-| Desk sub-location | Rock Hill - Circulation, Rock Hill - YA | Yes | ❌ No — `is_desk=True` excludes them |
+| Desk sub-location | Rock Hill - Circulation, Rock Hill - YA, Rock Hill - Children's | Yes | ❌ No — `is_desk=True` excludes them |
 | System-wide placeholder | YCL (System Wide) | No | ❌ No — excluded by name |
+| Internal/admin | Administration | No | ❌ No — excluded by name |
 
-**Dashboard branch count** (`total_branches` in the index route) uses:
+**Standard branch filter** (used by all reports, `get_sums`, and branch counts):
 ```python
 Branch.query.filter(
     Branch.is_active == True,
     Branch.is_desk == False,
     ~Branch.name.ilike('%locker%'),
     Branch.name != 'YCL (System Wide)',
-).count()
+    Branch.name != 'Administration',
+)
 ```
-This returns 6 — the five branches plus bookmobile.
+This yields 6 — the five branches plus bookmobile. The `Administration` branch exists for internal staff-training tracking but must be excluded everywhere or it inflates totals.
+
+**Dashboard branch count** (`total_branches` in the index route) applies the same filter and returns 6.
 
 **Locker branches** (`YCL-CL-LOC`, `YCL-FM-LOC`, `YCL-LW-LOC`, `YCL-RH-LOC`, `YCL-YK-LOC`) are kept as separate DB branches so their circulation can be tracked independently without being double-counted into the parent branch totals. They are excluded from Branch Stats entry forms, manual entry forms, and branch-count displays. The annual survey auto-calculator also excludes locker branches when summing gate count and other metrics.
 
@@ -861,7 +871,7 @@ Annual estimate formula: for each branch, `avg(sampled quarter values) × open_w
 
 | Route | Function | Description |
 |---|---|---|
-| `/reports/monthlystats` | `report_monthly_stats` | Monthly Board Report — key metrics for a selected month |
+| `/reports/monthlystats` | `report_monthly_stats` | Monthly Board Report — key metrics for a selected month, compared to the same month last year. Shows circulation, gate count, new cards, ONSITE/OFFSITE/VIRTUAL sessions and attendance (separate sections), online usage, social media, and technology. Branch Stats sums exclude lockers, desks, System Wide, and Administration so only the 6 real service locations are counted. |
 | `/reports/monthly` | `report_monthly` | Monthly Summary — all metrics for a category/month across branches |
 | `/reports/fiscal` | `report_fiscal` | Fiscal Year Totals — annual rollup by category |
 | `/reports/trend` | `report_trend` | Trend Over Time — one metric charted over months |

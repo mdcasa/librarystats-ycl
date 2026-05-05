@@ -1906,16 +1906,6 @@ def report_monthly_stats():
                 'items': [pair(prog(bs_c,'ONSITE','Attendance',a), prog(bs_p,'ONSITE','Attendance',a), f'Attendance {a}') for a in AGE],
             },
             {
-                'title': 'OFFSITE Program Sessions',
-                'color': '#6c3483',
-                'items': [pair(prog(bs_c,'OFFSITE','Sessions',a), prog(bs_p,'OFFSITE','Sessions',a), f'Sessions {a}') for a in AGE],
-            },
-            {
-                'title': 'OFFSITE Program Attendance',
-                'color': '#784212',
-                'items': [pair(prog(bs_c,'OFFSITE','Attendance',a), prog(bs_p,'OFFSITE','Attendance',a), f'Attendance {a}') for a in AGE],
-            },
-            {
                 'title': 'VIRTUAL Program Sessions & Attendance',
                 'color': '#117a65',
                 'items': (

@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, session
 from flask_login import LoginManager, login_user, logout_user, current_user
-from models import db, Category, Metric, Branch, Entry, EntryValue, User, QuarterlyRefClosureDays
+from models import db, Category, Metric, Branch, Entry, EntryValue, User, QuarterlyRefClosureDays, ImportLog
 from sqlalchemy.orm import joinedload
 from sqlalchemy import or_, and_
 from jinja2 import ChoiceLoader, FileSystemLoader
@@ -60,6 +60,10 @@ with app.app_context():
     if not Branch.query.filter_by(name="Rock Hill - Children's").first():
         _max_sort = db.session.query(db.func.max(Branch.sort_order)).scalar() or 0
         db.session.add(Branch(name="Rock Hill - Children's", is_desk=True, is_active=True, sort_order=_max_sort + 1))
+    # Create Administration branch if it doesn't exist yet
+    if not Branch.query.filter_by(name='Administration').first():
+        _max_sort = db.session.query(db.func.max(Branch.sort_order)).scalar() or 0
+        db.session.add(Branch(name='Administration', is_active=True, is_desk=False, sort_order=_max_sort + 1))
     db.session.commit()
 
     if Category.query.count() == 0:
@@ -104,6 +108,25 @@ with app.app_context():
                     _backfilled += 1
             if _backfilled:
                 db.session.commit()
+
+    # Create import_logs table if it doesn't exist yet
+    try:
+        db.session.execute(db.text(
+            "CREATE TABLE IF NOT EXISTS import_logs ("
+            "  id SERIAL PRIMARY KEY,"
+            "  created_at TIMESTAMP DEFAULT NOW(),"
+            "  file_name VARCHAR(255),"
+            "  import_type VARCHAR(500),"
+            "  year INTEGER,"
+            "  month INTEGER,"
+            "  rows_affected INTEGER DEFAULT 0,"
+            "  undone_at TIMESTAMP,"
+            "  changes_json TEXT"
+            ")"
+        ))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
 
     # Bootstrap: create default admin from env vars if no users exist yet
     if User.query.count() == 0:
@@ -294,12 +317,13 @@ def index():
     _circ_m   = next((m for m in _bs_cat.metrics if m.name == 'Total Branch Circulation'), None) \
                 if _bs_cat else None
 
-    # Real service branches for per-branch drill-down (exclude lockers, desks, system-wide)
+    # Real service branches for per-branch drill-down (exclude lockers, desks, system-wide, admin)
     _real_branches = Branch.query.filter(
         Branch.is_active == True,
         Branch.is_desk == False,
         ~Branch.name.ilike('%locker%'),
         Branch.name != 'YCL (System Wide)',
+        Branch.name != 'Administration',
     ).order_by(Branch.sort_order).all()
 
     coverage = []
@@ -336,6 +360,7 @@ def index():
                                Branch.is_desk == False,
                                ~Branch.name.ilike('%locker%'),
                                Branch.name != 'YCL (System Wide)',
+                               Branch.name != 'Administration',
                            ).count(),
                            latest_year=latest_year,
                            latest_month=latest_month,
@@ -825,7 +850,7 @@ def report_monthly():
                     data[e.branch_id][ev.metric_id] = ev.value_number
 
         branches = sorted(
-            [b for b in (Branch.query.get(bid) for bid in branch_set) if b],
+            [b for b in (Branch.query.get(bid) for bid in branch_set) if b and b.name != 'Administration'],
             key=lambda b: b.name
         )
         table = report_data_table(metrics, branches if branches else [None], data)
@@ -870,6 +895,7 @@ def report_trend():
                 Branch.is_desk == False,
                 ~Branch.name.ilike('%locker%'),
                 Branch.name != 'YCL (System Wide)',
+                Branch.name != 'Administration',
             ).order_by(Branch.name).all()
             locker_branches = Branch.query.filter(
                 Branch.is_active == True,
@@ -916,6 +942,7 @@ def report_trend():
         Branch.is_desk == False,
         ~Branch.name.ilike('%locker%'),
         Branch.name != 'YCL (System Wide)',
+        Branch.name != 'Administration',
     ).order_by(Branch.name).all()
     return render_template('reports/trend.html',
                            categories=categories, available_years=available_years,
@@ -938,6 +965,7 @@ def report_programming():
         Branch.is_desk == False,
         ~Branch.name.ilike('%locker%'),
         Branch.name != 'YCL (System Wide)',
+        Branch.name != 'Administration',
     ).order_by(Branch.name).all()
     TYPES      = ['ONSITE', 'OFFSITE', 'VIRTUAL']
     AGE_GROUPS = ['0-5', '6-11', '12-18', '19+', 'General Interest']
@@ -1056,6 +1084,7 @@ def report_yoy():
         Branch.is_desk == False,
         ~Branch.name.ilike('%locker%'),
         Branch.name != 'YCL (System Wide)',
+        Branch.name != 'Administration',
     ).order_by(Branch.name).all()
     table = col_headers = chart_data = category = metric = annual_chart_json = None
 
@@ -1229,7 +1258,7 @@ def report_fiscal():
         if category.has_branch:
             bid_set  = {e.branch_id for e in entries if e.branch_id}
             branches = sorted(
-                [b for b in (Branch.query.get(bid) for bid in bid_set) if b],
+                [b for b in (Branch.query.get(bid) for bid in bid_set) if b and b.name != 'Administration'],
                 key=lambda b: b.name
             )
         else:
@@ -1323,7 +1352,13 @@ def report_annual():
     from sqlalchemy import or_, and_
     fy_year = request.args.get('fy_year', type=int)
 
-    branches = Branch.query.filter_by(is_active=True, is_desk=False).order_by(Branch.name).all()
+    branches = Branch.query.filter(
+        Branch.is_active == True,
+        Branch.is_desk == False,
+        ~Branch.name.ilike('%locker%'),
+        Branch.name != 'YCL (System Wide)',
+        Branch.name != 'Administration',
+    ).order_by(Branch.name).all()
 
     TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
     AGES  = ['0-5', '6-11', '12-18', '19+', 'General Interest']
@@ -1465,6 +1500,7 @@ def _import_comparison(results):
         Branch.is_desk == False,
         ~Branch.name.ilike('%locker%'),
         Branch.name != 'YCL (System Wide)',
+        Branch.name != 'Administration',
     ).order_by(Branch.name).all()
 
     all_periods = periods | {(y - 1, m) for y, m in periods}
@@ -1519,8 +1555,53 @@ def _import_comparison(results):
     return comparison
 
 
+def _import_snapshot():
+    """Capture current DB state so we can diff after an import."""
+    import json
+    ev_snap    = {row[0]: row[1] for row in
+                  db.session.execute(db.text('SELECT id, value_number FROM entry_values')).fetchall()}
+    entry_snap = {row[0] for row in
+                  db.session.execute(db.text('SELECT id FROM entries')).fetchall()}
+    sirsi_rows = db.session.execute(db.text(
+        'SELECT id, year, month, branch_id, patron_type, shelving_location, checkouts, renewals '
+        'FROM sirsi_checkouts'
+    )).fetchall()
+    sirsi_snap = {r[0] for r in sirsi_rows}
+    sirsi_full = {r[0]: dict(year=r[1], month=r[2], branch_id=r[3], patron_type=r[4],
+                              shelving_location=r[5], checkouts=r[6], renewals=r[7])
+                  for r in sirsi_rows}
+    return ev_snap, entry_snap, sirsi_snap, sirsi_full
+
+
+def _import_diff(ev_before, entries_before, sirsi_before, sirsi_full_before):
+    """Compute what changed since the snapshot was taken."""
+    ev_after = {row[0]: row[1] for row in
+                db.session.execute(db.text('SELECT id, value_number FROM entry_values')).fetchall()}
+    entries_after = {row[0] for row in
+                     db.session.execute(db.text('SELECT id FROM entries')).fetchall()}
+    sirsi_after = {row[0] for row in
+                   db.session.execute(db.text('SELECT id FROM sirsi_checkouts')).fetchall()}
+
+    ev_created  = [eid for eid in ev_after if eid not in ev_before]
+    ev_updated  = [{'id': eid, 'old': ev_before[eid], 'new': ev_after[eid]}
+                   for eid in ev_after
+                   if eid in ev_before and ev_before[eid] != ev_after[eid]]
+    entries_created  = list(entries_after - entries_before)
+    sirsi_created    = list(sirsi_after - sirsi_before)
+    sirsi_deleted    = [sirsi_full_before[sid] for sid in (sirsi_before - sirsi_after)]
+
+    return {
+        'entries_created': entries_created,
+        'ev_created':      ev_created,
+        'ev_updated':      ev_updated,
+        'sirsi_created':   sirsi_created,
+        'sirsi_deleted':   sirsi_deleted,
+    }
+
+
 @app.route('/upload', methods=['GET', 'POST'])
 def upload_data():
+    import json
     results = None
     comparison = None
     if request.method == 'POST':
@@ -1537,7 +1618,29 @@ def upload_data():
                     f.save(tmp.name)
                     tmp_path = tmp.name
                 wb = openpyxl.load_workbook(tmp_path, data_only=True)
+
+                ev_before, entries_before, sirsi_before, sirsi_full = _import_snapshot()
                 results = detect_and_import(wb, year_override=year_override)
+                changes = _import_diff(ev_before, entries_before, sirsi_before, sirsi_full)
+
+                # Derive period + type summary from results
+                periods = {(r['year'], r['month']) for r in results if r.get('year') and r.get('month')}
+                period_year  = next((r['year']  for r in results if r.get('year')),  None)
+                period_month = next((r['month'] for r in results if r.get('month')), None)
+                import_type  = '; '.join(r['sheet'] for r in results if r.get('created', 0) + r.get('updated', 0) > 0)
+                rows_affected = sum(r.get('created', 0) + r.get('updated', 0) for r in results)
+
+                log = ImportLog(
+                    file_name=f.filename,
+                    import_type=import_type or 'Unknown',
+                    year=period_year,
+                    month=period_month,
+                    rows_affected=rows_affected,
+                    changes_json=json.dumps(changes),
+                )
+                db.session.add(log)
+                db.session.commit()
+
                 total_created = sum(r['created'] for r in results)
                 flash(f'Upload complete — {total_created} new records added.', 'success')
                 comparison = _import_comparison(results)
@@ -1546,7 +1649,64 @@ def upload_data():
             finally:
                 if tmp_path and os.path.exists(tmp_path):
                     os.unlink(tmp_path)
-    return render_template('upload.html', results=results, comparison=comparison, now=datetime.utcnow())
+
+    recent_logs = ImportLog.query.order_by(ImportLog.created_at.desc()).limit(20).all()
+    return render_template('upload.html', results=results, comparison=comparison,
+                           now=datetime.utcnow(), recent_logs=recent_logs)
+
+
+@app.route('/upload/undo/<int:log_id>', methods=['POST'])
+def upload_undo(log_id):
+    import json
+    from models import SirsiCheckout
+    if not current_user.is_admin:
+        flash('Admin access required.', 'danger')
+        return redirect(url_for('upload_data'))
+
+    log = ImportLog.query.get_or_404(log_id)
+    if log.undone_at:
+        flash('This import has already been undone.', 'warning')
+        return redirect(url_for('upload_data'))
+
+    try:
+        changes = json.loads(log.changes_json)
+
+        # Restore updated entry_values to their previous values
+        for ch in changes.get('ev_updated', []):
+            ev = db.session.get(EntryValue, ch['id'])
+            if ev:
+                ev.value_number = ch['old']
+
+        # Delete entry_values that were created by this import
+        if changes.get('ev_created'):
+            EntryValue.query.filter(EntryValue.id.in_(changes['ev_created'])).delete(synchronize_session=False)
+
+        # Delete entries that were created by this import (now empty)
+        for entry_id in changes.get('entries_created', []):
+            entry = db.session.get(Entry, entry_id)
+            if entry:
+                db.session.delete(entry)
+
+        # Delete SIRSI checkout rows created by this import
+        if changes.get('sirsi_created'):
+            SirsiCheckout.query.filter(SirsiCheckout.id.in_(changes['sirsi_created'])).delete(synchronize_session=False)
+
+        # Restore SIRSI checkout rows that were deleted by this import
+        for row in changes.get('sirsi_deleted', []):
+            db.session.add(SirsiCheckout(
+                year=row['year'], month=row['month'], branch_id=row['branch_id'],
+                patron_type=row['patron_type'], shelving_location=row['shelving_location'],
+                checkouts=row['checkouts'], renewals=row['renewals'],
+            ))
+
+        log.undone_at = datetime.utcnow()
+        db.session.commit()
+        flash(f'Import of "{log.file_name}" has been undone.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Undo failed: {e}', 'danger')
+
+    return redirect(url_for('upload_data'))
 
 
 # Metrics populated via file upload or dedicated forms — excluded from general entry forms
@@ -1682,7 +1842,19 @@ def report_monthly_stats():
             cat = Category.query.filter_by(name=cat_name).first()
             if not cat:
                 return {}
-            entries = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat.id, year=y, month=m).all()
+            q = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat.id, year=y, month=m)
+            if cat.has_branch:
+                excluded_ids = [b.id for b in Branch.query.filter(
+                    db.or_(
+                        Branch.name.ilike('%locker%'),
+                        Branch.name == 'YCL (System Wide)',
+                        Branch.name == 'Administration',
+                        Branch.is_desk == True,
+                    )
+                ).with_entities(Branch.id).all()]
+                if excluded_ids:
+                    q = q.filter(~Entry.branch_id.in_(excluded_ids))
+            entries = q.all()
             id_to_name = {mx.id: mx.name for mx in cat.metrics}
             totals = {}
             for e in entries:
@@ -1698,10 +1870,9 @@ def report_monthly_stats():
         os_p = get_sums('Online Stats', prev_year, month)
 
         AGE  = ['0-5', '6-11', '12-18', '19+', 'General Interest']
-        TYPE = ['ONSITE', 'OFFSITE', 'VIRTUAL']
 
-        def prog(sums, kind, age):
-            return sum(sums.get(f'{t} {kind} {age}', 0) for t in TYPE) or None
+        def prog(sums, ptype, kind, age):
+            return sums.get(f'{ptype} {kind} {age}') or None
 
         def pair(curr, prev, label):
             return {'label': label, 'curr': curr, 'prev': prev}
@@ -1725,14 +1896,32 @@ def report_monthly_stats():
                 ],
             },
             {
-                'title': 'Monthly Program Sessions',
+                'title': 'ONSITE Program Sessions',
                 'color': '#6c3483',
-                'items': [pair(prog(bs_c,'Sessions',a), prog(bs_p,'Sessions',a), f'Sessions {a}') for a in AGE],
+                'items': [pair(prog(bs_c,'ONSITE','Sessions',a), prog(bs_p,'ONSITE','Sessions',a), f'Sessions {a}') for a in AGE],
             },
             {
-                'title': 'Monthly Program Attendance',
+                'title': 'ONSITE Program Attendance',
                 'color': '#784212',
-                'items': [pair(prog(bs_c,'Attendance',a), prog(bs_p,'Attendance',a), f'Attendance {a}') for a in AGE],
+                'items': [pair(prog(bs_c,'ONSITE','Attendance',a), prog(bs_p,'ONSITE','Attendance',a), f'Attendance {a}') for a in AGE],
+            },
+            {
+                'title': 'OFFSITE Program Sessions',
+                'color': '#6c3483',
+                'items': [pair(prog(bs_c,'OFFSITE','Sessions',a), prog(bs_p,'OFFSITE','Sessions',a), f'Sessions {a}') for a in AGE],
+            },
+            {
+                'title': 'OFFSITE Program Attendance',
+                'color': '#784212',
+                'items': [pair(prog(bs_c,'OFFSITE','Attendance',a), prog(bs_p,'OFFSITE','Attendance',a), f'Attendance {a}') for a in AGE],
+            },
+            {
+                'title': 'VIRTUAL Program Sessions & Attendance',
+                'color': '#117a65',
+                'items': (
+                    [pair(prog(bs_c,'VIRTUAL','Sessions',a), prog(bs_p,'VIRTUAL','Sessions',a), f'Sessions {a}') for a in AGE] +
+                    [pair(prog(bs_c,'VIRTUAL','Attendance',a), prog(bs_p,'VIRTUAL','Attendance',a), f'Attendance {a}') for a in AGE]
+                ),
             },
             {
                 'title': 'Online Usage',
@@ -1765,6 +1954,11 @@ def report_monthly_stats():
                 ],
             },
         ]
+
+        # Drop sections where every item has no data in either year
+        sections = [s for s in sections
+                    if any(it['curr'] is not None or it['prev'] is not None
+                           for it in s['items'])]
 
     return render_template('reports/monthly_stats.html',
                            months=MONTHS, available_years=available_years,
@@ -2690,7 +2884,7 @@ def report_impact():
             totals = {}
             for e in entries:
                 bname = e.branch.name if e.branch else ''
-                if bname == 'YCL (System Wide)' or 'Lockers' in bname:
+                if bname == 'YCL (System Wide)' or 'Lockers' in bname or bname == 'Administration':
                     continue
                 for ev in e.values:
                     n = id_to_name.get(ev.metric_id)

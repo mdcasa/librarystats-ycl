@@ -192,6 +192,24 @@ class QuarterlyRefClosureDays(db.Model):
     saved_at   = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class ImportLog(db.Model):
+    """Records each file upload so it can be undone."""
+    __tablename__ = 'import_logs'
+    id            = db.Column(db.Integer, primary_key=True)
+    created_at    = db.Column(db.DateTime, default=datetime.utcnow)
+    file_name     = db.Column(db.String(255))
+    import_type   = db.Column(db.String(500))
+    year          = db.Column(db.Integer, nullable=True)
+    month         = db.Column(db.Integer, nullable=True)
+    rows_affected = db.Column(db.Integer, default=0)
+    undone_at     = db.Column(db.DateTime, nullable=True)
+    changes_json  = db.Column(db.Text)
+
+    @property
+    def can_undo(self):
+        return self.undone_at is None and self.changes_json is not None
+
+
 class EntryValue(db.Model):
     __tablename__ = 'entry_values'
     id = db.Column(db.Integer, primary_key=True)

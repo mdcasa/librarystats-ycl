@@ -176,5 +176,67 @@
   </div>
   {% endif %}
 
+  {% if recent_logs %}
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header-custom fw-semibold d-flex align-items-center justify-content-between">
+        <span><i class="bi bi-clock-history me-2 text-secondary"></i>Recent Imports</span>
+        <span class="text-muted small fw-normal">Last 20 uploads — admins can undo</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>When</th>
+              <th>File</th>
+              <th>Type</th>
+              <th class="text-center">Period</th>
+              <th class="text-center">Rows</th>
+              <th class="text-center">Status</th>
+              {% if current_user.is_admin %}<th></th>{% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for log in recent_logs %}
+            <tr class="{{ 'table-secondary text-muted' if log.undone_at }}">
+              <td class="text-nowrap small">{{ log.created_at.strftime('%b %d %Y %H:%M') }}</td>
+              <td class="small text-truncate" style="max-width:200px" title="{{ log.file_name }}">{{ log.file_name }}</td>
+              <td class="small">{{ log.import_type }}</td>
+              <td class="text-center small">
+                {% if log.year and log.month %}
+                  {{ ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][log.month-1] }} {{ log.year }}
+                {% elif log.year %}
+                  {{ log.year }}
+                {% else %}—{% endif %}
+              </td>
+              <td class="text-center">{{ log.rows_affected }}</td>
+              <td class="text-center">
+                {% if log.undone_at %}
+                  <span class="badge bg-secondary">Undone {{ log.undone_at.strftime('%b %d %H:%M') }}</span>
+                {% else %}
+                  <span class="badge bg-success">Active</span>
+                {% endif %}
+              </td>
+              {% if current_user.is_admin %}
+              <td>
+                {% if log.can_undo %}
+                <form method="post" action="{{ url_for('upload_undo', log_id=log.id) }}"
+                      onsubmit="return confirm('Undo the import of {{ log.file_name | replace(\"'\", \"\\'\") }}? This will restore all previous values.')">
+                  <button type="submit" class="btn btn-sm btn-outline-danger">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>Undo
+                  </button>
+                </form>
+                {% endif %}
+              </td>
+              {% endif %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
 </div>
 {% endblock %}

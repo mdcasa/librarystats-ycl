@@ -13,6 +13,7 @@ Can also be called from the web admin via do_import(workbook).
 """
 
 import os
+import re
 import sys
 from datetime import datetime
 
@@ -81,6 +82,18 @@ BRANCH_STATS_MAP = {
     '1-on-1 Total for Month':                              '1-on-1 Total for Month',
     'Locker Circulation':                                  'Locker Circulation',
 }
+
+def _norm(s):
+    """Collapse runs of whitespace and strip edges — used to match Excel headers robustly."""
+    return re.sub(r'\s+', ' ', s.strip()) if s else ''
+
+# Normalised lookup built once at import time so import_branch_stats can do
+# fuzzy-whitespace matching without mutating the canonical map.
+_BRANCH_STATS_MAP_NORM = {_norm(k): v for k, v in BRANCH_STATS_MAP.items()}
+
+# Headers containing these tokens are programming columns we want to warn about
+# if they appear in the Excel but aren't matched by the map.
+_PROG_TOKENS = {'ONSITE', 'OFFSITE', 'VIRTUAL', 'Sessions', 'Attendance'}
 
 ONLINE_STATS_MAP = {
     'yclibrary.org - web sessions':        'yclibrary.org - Web Sessions',
@@ -319,12 +332,32 @@ def import_branch_stats(ws, cat, metric_lookup, branch_lookup, year_override=Non
     month_idx  = col_index(headers, 'Month Num') or col_index(headers, 'Month')
     branch_idx = col_index(headers, 'BRANCH')
 
+    # Never overwrite metrics that come from SIRSI reports — those importers are authoritative.
+    _SIRSI_METRIC_NAMES = {
+        'New Library Card Registrations, Adult',
+        'New Library Card Registrations, Juvenile',
+        'New Library Card Registrations, Total',
+        'Total Branch Circulation',
+        'Hotspots Circulation',
+        'Locker Circulation',
+    }
+    sirsi_metric_ids = {m.id for name, m in metric_lookup.items() if name in _SIRSI_METRIC_NAMES}
+
     col_metric = {}
+    unmatched_prog_cols = []
     for i, h in enumerate(headers):
-        if h and h in BRANCH_STATS_MAP:
-            m = metric_lookup.get(BRANCH_STATS_MAP[h])
-            if m:
+        if not h:
+            continue
+        h_str = str(h)
+        metric_name = _BRANCH_STATS_MAP_NORM.get(_norm(h_str))
+        if metric_name:
+            m = metric_lookup.get(metric_name)
+            if m and m.id not in sirsi_metric_ids:
                 col_metric[i] = m
+        else:
+            tokens = set(h_str.split())
+            if tokens & _PROG_TOKENS:
+                unmatched_prog_cols.append(h_str)
 
     buckets = {}
     skipped_branches = set()
@@ -364,6 +397,11 @@ def import_branch_stats(ws, cat, metric_lookup, branch_lookup, year_override=Non
                 buckets[key][m.id] = float(val)
 
     warnings = [f'Unrecognised branch skipped: {b}' for b in sorted(skipped_branches)]
+    if unmatched_prog_cols:
+        warnings.append(
+            'Programming columns in file not matched to any metric (data NOT imported): '
+            + '; '.join(unmatched_prog_cols)
+        )
     created = updated = 0
     for (year, month, branch_id), values in buckets.items():
         if not values:
@@ -663,8 +701,11 @@ INTERNAL_PROFILES = {'DAMAGED', 'DISCARD', 'MISSING', 'REPAIR', 'PRGMNG',
                      'STAFF-PERS', 'YCLCIRC', 'ILL', 'LOSTCARD'}
 
 # New Library Users — patron type classification
-_ADULT_PROFILES   = {'ADULT', 'A-NONRES', 'INST-TEACH', 'TEEN', 'COLLEGE', 'HOMEBOUND'}
-_JUVENILE_PROFILES = {'JUVENILE', 'J-INTERNET', 'J-RESTRICT', 'JR-NONRES'}
+_ADULT_PROFILES   = {'ADULT', 'A-NONRES', 'INST-TEACH', 'TEEN', 'COLLEGE', 'HOMEBOUND',
+                     'J-ADULT'}       # juvenile patron aged up to adult status
+_JUVENILE_PROFILES = {'JUVENILE', 'J-INTERNET', 'J-RESTRICT', 'JR-NONRES',
+                      'TEMP-INET',    # temporary internet-only juvenile card
+                      'JR-RECIP'}     # junior reciprocal borrower
 
 # Door count location name → Branch.name
 DOOR_COUNT_BRANCH_MAP = {
@@ -852,9 +893,11 @@ def import_sirsi_checkouts(ws, year, month, branch_lookup):
 
         if not isinstance(count, (int, float)):
             continue
-        if location in (None, 'Total', 'Number of Checkouts'):
+        if location in ('Total', 'Number of Checkouts'):
             continue
         if profile == 'Total' or profile == 'Trans Stat User Profile Name':
+            continue
+        if profile and str(profile).strip() in INTERNAL_PROFILES:
             continue
         if current_ils is None:
             continue
@@ -903,7 +946,6 @@ def import_sirsi_checkouts(ws, year, month, branch_lookup):
             if shelving_location == 'A-HOTSPOT':
                 branch_totals[branch_id][1] += chk
 
-        system_circ = system_hot = 0
         for branch_id, (total_circ, hot) in branch_totals.items():
             entry = (Entry.query
                      .filter_by(category_id=bs_cat.id, branch_id=branch_id, year=year, month=month)

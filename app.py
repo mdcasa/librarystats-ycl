@@ -2719,6 +2719,8 @@ def annual_survey_calculate(year):
 
     db.session.commit()
     flash(f'{len(calculated)} metrics auto-calculated for FY{year} from monthly data.', 'success')
+    if request.form.get('next') == 'dashboard':
+        return redirect(url_for('annual_survey_dashboard'))
     return redirect(url_for('annual_survey_enter', year=year))
 
 

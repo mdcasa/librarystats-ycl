@@ -5,7 +5,11 @@
 <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
   <div>
     <h1 class="h4 fw-bold mb-0"><i class="bi bi-bar-chart-steps me-2 text-primary"></i>Annual Survey Dashboard</h1>
-    <p class="text-muted small mb-0">Annual Report Data ONLY. The monthly statistics are kept in a different database location than these annual statistics.</p>
+    <p class="small mb-0">
+      <span class="badge text-bg-warning me-1">Annual Report Data Only</span>
+      Monthly statistics are stored separately in Branch Stats.
+      The <strong>Calculate</strong> button auto-fills: Gate Count, Total Physical Circulation, WiFi Sessions, Website Visits, Programming Sessions &amp; Attendance, Staff Training, and Take &amp; Makes — drawn from the monthly data for the selected fiscal year.
+    </p>
   </div>
   <div class="d-flex gap-2 align-items-center flex-wrap">
     {% if latest_year %}
@@ -14,6 +18,12 @@
       <option value="{{ y }}" {% if y == latest_year %}selected{% endif %}>FY{{ y }}</option>
       {% endfor %}
     </select>
+    <form id="calcForm" method="post" action="{{ url_for('annual_survey_calculate', year=latest_year) }}">
+      <input type="hidden" name="next" value="dashboard">
+      <button type="submit" class="btn btn-warning btn-sm">
+        <i class="bi bi-lightning-fill me-1"></i>Calculate FY<span id="btnCalcLabel">{{ latest_year }}</span>
+      </button>
+    </form>
     {% endif %}
   </div>
 </div>
@@ -272,6 +282,11 @@ function renderKpis(year) {
     </div>`;
   }).join('');
 
+  const calcForm = document.getElementById('calcForm');
+  if (calcForm) {
+    calcForm.action = `/annual-survey/${year}/calculate`;
+    document.getElementById('btnCalcLabel').textContent = year;
+  }
 }
 
 const picker = document.getElementById('fyYearPicker');

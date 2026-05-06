@@ -1253,7 +1253,16 @@ def report_fiscal():
 
         table = report_data_table(metrics, branch_list, totals)
 
-    if table and request.args.get('format') == 'xlsx':
+        # Detect empty-alias categories (e.g. Circulation — data lives in Branch Stats)
+        if not table or all(not g['rows'] for g in table):
+            has_any_entries = db.session.query(Entry.id).filter_by(
+                category_id=cat_id).limit(1).scalar() is not None
+            if not has_any_entries:
+                bs_cat = Category.query.filter_by(name='Branch Stats').first()
+                table = '__alias__'
+                alias_target = bs_cat
+
+    if table and table != '__alias__' and request.args.get('format') == 'xlsx':
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill
         wb = Workbook()
@@ -1302,7 +1311,8 @@ def report_fiscal():
                            categories=categories, available_fy=available_fy,
                            sel_cat=cat_id, sel_fy=fy_year,
                            category=category, table=table, branches=branches,
-                           fy_label=fy_label)
+                           fy_label=fy_label,
+                           alias_target=locals().get('alias_target'))
 
 
 # ── Fiscal-year helper ────────────────────────────────────────────────────────

@@ -2803,6 +2803,9 @@ def report_overview():
             id_to_name = {m.id: m.name for m in bs_cat.metrics}
             totals = {}
             for e in entries:
+                if e.branch and ('system wide' in e.branch.name.lower() or
+                                 'locker' in e.branch.name.lower()):
+                    continue
                 for ev in e.values:
                     n = id_to_name.get(ev.metric_id)
                     if n and ev.value_number is not None:

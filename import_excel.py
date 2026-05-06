@@ -971,6 +971,37 @@ def import_sirsi_checkouts(ws, year, month, branch_lookup):
 
             circ_entries += 1
 
+    # Write Locker Circulation (checkouts + renewals) to parent branch entries.
+    locker_metric = bs_metrics.get('Locker Circulation')
+    if bs_cat and locker_metric and branch_totals:
+        locker_to_parent = {}
+        for code, name in ILS_BRANCH_MAP.items():
+            if not code.endswith('-LOC'):
+                continue
+            parent_name = name.replace(' - Lockers', '')
+            locker_b = branch_lookup.get(name) or branch_lookup.get(name.lower())
+            parent_b = branch_lookup.get(parent_name) or branch_lookup.get(parent_name.lower())
+            if locker_b and parent_b:
+                locker_to_parent[locker_b.id] = parent_b.id
+
+        for branch_id, (locker_circ, _) in branch_totals.items():
+            parent_id = locker_to_parent.get(branch_id)
+            if parent_id is None or not locker_circ:
+                continue
+            entry = (Entry.query
+                     .filter_by(category_id=bs_cat.id, branch_id=parent_id, year=year, month=month)
+                     .first())
+            if not entry:
+                entry = Entry(category_id=bs_cat.id, branch_id=parent_id,
+                              year=year, month=month, submitted_by='SIRSI Import')
+                db.session.add(entry)
+                db.session.flush()
+            ev_l = EntryValue.query.filter_by(entry_id=entry.id, metric_id=locker_metric.id).first()
+            if ev_l:
+                ev_l.value_number = locker_circ
+            else:
+                db.session.add(EntryValue(entry_id=entry.id, metric_id=locker_metric.id, value_number=locker_circ))
+
     db.session.commit()
     return len(detail), circ_entries, warnings
 

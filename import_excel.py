@@ -897,6 +897,8 @@ def import_sirsi_checkouts(ws, year, month, branch_lookup):
             continue
         if profile == 'Total' or profile == 'Trans Stat User Profile Name':
             continue
+        if profile is None and location is None:
+            continue  # grand-total summary rows (e.g. "Total  231280") — not transaction data
         if profile and str(profile).strip() in INTERNAL_PROFILES:
             continue
         if current_ils is None:

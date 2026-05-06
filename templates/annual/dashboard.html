@@ -14,12 +14,6 @@
       <option value="{{ y }}" {% if y == latest_year %}selected{% endif %}>FY{{ y }}</option>
       {% endfor %}
     </select>
-    <a id="btnEditYear" href="{{ url_for('annual_survey_enter', year=latest_year) }}" class="btn btn-outline-primary btn-sm">
-      <i class="bi bi-pencil-square me-1"></i>Enter / Edit FY<span id="btnEditYearLabel">{{ latest_year }}</span>
-    </a>
-    <a href="{{ url_for('annual_survey_enter', year=latest_year + 1) }}" class="btn btn-primary btn-sm">
-      <i class="bi bi-plus-circle me-1"></i>Add FY{{ latest_year + 1 }}
-    </a>
     {% endif %}
   </div>
 </div>
@@ -278,11 +272,6 @@ function renderKpis(year) {
     </div>`;
   }).join('');
 
-  const btn = document.getElementById('btnEditYear');
-  if (btn) {
-    btn.href = `/annual-survey/${year}/enter`;
-    document.getElementById('btnEditYearLabel').textContent = year;
-  }
 }
 
 const picker = document.getElementById('fyYearPicker');

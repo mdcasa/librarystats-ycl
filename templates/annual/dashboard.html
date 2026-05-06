@@ -12,16 +12,17 @@
     </p>
   </div>
   <div class="d-flex gap-2 align-items-center flex-wrap">
-    {% if latest_year %}
+    {% if years %}
     <select id="fyYearPicker" class="form-select form-select-sm" style="width:auto">
+      <option value="">— Select a fiscal year —</option>
       {% for y in years | reverse %}
-      <option value="{{ y }}" {% if y == latest_year %}selected{% endif %}>FY{{ y }}</option>
+      <option value="{{ y }}">FY{{ y }}</option>
       {% endfor %}
     </select>
-    <form id="calcForm" method="post" action="{{ url_for('annual_survey_calculate', year=latest_year) }}">
+    <form id="calcForm" method="post" action="#">
       <input type="hidden" name="next" value="dashboard">
-      <button type="submit" class="btn btn-warning btn-sm">
-        <i class="bi bi-lightning-fill me-1"></i>Calculate FY<span id="btnCalcLabel">{{ latest_year }}</span>
+      <button type="submit" class="btn btn-warning btn-sm" id="btnCalc" disabled>
+        <i class="bi bi-lightning-fill me-1"></i>Calculate <span id="btnCalcLabel">…</span>
       </button>
     </form>
     <button type="button" class="btn btn-outline-warning btn-sm" data-bs-toggle="modal" data-bs-target="#bulkCalcModal">
@@ -32,10 +33,13 @@
 </div>
 
 {# ── KPI Cards ── #}
-{% if latest_year %}
 <p class="text-muted small mb-2" id="kpiSubtitle"></p>
-<div class="row g-3 mb-4" id="kpiCards"></div>
-{% endif %}
+<div class="row g-3 mb-4" id="kpiCards">
+  <div class="col-12 text-center text-muted py-4" id="kpiPlaceholder">
+    <i class="bi bi-calendar2-check fs-2 d-block mb-2 opacity-25"></i>
+    Select a fiscal year above to view KPI summary cards
+  </div>
+</div>
 
 {# ── Interactive Chart Builder ── #}
 <div class="card mb-4">
@@ -143,7 +147,6 @@
         </tr>
       </thead>
       <tbody>
-        {% set key_sections = ['USERS GATE COUNT','CIRC','PROGRAMMING','OUTREACH','TECH USE','ILL','EXPENSES TOTAL','REVENUE'] %}
         {% set key_metrics = [
           'Annual Library Visits (gate count)',
           'Total registered users',
@@ -310,12 +313,32 @@
 const chartData = {{ chart_data | tojson }};
 const years = {{ years | tojson }};
 const kpisByYear = {{ kpis_by_year | tojson }};
+
+const kpiPlaceholderHtml = `<div class="col-12 text-center text-muted py-4" id="kpiPlaceholder">
+  <i class="bi bi-calendar2-check fs-2 d-block mb-2 opacity-25"></i>
+  Select a fiscal year above to view KPI summary cards
+</div>`;
+
 function renderKpis(year) {
-  const kpis = kpisByYear[year] || [];
-  const prevYear = year - 1;
   const subtitle = document.getElementById('kpiSubtitle');
   const container = document.getElementById('kpiCards');
+  const calcForm = document.getElementById('calcForm');
+  const btnCalc = document.getElementById('btnCalc');
+  const btnLabel = document.getElementById('btnCalcLabel');
+
+  if (!year) {
+    if (subtitle) subtitle.innerHTML = '';
+    container.innerHTML = kpiPlaceholderHtml;
+    if (btnCalc) { btnCalc.disabled = true; btnLabel.textContent = '…'; }
+    if (calcForm) calcForm.action = '#';
+    return;
+  }
+
+  const kpis = kpisByYear[year] || [];
+  const prevYear = year - 1;
   if (subtitle) subtitle.innerHTML = `FY<strong>${year}</strong> &mdash; Jul ${year - 1} &ndash; Jun ${year}`;
+  if (calcForm) calcForm.action = `/annual-survey/${year}/calculate`;
+  if (btnCalc) { btnCalc.disabled = false; btnLabel.textContent = `FY${year}`; }
 
   container.innerHTML = kpis.map(k => {
     let changeHtml = '';
@@ -337,18 +360,14 @@ function renderKpis(year) {
       </div></div>
     </div>`;
   }).join('');
-
-  const calcForm = document.getElementById('calcForm');
-  if (calcForm) {
-    calcForm.action = `/annual-survey/${year}/calculate`;
-    document.getElementById('btnCalcLabel').textContent = year;
-  }
 }
 
 const picker = document.getElementById('fyYearPicker');
 if (picker) {
-  picker.addEventListener('change', () => renderKpis(parseInt(picker.value)));
-  renderKpis(parseInt(picker.value));
+  picker.addEventListener('change', () => {
+    renderKpis(picker.value ? parseInt(picker.value) : null);
+  });
+  // No auto-render on load — user must select a year
 }
 
 function makeChart(id, label, metricKey, color) {

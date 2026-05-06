@@ -143,6 +143,9 @@ with app.app_context():
 MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
           'July', 'August', 'September', 'October', 'November', 'December']
 
+PROG_TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
+AGE_GROUPS = ['0-5', '6-11', '12-18', '19+', 'General Interest']
+
 
 @app.template_filter('commas')
 def commas_filter(value):
@@ -239,8 +242,8 @@ def index():
             return None
         return int(v) if v == int(v) else round(v, 1)
 
-    TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
-    AGE   = ['0-5', '6-11', '12-18', '19+', 'General Interest']
+    TYPES = PROG_TYPES
+    AGE   = AGE_GROUPS
 
     bs_cat = Category.query.filter_by(name='Branch Stats').first()
     latest_year = latest_month = None
@@ -318,13 +321,7 @@ def index():
                 if _bs_cat else None
 
     # Real service branches for per-branch drill-down (exclude lockers, desks, system-wide, admin)
-    _real_branches = Branch.query.filter(
-        Branch.is_active == True,
-        Branch.is_desk == False,
-        ~Branch.name.ilike('%locker%'),
-        Branch.name != 'YCL (System Wide)',
-        Branch.name != 'Administration',
-    ).order_by(Branch.sort_order).all()
+    _real_branches = _real_branch_q().order_by(Branch.sort_order).all()
 
     coverage = []
     for cat in Category.query.filter_by(is_active=True).order_by(Category.sort_order).all():
@@ -355,13 +352,7 @@ def index():
     return render_template('index.html',
                            total_entries=Entry.query.count(),
                            total_categories=Category.query.filter_by(is_active=True).count(),
-                           total_branches=Branch.query.filter(
-                               Branch.is_active == True,
-                               Branch.is_desk == False,
-                               ~Branch.name.ilike('%locker%'),
-                               Branch.name != 'YCL (System Wide)',
-                               Branch.name != 'Administration',
-                           ).count(),
+                           total_branches=_real_branch_q().count(),
                            latest_year=latest_year,
                            latest_month=latest_month,
                            kpi=kpi,
@@ -423,6 +414,17 @@ def entries_list():
 
 
 # ── Create entry ─────────────────────────────────────────────────────────────
+
+def _real_branch_q():
+    """Filtered query for the 6 real service branches — excludes lockers, desks, System Wide, Administration."""
+    return Branch.query.filter(
+        Branch.is_active == True,
+        Branch.is_desk == False,
+        ~Branch.name.ilike('%locker%'),
+        Branch.name != 'YCL (System Wide)',
+        Branch.name != 'Administration',
+    )
+
 
 def _branches_for_category(category):
     """Return the branch list appropriate for a given category."""
@@ -890,13 +892,7 @@ def report_trend():
                     '#16a085','#d35400','#2980b9','#c0392b','#1abc9c']
 
         if category.has_branch:
-            real_branches = Branch.query.filter(
-                Branch.is_active == True,
-                Branch.is_desk == False,
-                ~Branch.name.ilike('%locker%'),
-                Branch.name != 'YCL (System Wide)',
-                Branch.name != 'Administration',
-            ).order_by(Branch.name).all()
+            real_branches = _real_branch_q().order_by(Branch.name).all()
             locker_branches = Branch.query.filter(
                 Branch.is_active == True,
                 Branch.name.ilike('%locker%'),
@@ -937,13 +933,7 @@ def report_trend():
 
         chart_data = {'labels': labels, 'datasets': datasets}
 
-    all_branches = Branch.query.filter(
-        Branch.is_active == True,
-        Branch.is_desk == False,
-        ~Branch.name.ilike('%locker%'),
-        Branch.name != 'YCL (System Wide)',
-        Branch.name != 'Administration',
-    ).order_by(Branch.name).all()
+    all_branches = _real_branch_q().order_by(Branch.name).all()
     return render_template('reports/trend.html',
                            categories=categories, available_years=available_years,
                            all_branches=all_branches, metrics_json=metrics_json,
@@ -960,15 +950,8 @@ def report_programming():
 
     available_years = [r[0] for r in db.session.query(Entry.year).distinct()
                                                 .order_by(Entry.year.desc()).all()]
-    branches = Branch.query.filter(
-        Branch.is_active == True,
-        Branch.is_desk == False,
-        ~Branch.name.ilike('%locker%'),
-        Branch.name != 'YCL (System Wide)',
-        Branch.name != 'Administration',
-    ).order_by(Branch.name).all()
-    TYPES      = ['ONSITE', 'OFFSITE', 'VIRTUAL']
-    AGE_GROUPS = ['0-5', '6-11', '12-18', '19+', 'General Interest']
+    branches = _real_branch_q().order_by(Branch.name).all()
+    TYPES      = PROG_TYPES
     summary = outreach = None
 
     if year:
@@ -1079,13 +1062,7 @@ def report_yoy():
             fy_set.add(yr + 1 if q in (3, 4) else yr)
     available_years = sorted(y for y in fy_set if y <= _cur_fy)
 
-    all_branches = Branch.query.filter(
-        Branch.is_active == True,
-        Branch.is_desk == False,
-        ~Branch.name.ilike('%locker%'),
-        Branch.name != 'YCL (System Wide)',
-        Branch.name != 'Administration',
-    ).order_by(Branch.name).all()
+    all_branches = _real_branch_q().order_by(Branch.name).all()
     table = col_headers = chart_data = category = metric = annual_chart_json = None
 
     # Fiscal month order: Jul→Jun
@@ -1352,16 +1329,10 @@ def report_annual():
     from sqlalchemy import or_, and_
     fy_year = request.args.get('fy_year', type=int)
 
-    branches = Branch.query.filter(
-        Branch.is_active == True,
-        Branch.is_desk == False,
-        ~Branch.name.ilike('%locker%'),
-        Branch.name != 'YCL (System Wide)',
-        Branch.name != 'Administration',
-    ).order_by(Branch.name).all()
+    branches = _real_branch_q().order_by(Branch.name).all()
 
-    TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
-    AGES  = ['0-5', '6-11', '12-18', '19+', 'General Interest']
+    TYPES = PROG_TYPES
+    AGES  = AGE_GROUPS
 
     COLS = [
         ('Circulation',         'Total Branch Circulation'),
@@ -1495,13 +1466,7 @@ def _import_comparison(results):
     if not metric_id_map:
         return []
 
-    branches = Branch.query.filter(
-        Branch.is_active == True,
-        Branch.is_desk == False,
-        ~Branch.name.ilike('%locker%'),
-        Branch.name != 'YCL (System Wide)',
-        Branch.name != 'Administration',
-    ).order_by(Branch.name).all()
+    branches = _real_branch_q().order_by(Branch.name).all()
 
     all_periods = periods | {(y - 1, m) for y, m in periods}
     entries = (Entry.query
@@ -1869,7 +1834,7 @@ def report_monthly_stats():
         os_c = get_sums('Online Stats', year,      month)
         os_p = get_sums('Online Stats', prev_year, month)
 
-        AGE  = ['0-5', '6-11', '12-18', '19+', 'General Interest']
+        AGE  = AGE_GROUPS
 
         def prog(sums, ptype, kind, age):
             return sums.get(f'{ptype} {kind} {age}') or None
@@ -2001,8 +1966,8 @@ def director_dashboard():
         os = fy_filter('Online Stats')
         qs = fy_filter('Quarterly Reference Stats')
 
-        AGE  = ['0-5', '6-11', '12-18', '19+', 'General Interest']
-        TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
+        AGE   = AGE_GROUPS
+        TYPES = PROG_TYPES
 
         def v(d, key):
             val = d.get(key)
@@ -2196,8 +2161,8 @@ def director_dashboard():
     return render_template('director.html',
                            available_fy=available_fy, sel_fy=fy_year,
                            fy_label=f'FY{fy_year} (Jul {fy_year-1} – Jun {fy_year})' if fy_year else None,
-                           stats=stats, TYPES=['ONSITE', 'OFFSITE', 'VIRTUAL'],
-                           AGE=['0-5', '6-11', '12-18', '19+', 'General Interest'])
+                           stats=stats, TYPES=PROG_TYPES,
+                           AGE=AGE_GROUPS)
 
 
 @app.route('/reports/quarterly_ref')
@@ -2659,7 +2624,7 @@ def annual_survey_calculate(year):
     locker_ids = {b.id for b in Branch.query.filter(Branch.name.ilike('%locker%')).all()}
     bs_entries_no_locker = [e for e in bs_entries if e.branch_id not in locker_ids]
 
-    PROG_TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
+
 
     calculated = {}
 
@@ -2815,8 +2780,8 @@ def report_overview():
         d1 = fy_totals(fy1)
         d2 = fy_totals(fy2)
 
-        AGE   = ['0-5', '6-11', '12-18', '19+', 'General Interest']
-        TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
+        AGE   = AGE_GROUPS
+        TYPES = PROG_TYPES
 
         def iv(d, key):
             val = d.get(key)
@@ -2887,8 +2852,8 @@ def report_impact():
 
         d1 = fy_totals(fy1)
         d2 = fy_totals(fy2)
-        AGE   = ['0-5', '6-11', '12-18', '19+', 'General Interest']
-        TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
+        AGE   = AGE_GROUPS
+        TYPES = PROG_TYPES
 
         def iv(d, key):
             val = d.get(key)
@@ -3019,8 +2984,8 @@ def report_impact_pdf():
 
     d1 = fy_totals(fy1)
     d2 = fy_totals(fy2)
-    AGE   = ['0-5', '6-11', '12-18', '19+', 'General Interest']
-    TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
+    AGE   = AGE_GROUPS
+    TYPES = PROG_TYPES
 
     def iv(d, key):
         val = d.get(key)
@@ -3190,8 +3155,8 @@ def report_impact_docx():
         return phys, dig
 
     d2 = _fy_totals(fy2)
-    AGE   = ['0-5', '6-11', '12-18', '19+', 'General Interest']
-    TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
+    AGE   = AGE_GROUPS
+    TYPES = PROG_TYPES
 
     ac_phys2, digital2 = _ac_totals(fy2)
     circ2   = ac_phys2 if ac_phys2 is not None else _iv(d2, 'Total Branch Circulation')

@@ -2585,16 +2585,18 @@ def annual_survey_enter(year):
                            existing=existing)
 
 
-@app.route('/annual-survey/<int:year>/calculate', methods=['POST'])
-def annual_survey_calculate(year):
-    """Auto-calculate metrics that can be derived from the monthly Branch Stats / Online Stats data."""
+def _calculate_annual_metrics(year):
+    """Calculate auto-metrics for one FY year from monthly Branch/Online Stats.
+
+    Returns the number of metrics saved (inserted or updated).
+    Does NOT commit — caller must call db.session.commit().
+    """
     from sqlalchemy import or_, and_
 
     bs_cat     = Category.query.filter_by(name='Branch Stats').first()
     online_cat = Category.query.filter_by(name='Online Stats').first()
     metrics_map = {m.name: m for m in AnnualSurveyMetric.query.all()}
 
-    # FY months: Jul–Dec of year-1, Jan–Jun of year
     def fy_entries(cat):
         if not cat:
             return []
@@ -2620,16 +2622,13 @@ def annual_survey_calculate(year):
 
     bs_entries     = fy_entries(bs_cat)
     online_entries = fy_entries(online_cat)
-
-    # Exclude locker branches from branch-level sums
     locker_ids = {b.id for b in Branch.query.filter(Branch.name.ilike('%locker%')).all()}
     bs_entries_no_locker = [e for e in bs_entries if e.branch_id not in locker_ids]
 
-
-
     calculated = {}
+    note = f'Auto-calculated from monthly data for FY{year} (Jul {year-1} – Jun {year})'
 
-    def _save(metric_name, value, note):
+    def _save(metric_name, value):
         if value is None:
             return
         am = metrics_map.get(metric_name)
@@ -2647,22 +2646,19 @@ def annual_survey_calculate(year):
             ))
         calculated[metric_name] = value
 
-    note = f'Auto-calculated from monthly data for FY{year} (Jul {year-1} – Jun {year})'
-
     _save('Annual Library Visits (gate count)',
-          sum_metric(bs_entries_no_locker, 'Gate Count'), note)
+          sum_metric(bs_entries_no_locker, 'Gate Count'))
     _save('Number of wireless sessions',
-          sum_metric(bs_entries_no_locker, 'WiFi - Unique Sessions'), note)
+          sum_metric(bs_entries_no_locker, 'WiFi - Unique Sessions'))
     _save('Number of website visits',
-          sum_metric(online_entries, 'yclibrary.org - Web Sessions'), note)
+          sum_metric(online_entries, 'yclibrary.org - Web Sessions'))
     _save('TOTAL CIRC ALL PHYSICAL',
-          sum_metric(bs_entries_no_locker, 'Total Branch Circulation'), note)
+          sum_metric(bs_entries_no_locker, 'Total Branch Circulation'))
 
-    # Programming sessions by age group
-    for age, label in [('0-5', 'Synchronous Pgm Sessions Kids 0-5'),
-                        ('6-11', 'Synchronous Pgm Sessions Kids 6-11'),
-                        ('12-18', 'Total YA Programs for ages 12-18'),
-                        ('19+', 'Total Adult Programs for 18+'),
+    for age, label in [('0-5',              'Synchronous Pgm Sessions Kids 0-5'),
+                        ('6-11',             'Synchronous Pgm Sessions Kids 6-11'),
+                        ('12-18',            'Total YA Programs for ages 12-18'),
+                        ('19+',              'Total Adult Programs for 18+'),
                         ('General Interest', 'Total Gen Audience')]:
         total = 0
         found = False
@@ -2671,21 +2667,22 @@ def annual_survey_calculate(year):
             if v is not None:
                 total += v
                 found = True
-        _save(label, round(total) if found else None, note)
+        _save(label, round(total) if found else None)
 
-    # Derived totals
     kids05  = calculated.get('Synchronous Pgm Sessions Kids 0-5', 0) or 0
     kids611 = calculated.get('Synchronous Pgm Sessions Kids 6-11', 0) or 0
     ya      = calculated.get('Total YA Programs for ages 12-18', 0) or 0
     adult   = calculated.get('Total Adult Programs for 18+', 0) or 0
     gen     = calculated.get('Total Gen Audience', 0) or 0
     if any([kids05, kids611, ya, adult, gen]):
-        _save('Total Programs 0-11', kids05 + kids611, note)
-        _save('Total of all programs', kids05 + kids611 + ya + adult + gen, note)
+        _save('Total Programs 0-11', kids05 + kids611)
+        _save('Total of all programs', kids05 + kids611 + ya + adult + gen)
 
-    # Programming attendance
-    for age, label in [('0-5',  'children_05'), ('6-11', 'children_611'),
-                        ('12-18', 'ya'), ('19+', 'adult'), ('General Interest', 'gen')]:
+    for age, label in [('0-5',              'children_05'),
+                        ('6-11',             'children_611'),
+                        ('12-18',            'ya'),
+                        ('19+',              'adult'),
+                        ('General Interest', 'gen')]:
         total = 0
         found = False
         for t in PROG_TYPES:
@@ -2701,27 +2698,45 @@ def annual_survey_calculate(year):
     ad_a = calculated.get('att_adult', 0) or 0
     ge_a = calculated.get('att_gen', 0) or 0
 
-    _save('Children 0 to 11 programs attendance', c05 + c611, note)
-    _save('YA 12-18 programs attendance', ya_a, note)
-    _save('Adult programs attendance', ad_a, note)
-    _save('Total General attendance', ge_a, note)
+    _save('Children 0 to 11 programs attendance', c05 + c611)
+    _save('YA 12-18 programs attendance', ya_a)
+    _save('Adult programs attendance', ad_a)
+    _save('Total General attendance', ge_a)
     if any([c05, c611, ya_a, ad_a, ge_a]):
         _save('Total Attendance all programs and all ages',
-              c05 + c611 + ya_a + ad_a + ge_a, note)
+              c05 + c611 + ya_a + ad_a + ge_a)
 
-    # Outreach / training
     _save('Number of staff trained',
-          sum_metric(bs_entries_no_locker, 'Number of Staff Taking Training'), note)
+          sum_metric(bs_entries_no_locker, 'Number of Staff Taking Training'))
     _save('Number of hours of training attended by staff',
-          sum_metric(bs_entries_no_locker, 'Number of Hours Staff Attended Training'), note)
+          sum_metric(bs_entries_no_locker, 'Number of Hours Staff Attended Training'))
     _save('Number of items distributed as take-and-makes',
-          sum_metric(bs_entries_no_locker, 'Take & Makes / Other Passive Program Participants'), note)
+          sum_metric(bs_entries_no_locker, 'Take & Makes / Other Passive Program Participants'))
 
+    return len(calculated)
+
+
+@app.route('/annual-survey/<int:year>/calculate', methods=['POST'])
+def annual_survey_calculate(year):
+    n = _calculate_annual_metrics(year)
     db.session.commit()
-    flash(f'{len(calculated)} metrics auto-calculated for FY{year} from monthly data.', 'success')
+    flash(f'{n} metrics auto-calculated for FY{year} from monthly data.', 'success')
     if request.form.get('next') == 'dashboard':
         return redirect(url_for('annual_survey_dashboard'))
     return redirect(url_for('annual_survey_enter', year=year))
+
+
+@app.route('/annual-survey/calculate-bulk', methods=['POST'])
+def annual_survey_calculate_bulk():
+    years = request.form.getlist('years', type=int)
+    if not years:
+        flash('No years selected.', 'warning')
+        return redirect(url_for('annual_survey_dashboard'))
+    total = sum(_calculate_annual_metrics(y) for y in years)
+    db.session.commit()
+    flash(f'{total} metrics auto-calculated across {len(years)} fiscal year(s): '
+          + ', '.join(f'FY{y}' for y in sorted(years)) + '.', 'success')
+    return redirect(url_for('annual_survey_dashboard'))
 
 
 @app.route('/reports/overview')

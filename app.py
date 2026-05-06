@@ -758,7 +758,7 @@ def report_data_table(metrics, branch_list, data):
         if v is None:
             return '—'
         if isinstance(v, float):
-            return str(int(v)) if v == int(v) else f"{v:.2f}".rstrip('0').rstrip('.')
+            return f"{int(v):,}" if v == int(v) else f"{v:,.2f}".rstrip('0').rstrip('.')
         return str(v) if v != '' else '—'
 
     groups, seen = [], {}

@@ -7,10 +7,15 @@
     <h1 class="h4 fw-bold mb-0"><i class="bi bi-bar-chart-steps me-2 text-primary"></i>Annual Survey Dashboard</h1>
     <p class="text-muted small mb-0">SC State Library annual report data — fiscal year July–June</p>
   </div>
-  <div class="d-flex gap-2">
+  <div class="d-flex gap-2 align-items-center flex-wrap">
     {% if latest_year %}
-    <a href="{{ url_for('annual_survey_enter', year=latest_year) }}" class="btn btn-outline-primary btn-sm">
-      <i class="bi bi-pencil-square me-1"></i>Enter / Edit FY{{ latest_year }}
+    <select id="fyYearPicker" class="form-select form-select-sm" style="width:auto">
+      {% for y in years | reverse %}
+      <option value="{{ y }}" {% if y == latest_year %}selected{% endif %}>FY{{ y }}</option>
+      {% endfor %}
+    </select>
+    <a id="btnEditYear" href="{{ url_for('annual_survey_enter', year=latest_year) }}" class="btn btn-outline-primary btn-sm">
+      <i class="bi bi-pencil-square me-1"></i>Enter / Edit FY<span id="btnEditYearLabel">{{ latest_year }}</span>
     </a>
     <a href="{{ url_for('annual_survey_enter', year=latest_year + 1) }}" class="btn btn-primary btn-sm">
       <i class="bi bi-plus-circle me-1"></i>Add FY{{ latest_year + 1 }}
@@ -21,33 +26,8 @@
 
 {# ── KPI Cards ── #}
 {% if latest_year %}
-<p class="text-muted small mb-2">Most recent: <strong>FY{{ latest_year }}</strong> (Jul {{ latest_year - 1 }} – Jun {{ latest_year }})</p>
-<div class="row g-3 mb-4">
-  {% for kpi in kpis %}
-  <div class="col-6 col-md-3">
-    <div class="card h-100">
-      <div class="card-body py-3">
-        <div class="text-muted small mb-1">{{ kpi.label }}</div>
-        <div class="fw-bold fs-5">
-          {% if kpi.value is not none %}
-            {{ kpi.value | commas }}
-          {% else %}
-            <span class="text-muted">—</span>
-          {% endif %}
-        </div>
-        {% if kpi.value is not none and kpi.prev is not none %}
-          {% set diff = kpi.value - kpi.prev %}
-          {% set pct = ((diff / kpi.prev) * 100) | round(1) %}
-          <div class="small mt-1 {% if diff >= 0 %}text-success{% else %}text-danger{% endif %}">
-            <i class="bi bi-arrow-{% if diff >= 0 %}up{% else %}down{% endif %}"></i>
-            {{ pct }}% vs FY{{ latest_year - 1 }}
-          </div>
-        {% endif %}
-      </div>
-    </div>
-  </div>
-  {% endfor %}
-</div>
+<p class="text-muted small mb-2" id="kpiSubtitle"></p>
+<div class="row g-3 mb-4" id="kpiCards"></div>
 {% endif %}
 
 {# ── Interactive Chart Builder ── #}
@@ -269,6 +249,47 @@
 <script>
 const chartData = {{ chart_data | tojson }};
 const years = {{ years | tojson }};
+const kpisByYear = {{ kpis_by_year | tojson }};
+function renderKpis(year) {
+  const kpis = kpisByYear[year] || [];
+  const prevYear = year - 1;
+  const subtitle = document.getElementById('kpiSubtitle');
+  const container = document.getElementById('kpiCards');
+  if (subtitle) subtitle.innerHTML = `FY<strong>${year}</strong> &mdash; Jul ${year - 1} &ndash; Jun ${year}`;
+
+  container.innerHTML = kpis.map(k => {
+    let changeHtml = '';
+    if (k.value !== null && k.prev !== null && k.prev !== 0) {
+      const diff = k.value - k.prev;
+      const pct = ((diff / k.prev) * 100).toFixed(1);
+      const cls = diff >= 0 ? 'text-success' : 'text-danger';
+      const arrow = diff >= 0 ? 'up' : 'down';
+      changeHtml = `<div class="small mt-1 ${cls}"><i class="bi bi-arrow-${arrow}"></i> ${pct}% vs FY${prevYear}</div>`;
+    }
+    const valHtml = k.value !== null
+      ? `<span>${k.value.toLocaleString()}</span>`
+      : `<span class="text-muted">&mdash;</span>`;
+    return `<div class="col-6 col-md-3">
+      <div class="card h-100"><div class="card-body py-3">
+        <div class="text-muted small mb-1">${k.label}</div>
+        <div class="fw-bold fs-5">${valHtml}</div>
+        ${changeHtml}
+      </div></div>
+    </div>`;
+  }).join('');
+
+  const btn = document.getElementById('btnEditYear');
+  if (btn) {
+    btn.href = `/annual-survey/${year}/enter`;
+    document.getElementById('btnEditYearLabel').textContent = year;
+  }
+}
+
+const picker = document.getElementById('fyYearPicker');
+if (picker) {
+  picker.addEventListener('change', () => renderKpis(parseInt(picker.value)));
+  renderKpis(parseInt(picker.value));
+}
 
 function makeChart(id, label, metricKey, color) {
   const d = chartData[metricKey] || {labels: [], values: []};

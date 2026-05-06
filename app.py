@@ -870,7 +870,7 @@ def report_trend():
     year       = request.args.get('year',     type=int)
     branch_ids = request.args.getlist('branches', type=int)
 
-    categories  = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
+    categories  = Category.query.filter(Category.is_active == True, Category.name != 'Circulation').order_by(Category.sort_order).all()
     fy_rows = db.session.query(Entry.year, Entry.month).filter(Entry.month.isnot(None)).distinct().all()
     _now = datetime.now(); _cur_fy = _now.year + 1 if _now.month >= 7 else _now.year
     fy_set = set()
@@ -2465,15 +2465,16 @@ def annual_survey_dashboard():
     years = sorted(by_year.keys())
     latest_year = years[-1] if years else None
 
-    # KPI cards for latest year
-    kpis = []
-    if latest_year:
-        ym = by_year[latest_year]
-        prev_ym = by_year.get(latest_year - 1, {})
-        for metric_name, label in _ANNUAL_KPI_METRICS:
-            cur  = _annual_get_value(ym, metric_name)
-            prev = _annual_get_value(prev_ym, metric_name)
-            kpis.append({'label': label, 'value': cur, 'prev': prev})
+    # KPI cards for all years (used by JS year picker)
+    kpis_by_year = {}
+    for y in years:
+        ym = by_year[y]
+        prev_ym = by_year.get(y - 1, {})
+        kpis_by_year[y] = [
+            {'label': label, 'value': _annual_get_value(ym, metric_name),
+             'prev': _annual_get_value(prev_ym, metric_name)}
+            for metric_name, label in _ANNUAL_KPI_METRICS
+        ]
 
     # Chart data — all years for every numeric metric (for interactive chart builder)
     chart_data = {}
@@ -2518,7 +2519,7 @@ def annual_survey_dashboard():
     return render_template('annual/dashboard.html',
                            years=years,
                            latest_year=latest_year,
-                           kpis=kpis,
+                           kpis_by_year=kpis_by_year,
                            chart_data=chart_data,
                            sections=sections,
                            section_order=section_order,

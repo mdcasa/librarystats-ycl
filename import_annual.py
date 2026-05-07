@@ -606,6 +606,123 @@ def import_annual(filepath):
     return created, updated
 
 
+def import_annual_comparables(filepath):
+    """
+    Import from Annual Comparables-foryclstats.xlsx.
+    Each sheet is a section; first row = column headers; first column = REPORT YEAR.
+    Skips auto-calculated metrics (those are derived from monthly data via Calculate).
+    Returns (created, updated).
+    """
+    NULL_STRINGS = {'DATA NOT COLLECTED', 'N/A', 'n/a', 'None', ''}
+
+    # Normalized Excel header → DB metric name (only needed where they differ after whitespace normalization)
+    HEADER_MAP = {
+        # COLLECTION SIZE — verbose parenthetical descriptions in Excel
+        'Collections: Print serials subscriptions (individual serial titles) added':
+            'Collections: Print serials subscriptions added',
+        'Collections: Print serials subscriptions (individual serial titles) removed (weeded)':
+            'Collections: Print serials subscriptions removed',
+        'Collections: Total print serials subscriptions (individual serial titles) held':
+            'Collections: Total print serials subscriptions held',
+        'Collections: Audio materials (physical units), number added':
+            'Collections: Audio materials added',
+        'Collections: Audio materials (physical units) number removed (weeded)':
+            'Collections: Audio materials removed',
+        'Collections: Audio materials (physical units), number held':
+            'Collections: Audio materials held',
+        'Collections: Video materials (physical units), number added':
+            'Collections: Video materials added',
+        'Collections: Video materials (physical units) number removed (weeded)':
+            'Collections: Video materials removed',
+        'Collections: Video materials (physical units), number held':
+            'Collections: Video materials held',
+        # USERS GATE COUNT
+        'Population of the service area (2020 Census)':
+            'Population of the service area',
+        # REF MTG RM
+        'Number of times library facilities were used by external parties/groups for non-library functions (scheduled use only).':
+            'Number of times library facilities were used by external parties',
+        'Number of scheduled 1:1 sessions between library staff and patron(s).':
+            'Number of scheduled 1:1 sessions',
+        # CIRC — A/V descriptions differ
+        'Circulation: Juvenile non-print (A/V physical items)':
+            'Circulation: Juvenile non-print (A/V)',
+        'Circulation: Adult non-print (A/V physical items)':
+            'Circulation: Adult non-print (A/V)',
+        'CIRCULATION OF OTHER PHYSICAL ITEMS (does NOT include print books, physical audiovisual items, or periodicals.':
+            'Circulation: Other physical items',
+        'TOTAL CIRC ALL PHYSICAL':
+            'TOTAL COLLECTION USE',
+        # OUTREACH
+        'Number of items distributed as take-and-makes, activity kits, or other items intended for use outside the library.':
+            'Number of items distributed as take-and-makes',
+    }
+
+    wb = openpyxl.load_workbook(filepath, data_only=True)
+    metric_map = {m.name: m for m in AnnualSurveyMetric.query.all()}
+    created = updated = 0
+
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
+            continue
+
+        # Normalize headers: collapse internal whitespace and strip ends
+        headers = [' '.join(str(h).split()) if h is not None else None for h in rows[0]]
+
+        for row in rows[1:]:
+            if not row or row[0] is None:
+                continue
+            year = row[0]
+            if not isinstance(year, int):
+                continue
+
+            for col_idx, header in enumerate(headers):
+                if col_idx == 0 or not header or header in ('Column1', 'None'):
+                    continue
+
+                db_name = HEADER_MAP.get(header, header)
+                metric = metric_map.get(db_name)
+                if not metric or metric.is_auto_calculated:
+                    continue
+
+                raw = row[col_idx]
+
+                if metric.data_type == 'text':
+                    if raw is None:
+                        continue
+                    text_val = str(raw).strip()
+                    if not text_val or text_val in NULL_STRINGS:
+                        continue
+                    num_val = None
+                else:
+                    if raw is None or (isinstance(raw, str) and raw.strip() in NULL_STRINGS):
+                        continue
+                    try:
+                        num_val = float(raw)
+                    except (TypeError, ValueError):
+                        continue
+                    text_val = None
+
+                existing = AnnualSurveyValue.query.filter_by(
+                    report_year=year, metric_id=metric.id
+                ).first()
+                if existing:
+                    existing.value      = num_val
+                    existing.value_text = text_val
+                    updated += 1
+                else:
+                    db.session.add(AnnualSurveyValue(
+                        report_year=year, metric_id=metric.id,
+                        value=num_val, value_text=text_val,
+                    ))
+                    created += 1
+
+    db.session.commit()
+    return created, updated
+
+
 if __name__ == '__main__':
     with app.app_context():
         print('Seeding annual survey metrics...')

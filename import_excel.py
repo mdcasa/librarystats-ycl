@@ -1232,6 +1232,27 @@ def detect_and_import(wb, year_override=None):
     branch_lookup = build_branch_lookup()
     results = []
 
+    # Detect Annual Comparables format: 'OPERATIONS' sheet with 'REPORT YEAR' header
+    if 'OPERATIONS' in wb.sheetnames:
+        first_row = next(wb['OPERATIONS'].iter_rows(min_row=1, max_row=1, values_only=True), ())
+        if first_row and str(first_row[0]).strip() == 'REPORT YEAR':
+            from import_annual import import_annual_comparables
+            import tempfile, os
+            with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
+                tmp_path = tmp.name
+            try:
+                wb.save(tmp_path)
+                created, updated = import_annual_comparables(tmp_path)
+            finally:
+                os.unlink(tmp_path)
+            results.append({
+                'sheet': 'Annual Comparables',
+                'created': created, 'updated': updated, 'skipped': 0,
+                'note': f'{created} values created, {updated} updated across all sections',
+                'year': None, 'month': None,
+            })
+            return results
+
     for sheet_name in wb.sheetnames:
         ws = wb[sheet_name]
         rows = list(ws.iter_rows(values_only=True))

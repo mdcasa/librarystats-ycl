@@ -867,7 +867,7 @@ def report_monthly():
 def report_trend():
     cat_id     = request.args.get('category', type=int)
     metric_id  = request.args.get('metric',   type=int)
-    year       = request.args.get('year',     type=int)
+    years      = request.args.getlist('year', type=int)
     branch_ids = request.args.getlist('branches', type=int)
 
     categories  = Category.query.filter(Category.is_active == True, Category.name != 'Circulation').order_by(Category.sort_order).all()
@@ -883,10 +883,21 @@ def report_trend():
 
     FY_MONTHS = list(range(7, 13)) + list(range(1, 7))  # Jul–Dec then Jan–Jun
 
-    if cat_id and metric_id and year:
+    if cat_id and metric_id and years:
         category = Category.query.get_or_404(cat_id)
         metric   = Metric.query.get_or_404(metric_id)
-        labels   = [MONTHS[mo - 1][:3] for mo in FY_MONTHS]
+        years_sorted = sorted(years)
+
+        # Build a chronological (cal_year, month) sequence across all selected FYs
+        all_month_keys = [
+            (fy - 1 if mo >= 7 else fy, mo)
+            for fy in years_sorted
+            for mo in FY_MONTHS
+        ]
+        multi = len(years_sorted) > 1
+        labels = [f"{MONTHS[mo-1][:3]} '{str(yr)[2:]}" if multi else MONTHS[mo-1][:3]
+                  for yr, mo in all_month_keys]
+
         datasets = []
         colors   = ['#2c6e8a','#e74c3c','#27ae60','#f39c12','#8e44ad',
                     '#16a085','#d35400','#2980b9','#c0392b','#1abc9c']
@@ -902,8 +913,7 @@ def report_trend():
                 lockers = [lb for lb in locker_branches
                            if lb.name.lower().startswith(b.name.lower())]
                 pts = []
-                for mo in FY_MONTHS:
-                    yr = year - 1 if mo >= 7 else year
+                for yr, mo in all_month_keys:
                     total = None
                     e = Entry.query.filter_by(category_id=cat_id, branch_id=b.id,
                                               year=yr, month=mo).first()
@@ -922,8 +932,7 @@ def report_trend():
                                  'backgroundColor': colors[i % len(colors)] + '22'})
         else:
             pts = []
-            for mo in FY_MONTHS:
-                yr = year - 1 if mo >= 7 else year
+            for yr, mo in all_month_keys:
                 e = Entry.query.filter_by(category_id=cat_id, year=yr, month=mo).first()
                 ev = EntryValue.query.filter_by(entry_id=e.id, metric_id=metric_id).first() if e else None
                 pts.append(ev.value_number if ev else None)
@@ -938,7 +947,7 @@ def report_trend():
                            categories=categories, available_years=available_years,
                            all_branches=all_branches, metrics_json=metrics_json,
                            sel_cat=cat_id, sel_metric=metric_id,
-                           sel_year=year, sel_branches=branch_ids,
+                           sel_years=years, sel_branches=branch_ids,
                            category=category, metric=metric, chart_data=chart_data)
 
 
@@ -1199,7 +1208,10 @@ def report_fiscal():
     cat_id  = request.args.get('category', type=int)
     fy_year = request.args.get('fy_year',  type=int)  # FY2025 = Jul 2024 – Jun 2025
 
-    categories = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
+    categories = Category.query.filter(
+        Category.is_active == True,
+        Category.name != 'Circulation'
+    ).order_by(Category.sort_order).all()
 
     # Derive available fiscal years from any entry that has a month or quarter
     rows = db.session.query(Entry.year, Entry.month, Entry.quarter).filter(

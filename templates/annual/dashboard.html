@@ -150,7 +150,7 @@
         {% set key_metrics = [
           'Annual Library Visits (gate count)',
           'Total registered users',
-          'TOTAL CIRC ALL PHYSICAL',
+          'TOTAL COLLECTION USE',
           'GRAND TOTAL ALL CIRC',
           'Total of all programs',
           'Total Attendance all programs and all ages',
@@ -398,7 +398,7 @@ function makeChart(id, label, metricKey, color) {
 }
 
 makeChart('chartGate',     'Gate Count',             'Annual Library Visits (gate count)', '#1a5276');
-makeChart('chartCirc',     'Physical Circ',          'TOTAL CIRC ALL PHYSICAL',            '#117a65');
+makeChart('chartCirc',     'Physical Circ',          'TOTAL COLLECTION USE',            '#117a65');
 makeChart('chartPgmSess',  'Program Sessions',       'Total of all programs',              '#6c3483');
 makeChart('chartPgmAtt',   'Program Attendance',     'Total Attendance all programs and all ages', '#b7950b');
 makeChart('chartTotalCirc','Grand Total Circ',       'GRAND TOTAL ALL CIRC',               '#1a5276');

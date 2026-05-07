@@ -107,7 +107,7 @@ id,section,name,data_type,sort_order,is_auto_calculated,auto_calc_note
 106,CIRC,Circulation: Other physical items,integer,105,False,
 107,CIRC,"Circulation: Books and other print materials, all ages",integer,106,False,
 108,CIRC,"Circulation: Non print (A/V physical items), all ages",integer,107,False,
-109,CIRC,TOTAL CIRC ALL PHYSICAL,integer,108,True,Sum of Total Branch Circulation across all branches for the fiscal year (Jul–Jun)
+109,CIRC,TOTAL COLLECTION USE,integer,108,True,Sum of Total Branch Circulation across all branches for the fiscal year (Jul–Jun)
 110,CIRC,Usage of (Circulation) E-books,integer,109,False,
 111,CIRC,Usage of (Circulation) Electronic Audio,integer,110,False,
 112,CIRC,Usage of (Circulation) Electronic video,integer,111,False,

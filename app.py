@@ -2444,7 +2444,7 @@ from models import AnnualSurveyMetric, AnnualSurveyValue
 
 _ANNUAL_CHART_METRICS = [
     'Annual Library Visits (gate count)',
-    'TOTAL CIRC ALL PHYSICAL',
+    'TOTAL COLLECTION USE',
     'GRAND TOTAL ALL CIRC',
     'Total of all programs',
     'Total Attendance all programs and all ages',
@@ -2455,7 +2455,7 @@ _ANNUAL_CHART_METRICS = [
 
 _ANNUAL_KPI_METRICS = [
     ('Annual Library Visits (gate count)',       'Gate Count'),
-    ('TOTAL CIRC ALL PHYSICAL',                  'Physical Circ'),
+    ('TOTAL COLLECTION USE',                  'Physical Circ'),
     ('GRAND TOTAL ALL CIRC',                     'Total Circ'),
     ('Total of all programs',                    'Programs'),
     ('Total Attendance all programs and all ages','Attendance'),
@@ -2674,7 +2674,7 @@ def _calculate_annual_metrics(year):
           sum_metric(bs_entries_no_locker, 'WiFi - Unique Sessions'))
     _save('Number of website visits',
           sum_metric(online_entries, 'yclibrary.org - Web Sessions'))
-    _save('TOTAL CIRC ALL PHYSICAL',
+    _save('TOTAL COLLECTION USE',
           sum_metric(bs_entries_no_locker, 'Total Branch Circulation'))
 
     for age, label in [('0-5',              'Synchronous Pgm Sessions Kids 0-5'),

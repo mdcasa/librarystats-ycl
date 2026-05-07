@@ -159,7 +159,7 @@ METRIC_DEFS = [
     ('CIRC', 'Circulation: Other physical items',             'integer', False, None),
     ('CIRC', 'Circulation: Books and other print materials, all ages', 'integer', False, None),
     ('CIRC', 'Circulation: Non print (A/V physical items), all ages',  'integer', False, None),
-    ('CIRC', 'TOTAL CIRC ALL PHYSICAL', 'integer', True,
+    ('CIRC', 'TOTAL COLLECTION USE', 'integer', True,
      'Sum of Total Branch Circulation across all branches for the fiscal year (Jul–Jun)'),
     ('CIRC', 'Usage of (Circulation) E-books',              'integer', False, None),
     ('CIRC', 'Usage of (Circulation) Electronic Audio',     'integer', False, None),
@@ -346,7 +346,7 @@ SHEET_COL_MAP = {
         (8,  'Circulation: Other physical items'),
         (9,  'Circulation: Books and other print materials, all ages'),
         (10, 'Circulation: Non print (A/V physical items), all ages'),
-        (11, 'TOTAL CIRC ALL PHYSICAL'),
+        (11, 'TOTAL COLLECTION USE'),
         # col 12 = blank, skip
         (13, 'Usage of (Circulation) E-books'),
         (14, 'Usage of (Circulation) Electronic Audio'),

@@ -8,7 +8,7 @@
     <p class="small mb-0">
       <span class="badge text-bg-warning me-1">Annual Report Data Only</span>
       Monthly statistics are stored separately in Branch Stats.
-      The <strong>Calculate</strong> button auto-fills: Gate Count, Total Physical Circulation, WiFi Sessions, Website Visits, Programming Sessions &amp; Attendance, Staff Training, and Take &amp; Makes — drawn from the monthly data for the selected fiscal year.
+      The <strong>Calculate</strong> button auto-fills: Gate Count, Total Collection Use, WiFi Sessions, Website Visits, Programming Sessions &amp; Attendance, Staff Training, and Take &amp; Makes — drawn from the monthly data for the selected fiscal year.
     </p>
   </div>
   <div class="d-flex gap-2 align-items-center flex-wrap">
@@ -98,7 +98,7 @@
   </div>
   <div class="col-lg-6">
     <div class="card">
-      <div class="card-header-custom fw-semibold">Total Physical Circulation</div>
+      <div class="card-header-custom fw-semibold">Total Collection Use</div>
       <div class="card-body"><canvas id="chartCirc" height="220"></canvas></div>
     </div>
   </div>
@@ -274,7 +274,7 @@
         </div>
         <div class="modal-body">
           <p class="small text-muted mb-3">
-            Select the fiscal years to auto-calculate. This fills in Gate Count, Total Physical Circulation,
+            Select the fiscal years to auto-calculate. This fills in Gate Count, Total Collection Use,
             WiFi Sessions, Website Visits, Programming Sessions &amp; Attendance, Staff Training, and Take &amp; Makes
             from monthly Branch Stats data. Existing values are overwritten.
           </p>
@@ -398,7 +398,7 @@ function makeChart(id, label, metricKey, color) {
 }
 
 makeChart('chartGate',     'Gate Count',             'Annual Library Visits (gate count)', '#1a5276');
-makeChart('chartCirc',     'Physical Circ',          'TOTAL COLLECTION USE',            '#117a65');
+makeChart('chartCirc',     'Total Collection Use',   'TOTAL COLLECTION USE',            '#117a65');
 makeChart('chartPgmSess',  'Program Sessions',       'Total of all programs',              '#6c3483');
 makeChart('chartPgmAtt',   'Program Attendance',     'Total Attendance all programs and all ages', '#b7950b');
 makeChart('chartTotalCirc','Grand Total Circ',       'GRAND TOTAL ALL CIRC',               '#1a5276');

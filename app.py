@@ -2455,7 +2455,7 @@ _ANNUAL_CHART_METRICS = [
 
 _ANNUAL_KPI_METRICS = [
     ('Annual Library Visits (gate count)',       'Gate Count'),
-    ('TOTAL COLLECTION USE',                  'Physical Circ'),
+    ('TOTAL COLLECTION USE',                  'Collection Use'),
     ('GRAND TOTAL ALL CIRC',                     'Total Circ'),
     ('Total of all programs',                    'Programs'),
     ('Total Attendance all programs and all ages','Attendance'),

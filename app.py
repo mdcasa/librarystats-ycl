@@ -1247,7 +1247,11 @@ def report_fiscal():
         if category.has_branch:
             bid_set  = {e.branch_id for e in entries if e.branch_id}
             branches = sorted(
-                [b for b in (Branch.query.get(bid) for bid in bid_set) if b and b.name != 'Administration'],
+                [b for b in (Branch.query.get(bid) for bid in bid_set) if b
+                 and b.name != 'Administration'
+                 and b.name != 'YCL (System Wide)'
+                 and 'locker' not in b.name.lower()
+                 and not b.is_desk],
                 key=lambda b: b.name
             )
         else:

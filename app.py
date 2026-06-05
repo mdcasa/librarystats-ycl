@@ -1874,7 +1874,6 @@ def report_monthly_stats():
                 'items': [
                     pair(bs_c.get('Total Branch Circulation'), bs_p.get('Total Branch Circulation'), 'Monthly Circulation'),
                     pair(bs_c.get('Gate Count'),               bs_p.get('Gate Count'),               'Monthly Gate Count'),
-                    pair(bs_c.get('Locker Circulation'),       bs_p.get('Locker Circulation'),       'Locker Checkouts'),
                 ],
             },
             {
@@ -1894,14 +1893,6 @@ def report_monthly_stats():
                 'title': 'ONSITE Program Attendance',
                 'color': '#784212',
                 'items': [pair(prog(bs_c,'ONSITE','Attendance',a), prog(bs_p,'ONSITE','Attendance',a), f'Attendance {a}') for a in AGE],
-            },
-            {
-                'title': 'VIRTUAL Program Sessions & Attendance',
-                'color': '#117a65',
-                'items': (
-                    [pair(prog(bs_c,'VIRTUAL','Sessions',a), prog(bs_p,'VIRTUAL','Sessions',a), f'Sessions {a}') for a in AGE] +
-                    [pair(prog(bs_c,'VIRTUAL','Attendance',a), prog(bs_p,'VIRTUAL','Attendance',a), f'Attendance {a}') for a in AGE]
-                ),
             },
             {
                 'title': 'Online Usage',

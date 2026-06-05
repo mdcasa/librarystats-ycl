@@ -721,9 +721,9 @@ DOOR_COUNT_BRANCH_MAP = {
 PRINCH_BRANCH_MAP = {
     'lake wylie': 'Lake Wylie',
     'clover':     'Clover',
-    'york':       'York',
     'fort mill':  'Fort Mill',
     'rock hill':  'Rock Hill',
+    'york':       'York',
 }
 
 # Page-count columns in the Princh export

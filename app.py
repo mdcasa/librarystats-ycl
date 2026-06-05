@@ -1705,7 +1705,6 @@ _UPLOAD_SOURCED_METRICS = {
     'New Library Card Registrations, Adult',
     'New Library Card Registrations, Juvenile',
     'New Library Card Registrations, Total',
-    'Gate Count',
     'Total Branch Circulation',
     'Hotspots Circulation',
     'Locker Circulation',
@@ -2813,7 +2812,8 @@ def report_overview():
             totals = {}
             for e in entries:
                 if e.branch and ('system wide' in e.branch.name.lower() or
-                                 'locker' in e.branch.name.lower()):
+                                 'locker' in e.branch.name.lower() or
+                                 e.branch.name == 'Administration'):
                     continue
                 for ev in e.values:
                     n = id_to_name.get(ev.metric_id)
@@ -3018,7 +3018,7 @@ def report_impact_pdf():
         totals = {}
         for e in entries:
             bname = e.branch.name if e.branch else ''
-            if bname == 'YCL (System Wide)' or 'Lockers' in bname:
+            if bname == 'YCL (System Wide)' or 'Lockers' in bname or bname == 'Administration':
                 continue
             for ev in e.values:
                 n = id_to_name.get(ev.metric_id)
@@ -3159,7 +3159,7 @@ def report_impact_docx():
         totals = {}
         for e in entries:
             bname = e.branch.name if e.branch else ''
-            if bname == 'YCL (System Wide)' or 'Lockers' in bname:
+            if bname == 'YCL (System Wide)' or 'Lockers' in bname or bname == 'Administration':
                 continue
             for ev in e.values:
                 n = id_to_name.get(ev.metric_id)

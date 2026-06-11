@@ -162,15 +162,22 @@ sections.forEach((sec, i) => {
 </script>
 
 <style>
+@page { size: letter portrait; margin: 0.5in; }
+
 @media print {
   .d-print-none { display: none !important; }
   body { background: white !important; }
-  .card { box-shadow: none !important; border: 1px solid #dee2e6 !important; }
-  #dashboard { display: grid !important; grid-template-columns: 1fr 1fr; gap: 12px; }
-  #dashboard .col-md-6 { width: 100% !important; max-width: 100% !important; break-inside: avoid; }
-  #report-header { margin-bottom: 16px !important; }
   nav, footer { display: none !important; }
-  .container-lg { padding: 0 !important; }
+  .container-lg { padding: 0 !important; max-width: 100% !important; }
+  #report-header { margin-bottom: 8px !important; }
+  #report-header h2 { font-size: 14pt !important; margin-bottom: 2px !important; }
+  #report-header p { font-size: 9pt !important; }
+  #dashboard { display: grid !important; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 !important; }
+  #dashboard .col-md-6 { width: 100% !important; max-width: 100% !important; padding: 0 !important; break-inside: avoid; }
+  .card { box-shadow: none !important; border: 1px solid #dee2e6 !important; height: auto !important; }
+  .card-body { padding: 8px !important; }
+  .card h6 { font-size: 9pt !important; margin-bottom: 4px !important; }
+  canvas { max-height: 110px !important; }
 }
 </style>
 {% endblock %}

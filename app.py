@@ -1432,6 +1432,99 @@ def report_annual():
                            col_maxes=col_maxes)
 
 
+@app.route('/reports/branch_summary')
+def report_branch_summary():
+    from sqlalchemy import or_, and_
+    branch_id = request.args.get('branch',  type=int)
+    fy_year   = request.args.get('fy_year', type=int)
+
+    branches     = _real_branch_q().order_by(Branch.name).all()
+    available_fy = _available_fy()
+
+    branch = sections = fy_label = None
+
+    if branch_id and fy_year:
+        branch   = db.session.get(Branch, branch_id) or next((b for b in branches if b.id == branch_id), None)
+        fy_label = _fy_label(fy_year)
+
+        fy_filter = or_(
+            and_(Entry.year == fy_year - 1,
+                 or_(Entry.month >= 7, Entry.quarter.in_([3, 4]))),
+            and_(Entry.year == fy_year,
+                 or_(Entry.month <= 6, Entry.quarter.in_([1, 2])))
+        )
+
+        categories = Category.query.filter(
+            Category.is_active == True,
+            Category.name != 'Circulation'
+        ).order_by(Category.sort_order).all()
+
+        def _fmt(v):
+            if v is None:
+                return '—'
+            return f"{int(v):,}" if v == int(v) else f"{v:,.2f}".rstrip('0').rstrip('.')
+
+        sections = []
+        for cat in categories:
+            metrics = Metric.query.filter_by(
+                category_id=cat.id, is_active=True
+            ).order_by(Metric.sort_order).all()
+            if not metrics:
+                continue
+
+            q = Entry.query.options(joinedload(Entry.values)).filter_by(
+                category_id=cat.id
+            ).filter(fy_filter)
+            if cat.has_branch:
+                q = q.filter(Entry.branch_id == branch_id)
+            entries = q.all()
+
+            totals = {}
+            for e in entries:
+                for ev in e.values:
+                    if ev.value_number is not None:
+                        totals[ev.metric_id] = totals.get(ev.metric_id, 0) + ev.value_number
+
+            rows = [{'name': m.name, 'value': _fmt(totals.get(m.id)), 'raw': totals.get(m.id)}
+                    for m in metrics]
+
+            if any(r['raw'] is not None for r in rows):
+                sections.append({
+                    'category': cat.name,
+                    'system_wide': not cat.has_branch,
+                    'rows': rows,
+                })
+
+    if sections and request.args.get('format') == 'xlsx':
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill
+        wb  = Workbook()
+        ws  = wb.active
+        ws.title = 'Branch Summary'
+        ws.append([f'{branch.name} — {fy_label}'])
+        ws.cell(1, 1).font = Font(bold=True, size=13)
+        ws.append([])
+        for sec in sections:
+            label = sec['category'] + (' (System Wide)' if sec['system_wide'] else '')
+            ws.append([label, ''])
+            r = ws.max_row
+            ws.cell(r, 1).font = Font(bold=True, color='FFFFFF')
+            ws.cell(r, 1).fill = PatternFill('solid', fgColor='2C6E8A')
+            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=2)
+            for row in sec['rows']:
+                v = row['raw']
+                ws.append([row['name'], int(v) if isinstance(v, float) and v == int(v) else v])
+        ws.column_dimensions['A'].width = 42
+        ws.column_dimensions['B'].width = 18
+        safe_name = branch.name.replace(' ', '_').replace('/', '-')
+        return _xlsx_response(wb, f'branch_summary_{safe_name}_{fy_year}.xlsx')
+
+    return render_template('reports/branch_summary.html',
+                           branches=branches, available_fy=available_fy,
+                           sel_branch=branch_id, sel_fy=fy_year,
+                           branch=branch, sections=sections, fy_label=fy_label)
+
+
 @app.route('/admin/import', methods=['GET', 'POST'])
 def admin_import():
     results = None

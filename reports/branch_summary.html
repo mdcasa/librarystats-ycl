@@ -1,0 +1,119 @@
+{% extends 'base.html' %}
+{% block title %}Branch Summary – Reports{% endblock %}
+{% block content %}
+<h1 class="h4 fw-bold mb-4"><i class="bi bi-building me-2 text-primary"></i>Branch Summary</h1>
+
+<div class="card mb-4">
+  <div class="card-body py-3">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-sm-5">
+        <label class="sidebar-label mb-1">Branch</label>
+        <select name="branch" class="form-select form-select-sm" required>
+          <option value="">— select —</option>
+          {% for b in branches %}
+          <option value="{{ b.id }}" {% if sel_branch == b.id %}selected{% endif %}>{{ b.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-4">
+        <label class="sidebar-label mb-1">Fiscal Year</label>
+        <select name="fy_year" class="form-select form-select-sm" required>
+          <option value="">— select —</option>
+          {% for fy in available_fy %}
+          <option value="{{ fy }}" {% if sel_fy == fy %}selected{% endif %}>
+            FY{{ fy }} &nbsp;(Jul {{ fy - 1 }} – Jun {{ fy }})
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-3">
+        <button class="btn btn-primary btn-sm">Run Report</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if sections is not none %}
+  {% if sections %}
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h5 class="mb-0">{{ branch.name }} — {{ fy_label }}</h5>
+    <div class="d-flex gap-2 align-items-center">
+      <span class="text-muted small">Values summed Jul–Jun</span>
+      <a href="{{ url_for('report_branch_summary', branch=sel_branch, fy_year=sel_fy, format='xlsx') }}"
+         class="btn btn-outline-success btn-sm btn-xs">
+        <i class="bi bi-file-earmark-excel me-1"></i>Excel
+      </a>
+    </div>
+  </div>
+  <div class="card">
+    <div class="table-responsive">
+      <table class="table table-sm table-bordered mb-0 align-middle" style="font-size:.88rem">
+        <thead class="table-dark">
+          <tr>
+            <th style="min-width:260px">Metric</th>
+            <th class="text-center" style="min-width:120px">Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for sec in sections %}
+          {% set grp_id = loop.index %}
+          <tr class="group-header" data-grp-toggle="{{ grp_id }}">
+            <td colspan="2">
+              {{ sec.category }}
+              {% if sec.system_wide %}
+              <span class="badge bg-secondary ms-2" style="font-size:.72rem">System Wide</span>
+              {% endif %}
+              <i class="bi bi-chevron-down grp-chevron"></i>
+            </td>
+          </tr>
+          {% for row in sec.rows %}
+          <tr data-grp="{{ grp_id }}">
+            <td>{{ row.name }}</td>
+            <td class="text-center {{ 'text-muted' if row.value == '—' }}">{{ row.value }}</td>
+          </tr>
+          {% endfor %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% elif branch %}
+  <div class="empty-state">
+    <i class="bi bi-calendar-x empty-icon"></i>
+    <p>No data found for <strong>{{ branch.name }}</strong> in {{ fy_label }}.</p>
+  </div>
+  {% endif %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.group-header[data-grp-toggle]').forEach(hdr => {
+  hdr.addEventListener('click', () => {
+    const id = hdr.dataset.grpToggle;
+    const collapsed = hdr.classList.toggle('grp-collapsed');
+    document.querySelectorAll(`tr[data-grp="${id}"]`).forEach(r => {
+      r.style.display = collapsed ? 'none' : '';
+    });
+  });
+});
+
+(function () {
+  const KEY  = 'filters_branch_summary';
+  const form = document.querySelector('form[method="get"]');
+  if (!form) return;
+  if (!window.location.search) {
+    const saved = JSON.parse(sessionStorage.getItem(KEY) || '{}');
+    Object.entries(saved).forEach(([name, val]) => {
+      const el = form.querySelector(`[name="${name}"]`);
+      if (el) el.value = val;
+    });
+  }
+  form.addEventListener('submit', () => {
+    const data = {};
+    new FormData(form).forEach((val, key) => { data[key] = val; });
+    sessionStorage.setItem(KEY, JSON.stringify(data));
+  });
+})();
+</script>
+{% endblock %}

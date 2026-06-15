@@ -100,7 +100,8 @@
 {% set _data    = ['upload_data','entries_list','entry_view'] %}
 {% set _dash    = ['director_dashboard','annual_survey_dashboard','annual_survey_enter','annual_survey_calculate'] %}
 {% set _reports = ['report_monthly_stats','report_monthly','report_fiscal','report_trend',
-                   'report_yoy','report_quarterly_ref','report_online','report_overview','report_impact'] %}
+                   'report_yoy','report_quarterly_ref','report_online','report_overview','report_impact',
+                   'report_branch_summary'] %}
 {% set _admin   = ['admin_categories','admin_category_edit','admin_branches',
                    'admin_import','admin_export','admin_metric_edit',
                    'admin_users','admin_user_new','admin_user_edit'] %}
@@ -227,6 +228,9 @@
             <li><a class="dropdown-item {% if ep == 'report_online' %}active{% endif %}"
                    href="{{ url_for('report_online') }}">
               <i class="bi bi-globe me-2" style="color:#117a65"></i>Online Stats</a></li>
+            <li><a class="dropdown-item {% if ep == 'report_branch_summary' %}active{% endif %}"
+                   href="{{ url_for('report_branch_summary') }}">
+              <i class="bi bi-building me-2 text-primary"></i>Branch Summary</a></li>
           </ul>
         </li>
 

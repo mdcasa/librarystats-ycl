@@ -837,10 +837,12 @@ def report_monthly():
         metrics  = Metric.query.filter_by(category_id=cat_id, is_active=True).order_by(Metric.sort_order).all()
         entries  = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat_id, year=year, month=month).all()
 
-        branch_set, data = set(), {}
+        # Show every branch that has ever reported for this category, even if
+        # this specific month has no entry yet (rendered as blank by report_data_table).
+        branch_set = {r[0] for r in db.session.query(Entry.branch_id)
+                                               .filter_by(category_id=cat_id).distinct().all()}
+        data = {}
         for e in entries:
-            if e.branch_id not in branch_set:
-                branch_set.add(e.branch_id)
             if e.branch_id not in data:
                 data[e.branch_id] = {}
             for ev in e.values:

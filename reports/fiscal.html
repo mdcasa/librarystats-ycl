@@ -69,7 +69,7 @@
             <th style="min-width:220px">Metric</th>
             {% if branches %}
               {% for b in branches %}
-              <th class="text-center">{{ b.name }}</th>
+              <th class="text-center">{{ b.name|replace('/', '/<wbr>')|safe }}</th>
               {% endfor %}
               {% if branches|length > 1 %}
               <th class="text-center bg-secondary bg-opacity-25">Total</th>

@@ -52,7 +52,7 @@
           <tr>
             <th style="min-width:220px">Metric</th>
             {% for b in branches %}
-            <th class="text-center">{{ b.name if b else 'System-wide' }}</th>
+            <th class="text-center">{{ (b.name if b else 'System-wide')|replace('/', '/<wbr>')|safe }}</th>
             {% endfor %}
             {% if branches|length > 1 %}
             <th class="text-center bg-secondary bg-opacity-25">Total</th>

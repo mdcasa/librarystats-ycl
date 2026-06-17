@@ -34,6 +34,11 @@
     <div class="card text-center py-3">
       <div class="display-6 fw-bold text-info">{{ total_branches }}</div>
       <div class="text-muted small mt-1">Branches</div>
+      {% if real_branches %}
+      <div class="text-muted small mt-2">
+        {% for b in real_branches %}{{ b.name }}{% if not loop.last %} &middot; {% endif %}{% endfor %}
+      </div>
+      {% endif %}
     </div>
   </div>
 </div>

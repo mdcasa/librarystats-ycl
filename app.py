@@ -353,6 +353,7 @@ def index():
                            total_entries=Entry.query.count(),
                            total_categories=Category.query.filter_by(is_active=True).count(),
                            total_branches=_real_branch_q().count(),
+                           real_branches=_real_branches,
                            latest_year=latest_year,
                            latest_month=latest_month,
                            kpi=kpi,

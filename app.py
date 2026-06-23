@@ -1809,6 +1809,7 @@ _UPLOAD_SOURCED_METRICS = {
     'ILL - Received (Main ONLY)',
     'ICLs - Sent (Main ONLY)',
     'ICLs - Received (Main ONLY)',
+    'Gate Count',
 }
 
 _ILL_METRICS  = {'ILL - Sent (Main ONLY)', 'ILL - Received (Main ONLY)'}

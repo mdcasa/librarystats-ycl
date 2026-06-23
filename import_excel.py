@@ -717,8 +717,8 @@ DOOR_COUNT_BRANCH_MAP = {
 }
 
 
-# Princh location string → Branch.name (substring match, lowercased)
-PRINCH_BRANCH_MAP = {
+# Printing location string → Branch.name (substring match, lowercased)
+PRINTING_BRANCH_MAP = {
     'lake wylie': 'Lake Wylie',
     'clover':     'Clover',
     'fort mill':  'Fort Mill',
@@ -726,17 +726,17 @@ PRINCH_BRANCH_MAP = {
     'york':       'York',
 }
 
-# Page-count columns in the Princh export
-PRINCH_PAGE_COLS = [
+# Page-count columns in the printing export
+PRINTING_PAGE_COLS = [
     'Letter color pages', 'Letter monochrome pages',
     'Legal color pages',  'Legal monochrome pages',
     'Ledger color pages', 'Ledger monochrome pages',
 ]
 
 
-def import_princh(ws, branch_lookup):
+def import_printing(ws, branch_lookup):
     """
-    Parse a Princh print-management export.
+    Parse a printing export.
     Sums all page-type columns per branch per month → Total Prints per Month.
     """
     rows = list(ws.iter_rows(values_only=True))
@@ -752,10 +752,10 @@ def import_princh(ws, branch_lookup):
     loc_idx   = ci('Location')
     from_idx  = ci('From')
     docs_idx  = ci('Documents')
-    page_idxs = [ci(c) for c in PRINCH_PAGE_COLS if ci(c) is not None]
+    page_idxs = [ci(c) for c in PRINTING_PAGE_COLS if ci(c) is not None]
 
     if loc_idx is None or from_idx is None or (not page_idxs and docs_idx is None):
-        return 0, 0, ['Unrecognised Princh format — expected Location, From, and page or Documents columns']
+        return 0, 0, ['Unrecognised printing format — expected Location, From, and page or Documents columns']
 
     metric_lookup, cat = build_metric_lookup('Branch Stats')
     prints_metric = metric_lookup.get('Total Prints per Month')
@@ -788,7 +788,7 @@ def import_princh(ws, branch_lookup):
         # Match location to branch
         loc_lower = str(loc).strip().lower()
         branch_name = next(
-            (name for key, name in PRINCH_BRANCH_MAP.items() if key in loc_lower),
+            (name for key, name in PRINTING_BRANCH_MAP.items() if key in loc_lower),
             None
         )
         if not branch_name:
@@ -1309,8 +1309,8 @@ def detect_and_import(wb, year_override=None):
 
         elif (any(v is not None and 'Letter color pages' in str(v) for r in rows[:3] for v in r) or
               ('Location' in header_row and 'Documents' in header_row and 'From' in header_row)):
-            created, updated, periods, w = import_princh(ws, branch_lookup)
-            results.append({'sheet': 'Total Prints per Month (Princh)',
+            created, updated, periods, w = import_printing(ws, branch_lookup)
+            results.append({'sheet': 'Total Prints per Month (Printing)',
                              'created': created, 'updated': updated, 'skipped': 0, 'warnings': w,
                              'periods': sorted(periods)})
 

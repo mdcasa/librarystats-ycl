@@ -120,6 +120,9 @@
             <tr>
               <td>
                 {{ m.name }}
+                {% if m.name == 'Gate Count' %}
+                <span class="text-muted small fst-italic ms-1">— For Bookmobile / Outreach Use ONLY</span>
+                {% endif %}
                 {% if m.description %}
                 <i class="bi bi-info-circle text-muted ms-1" title="{{ m.description }}"
                    data-bs-toggle="tooltip"></i>

@@ -1804,6 +1804,7 @@ _UPLOAD_SOURCED_METRICS = {
     'Total Branch Circulation',
     'Hotspots Circulation',
     'Locker Circulation',
+    'WiFi - Unique Sessions',
     'Total Prints per Month',
     'ILL - Sent (Main ONLY)',
     'ILL - Received (Main ONLY)',

@@ -872,6 +872,39 @@ def parse_period_from_filename(filename):
     return None, None
 
 
+def parse_period_from_sheet(rows):
+    """
+    Pull (year, month) from a title row placed above the data, e.g. a row that
+    holds a month name and a 4-digit year ('June', 2026) or a single 'June 2026'
+    string. Scans the first few rows. Returns (year, month) or (None, None).
+    """
+    for r in rows[:5]:
+        if not r:
+            continue
+        month = year = None
+        for v in r:
+            if v is None:
+                continue
+            if isinstance(v, str):
+                key = v.strip().lower()
+                if key in _MONTH_NAMES:
+                    month = _MONTH_NAMES[key]
+                else:
+                    # A combined 'June 2026' style cell
+                    y, mo = parse_period_from_filename(key)
+                    if y and mo:
+                        return y, mo
+            elif isinstance(v, (int, float)) and float(v).is_integer():
+                iv = int(v)
+                if 2000 <= iv <= 2099:
+                    year = iv
+                elif month is None and 1 <= iv <= 12:
+                    month = iv
+        if year and month:
+            return year, month
+    return None, None
+
+
 def _ensure_metric(cat_id, name, group_name, data_type):
     """
     Find-or-create a Metric row (production DBs have no migration tool, so new
@@ -1593,9 +1626,11 @@ def detect_and_import(wb, year_override=None, filename=None):
         elif any(
                 {'Branch', 'Printed Pages'} <= {str(v).strip() for v in (r or []) if v is not None}
                 for r in rows[:6]):
-            year, month = parse_period_from_filename(filename)
-            if year_override:
-                year = year_override
+            # Period precedence: date inside the sheet → file name → Year field.
+            s_year, s_month = parse_period_from_sheet(rows)
+            f_year, f_month = parse_period_from_filename(filename)
+            year  = s_year or f_year or year_override
+            month = s_month or f_month
             created, updated, periods, w = import_print_summary(ws, branch_lookup, year, month)
             results.append({'sheet': 'Branch Print Summary (Prints)',
                              'created': created, 'updated': updated, 'skipped': 0, 'warnings': w,

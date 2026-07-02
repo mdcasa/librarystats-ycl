@@ -354,7 +354,9 @@ Shows all active Branch Stats metrics **except** those sourced from uploads or d
 | Total Branch Circulation | SIRSI checkout upload |
 | Hotspots Circulation | SIRSI checkout upload |
 | Locker Circulation | Branch Stats Excel upload |
-| Total Prints per Month | Princh upload |
+| Total Prints per Month | Princh upload / LPTOne Branch Print Summary |
+| Printed Jobs | LPTOne Branch Print Summary |
+| Printed Cost | LPTOne Branch Print Summary |
 | ILL - Sent (Main ONLY) | `/enter/ill` form |
 | ILL - Received (Main ONLY) | `/enter/ill` form |
 | ICLs - Sent (Main ONLY) | `/enter/icl` form |
@@ -601,6 +603,33 @@ The importer ignores which branch the card was registered at (Station Library) a
 **What it writes:** Total pages per branch per month → `Total Prints per Month` in Branch Stats
 
 **How detected:** Header row contains `Letter color pages`, or contains all of `Location`, `Documents`, `From`
+
+---
+
+### 5b. LPTOne / Princh "Branch Print Summary" Export
+
+**Where to get it:** LPTOne print-management export (mobile Princh prints are
+believed to be rolled into the LPTOne totals). See `Notes/print_summary_import.md`.
+
+**File naming example:** `YCL_Print_Summary_June2026.xlsx`
+
+**Sample file:** `Data files/June/LPT1/YCL_Print_Summary_June2026.xlsx`
+
+**Format:**
+- Sheet name `Branch Print Summary`
+- Optional title row at the top carrying the period, e.g. `June` `2026`
+- Header row: `Branch`, `Printed Jobs`, `Printed Pages`, `Printed Cost`
+- One row per branch (`Rock Hill (RH)`, `Lake Wylie (LW)`, etc.); `TOTAL` skipped
+- **No date column** — period comes from the title row, else the file name
+  (`parse_period_from_sheet` → `parse_period_from_filename`), else the Year field
+
+**What it writes (per branch, per month, in Branch Stats):**
+- `Printed Pages` → `Total Prints per Month` (existing metric — combines with the Princh series)
+- `Printed Jobs` → `Printed Jobs` (new metric, created on first upload)
+- `Printed Cost` → `Printed Cost` (new decimal metric, created on first upload)
+
+**How detected:** any of the first rows contains both `Branch` and `Printed Pages`
+(`import_print_summary` in `import_excel.py`).
 
 ---
 

@@ -818,6 +818,114 @@ def import_printing(ws, branch_lookup):
     return created, updated, period_set, warnings
 
 
+# PC Reservation (EnvisionWare) branch-name variants → canonical branch name.
+PCRES_BRANCH_MAP = {
+    'clover':     'Clover',
+    'fort mill':  'Fort Mill',
+    'lake wylie': 'Lake Wylie',
+    'rock hill':  'Rock Hill',
+    'york':       'York',
+}
+
+
+def import_pc_reservations(ws, branch_lookup, year_override=None):
+    """
+    Parse a PC Reservation usage sheet → the 'PC Reservations' metric in Branch Stats.
+
+    Expects one row per branch per month with columns (header row, any order):
+        Branch | Year | Month | Total Uses
+    A leading title/metadata block above the header is tolerated. Extra columns
+    (Total Time, Average Session, etc.) and any 'TOTALS' rows are ignored.
+
+    Sums 'Total Uses' per (branch, year, month) and upserts into PC Reservations.
+    Upsert semantics: existing months/branches are overwritten in place, other
+    data is never touched, and re-running the same file is a no-op. Returns
+    (created, updated, period_set, warnings).
+    """
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return 0, 0, set(), ['Empty sheet']
+
+    # Locate the header row (first row containing a 'Branch' cell) so a title
+    # block above the table doesn't break parsing.
+    header_i = next((i for i, r in enumerate(rows)
+                     if any(v is not None and str(v).strip().lower() == 'branch' for v in r)), None)
+    if header_i is None:
+        return 0, 0, set(), ['Unrecognised PC Reservations format — no "Branch" header found']
+
+    headers = [str(v).strip().lower() if v is not None else '' for v in rows[header_i]]
+
+    def ci(*names):
+        for n in names:
+            if n in headers:
+                return headers.index(n)
+        return None
+
+    branch_idx = ci('branch')
+    year_idx   = ci('year')
+    month_idx  = ci('month')
+    uses_idx   = ci('total uses', 'pc reservations', 'uses')
+    if branch_idx is None or uses_idx is None:
+        return 0, 0, set(), ['Unrecognised PC Reservations format — expected Branch and Total Uses columns']
+
+    metric_lookup, cat = build_metric_lookup('Branch Stats')
+    pc_metric = metric_lookup.get('PC Reservations')
+    if not cat or not pc_metric:
+        return 0, 0, set(), ['Branch Stats or "PC Reservations" metric not found']
+
+    from collections import defaultdict
+    totals = defaultdict(int)      # (year, month, branch_id) → total uses
+    unrecognised = set()
+    warnings = []
+
+    for r in rows[header_i + 1:]:
+        if all(v is None for v in r):
+            continue
+        branch_val = r[branch_idx] if branch_idx < len(r) else None
+        uses_val   = r[uses_idx]   if uses_idx   < len(r) else None
+        if not branch_val or not isinstance(uses_val, (int, float)):
+            continue
+        # Skip any TOTALS / summary rows that slip in.
+        if str(branch_val).strip().lower().startswith('total'):
+            continue
+
+        # Year / month: prefer explicit columns, fall back to upload year override.
+        year = None
+        if year_idx is not None and year_idx < len(r) and isinstance(r[year_idx], (int, float)):
+            year = int(r[year_idx])
+        elif year_override:
+            year = year_override
+        month = None
+        if month_idx is not None and month_idx < len(r) and isinstance(r[month_idx], (int, float)):
+            month = int(r[month_idx])
+        if not year or not month or not (1 <= month <= 12):
+            warnings.append(f'Skipped row with missing/invalid year or month: {branch_val}')
+            continue
+
+        # Match branch name (case-insensitive, tolerant of extra words).
+        bl = str(branch_val).strip().lower()
+        branch_name = PCRES_BRANCH_MAP.get(bl) or next(
+            (name for key, name in PCRES_BRANCH_MAP.items() if key in bl), None)
+        branch = branch_lookup.get(branch_name) if branch_name else branch_lookup.get(bl)
+        if not branch:
+            unrecognised.add(str(branch_val).strip())
+            continue
+
+        totals[(year, month, branch.id)] += int(uses_val)
+
+    if unrecognised:
+        warnings.append(f'Unrecognised branches skipped: {sorted(unrecognised)}')
+
+    created = updated = 0
+    for (year, month, branch_id), total in totals.items():
+        res = _upsert_branch_stat(cat.id, branch_id, year, month, pc_metric.id, total)
+        if res == 'created': created += 1
+        else: updated += 1
+    period_set = {(y, m) for y, m, _ in totals.keys()}
+    db.session.commit()
+    return created, updated, period_set, warnings
+
+
 def _detect_sirsi_report_type(rows):
     """Return ('checkouts_by_location', year, month) or None if not recognised."""
     for r in rows[:15]:
@@ -1306,6 +1414,15 @@ def detect_and_import(wb, year_override=None):
             else:
                 results.append({'sheet': sheet_name, 'created': 0, 'updated': 0, 'skipped': 0,
                                  'warnings': ['Could not determine year/month from report']})
+
+        elif sheet_name == 'PC Reservations' or \
+             ('Branch' in header_row and any(h in header_row for h in ('Total Uses', 'PC Reservations'))):
+            created, updated, periods, w = import_pc_reservations(ws, branch_lookup, year_override)
+            results.append({'sheet': 'PC Reservations',
+                             'created': created, 'updated': updated, 'skipped': 0, 'warnings': w,
+                             'periods': sorted(periods),
+                             'year':  (sorted(periods)[0][0] if periods else None),
+                             'month': (sorted(periods)[0][1] if periods else None)})
 
         elif (any(v is not None and 'Letter color pages' in str(v) for r in rows[:3] for v in r) or
               ('Location' in header_row and 'Documents' in header_row and 'From' in header_row)):

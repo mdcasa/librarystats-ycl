@@ -1746,7 +1746,18 @@ def upload_data():
                 db.session.commit()
 
                 total_created = sum(r['created'] for r in results)
-                flash(f'Upload complete — {total_created} new records added.', 'success')
+                total_updated = sum(r.get('updated', 0) for r in results)
+                if total_created or total_updated:
+                    parts = []
+                    if total_created:
+                        parts.append(f'{total_created} new record(s) added')
+                    if total_updated:
+                        parts.append(f'{total_updated} existing record(s) updated')
+                    flash('Upload complete — ' + ', '.join(parts) + '.', 'success')
+                else:
+                    flash('Upload complete, but no records were added or updated — '
+                          'the file may already be fully loaded or its format was not '
+                          'recognised. See the import results below.', 'warning')
                 comparison = _import_comparison(results)
             except Exception as e:
                 flash(f'Upload failed: {e}', 'danger')

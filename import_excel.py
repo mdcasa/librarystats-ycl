@@ -1287,23 +1287,37 @@ def import_new_library_users(ws, year, month, branch_lookup):
 def import_door_count(ws, branch_lookup):
     """
     Parse a daily door count sheet (hourly ins/outs per branch).
-    Sums 'Ins' per branch per month and updates Gate Count in Branch Stats.
+    Sums 'Outs' per branch per month and updates Gate Count in Branch Stats.
     """
     rows = list(ws.iter_rows(values_only=True))
 
     metric_lookup, cat = build_metric_lookup('Branch Stats')
     gate_metric = metric_lookup.get('Gate Count')
     if not cat or not gate_metric:
-        return 0, ['Branch Stats or Gate Count metric not found']
+        return 0, 0, set(), ['Branch Stats or Gate Count metric not found']
+
+    # Locate columns by header name so the parser works regardless of column
+    # order or a leading index column being present.
+    header_idx = next((i for i, r in enumerate(rows)
+                       if any(v is not None and 'Location Name' in str(v) for v in r)), None)
+    if header_idx is None:
+        return 0, 0, set(), ['Header row with "Location Name" not found']
+
+    header = [str(v).strip() if v is not None else '' for v in rows[header_idx]]
+    loc_col  = next((i for i, h in enumerate(header) if h == 'Location Name'), None)
+    date_col = next((i for i, h in enumerate(header) if h in ('Record Date', 'Date')), None)
+    outs_col = next((i for i, h in enumerate(header) if h == 'Outs'), None)
+    if loc_col is None or date_col is None or outs_col is None:
+        return 0, 0, set(), ['Could not find Location Name / Record Date / Outs columns']
 
     from collections import defaultdict
-    monthly_ins = defaultdict(lambda: defaultdict(int))  # (year,month) → branch_id → total
+    monthly_outs = defaultdict(lambda: defaultdict(int))  # (year,month) → branch_id → total
 
-    for r in rows:
-        loc_name = r[1]
-        date     = r[2]
-        ins      = r[3]
-        if not isinstance(ins, (int, float)) or ins == 0:
+    for r in rows[header_idx + 1:]:
+        loc_name = r[loc_col]  if loc_col  < len(r) else None
+        date     = r[date_col] if date_col < len(r) else None
+        outs     = r[outs_col] if outs_col < len(r) else None
+        if not isinstance(outs, (int, float)) or outs == 0:
             continue
         if not loc_name or loc_name == 'Location Name':
             continue
@@ -1317,17 +1331,17 @@ def import_door_count(ws, branch_lookup):
         if not branch:
             continue
 
-        monthly_ins[(date.year, date.month)][branch.id] += int(ins)
+        monthly_outs[(date.year, date.month)][branch.id] += int(outs)
 
     created = updated = 0
-    for (year, month), branch_totals in monthly_ins.items():
+    for (year, month), branch_totals in monthly_outs.items():
         for branch_id, total in branch_totals.items():
             r = _upsert_branch_stat(cat.id, branch_id, year, month, gate_metric.id, total)
             if r == 'created': created += 1
             else: updated += 1
 
     db.session.commit()
-    period_set = set(monthly_ins.keys())
+    period_set = set(monthly_outs.keys())
     return created, updated, period_set, []
 
 

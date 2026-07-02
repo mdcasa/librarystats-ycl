@@ -109,6 +109,23 @@ with app.app_context():
             if _backfilled:
                 db.session.commit()
 
+    # Remove DigitalLearn.org metrics from the Online Stats entry form.
+    # Deactivate if they hold recorded data (preserves history), else delete.
+    _os = Category.query.filter_by(name='Online Stats').first()
+    if _os:
+        for _dl in Metric.query.filter(
+            Metric.category_id == _os.id,
+            Metric.name.in_([
+                'DigitalLearn.org - Sessions',
+                'DigitalLearn.org - Completed Courses',
+            ]),
+        ).all():
+            if EntryValue.query.filter_by(metric_id=_dl.id).count():
+                _dl.is_active = False
+            else:
+                db.session.delete(_dl)
+        db.session.commit()
+
     # Create import_logs table if it doesn't exist yet
     try:
         db.session.execute(db.text(
@@ -1707,7 +1724,7 @@ def upload_data():
                 wb = openpyxl.load_workbook(tmp_path, data_only=True)
 
                 ev_before, entries_before, sirsi_before, sirsi_full = _import_snapshot()
-                results = detect_and_import(wb, year_override=year_override)
+                results = detect_and_import(wb, year_override=year_override, filename=f.filename)
                 changes = _import_diff(ev_before, entries_before, sirsi_before, sirsi_full)
 
                 # Derive period + type summary from results
@@ -1806,6 +1823,8 @@ _UPLOAD_SOURCED_METRICS = {
     'Locker Circulation',
     'WiFi - Unique Sessions',
     'Total Prints per Month',
+    'Printed Jobs',
+    'Printed Cost',
     'ILL - Sent (Main ONLY)',
     'ILL - Received (Main ONLY)',
     'ICLs - Sent (Main ONLY)',

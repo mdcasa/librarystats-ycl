@@ -818,6 +818,164 @@ def import_printing(ws, branch_lookup):
     return created, updated, period_set, warnings
 
 
+# ── LPTOne / Princh "Branch Print Summary" export ─────────────────────────────
+#
+# Some libraries release prints through LPTOne at the desk (mobile "Princh" jobs
+# are rolled into the same totals). Their export is one row per branch with no
+# date column — the period comes from the file name (e.g. YCL_Print_Summary_June2026).
+#
+# Each spreadsheet column is tracked as its own Branch Stats metric, per branch,
+# per month. "Printed Pages" continues the existing "Total Prints per Month"
+# series so the historical Princh data and new data combine into one line.
+PRINT_SUMMARY_COL_MAP = {
+    'Printed Pages': 'Total Prints per Month',   # existing metric — combines old + new
+    'Printed Jobs':  'Printed Jobs',
+    'Printed Cost':  'Printed Cost',
+}
+
+# New metrics this importer may need to create (name → (group, data_type)).
+PRINT_SUMMARY_NEW_METRICS = {
+    'Printed Jobs': ('Access & Usage', 'integer'),
+    'Printed Cost': ('Access & Usage', 'decimal'),
+}
+
+_MONTH_NAMES = {
+    'january': 1, 'february': 2, 'march': 3, 'april': 4, 'may': 5, 'june': 6,
+    'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11,
+    'december': 12,
+}
+
+
+def parse_period_from_filename(filename):
+    """
+    Pull (year, month) out of a file name for exports that carry no date column.
+    Handles 'June2026', 'June_2026', 'June 2026', '2026-06', '2026_06'.
+    Returns (year, month) or (None, None).
+    """
+    if not filename:
+        return None, None
+    name = str(filename)
+
+    # Month name followed (optionally) by a 4-digit year, e.g. 'June2026'
+    m = re.search(
+        r'(january|february|march|april|may|june|july|august|september|'
+        r'october|november|december)[ _-]*((?:19|20)\d{2})',
+        name, re.IGNORECASE)
+    if m:
+        return int(m.group(2)), _MONTH_NAMES[m.group(1).lower()]
+
+    # Numeric YYYY-MM / YYYY_MM
+    m = re.search(r'((?:19|20)\d{2})[ _-](0[1-9]|1[0-2])', name)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+
+    return None, None
+
+
+def _ensure_metric(cat_id, name, group_name, data_type):
+    """
+    Find-or-create a Metric row (production DBs have no migration tool, so new
+    metrics are added idempotently on first use). Returns the Metric.
+    """
+    m = Metric.query.filter_by(category_id=cat_id, name=name).first()
+    if m:
+        return m
+    max_sort = db.session.query(db.func.max(Metric.sort_order)).filter_by(
+        category_id=cat_id).scalar() or 0
+    m = Metric(category_id=cat_id, name=name, group_name=group_name,
+               data_type=data_type, sort_order=max_sort + 1)
+    db.session.add(m)
+    db.session.flush()
+    return m
+
+
+def import_print_summary(ws, branch_lookup, year, month):
+    """
+    Parse an LPTOne / Princh 'Branch Print Summary' export: one row per branch
+    with Printed Jobs / Printed Pages / Printed Cost columns. Period comes from
+    the caller (parsed from the file name).
+
+    Each recognised column is upserted as its own Branch Stats metric per branch.
+    Returns (created, updated, period_set, warnings).
+    """
+    if not (year and month):
+        return 0, 0, set(), ['Could not determine month/year — expected it in the '
+                             'file name (e.g. YCL_Print_Summary_June2026.xlsx)']
+
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return 0, 0, set(), ['Empty sheet']
+
+    # The header row may not be the first row (some exports have title rows above).
+    header = header_idx = None
+    for i, r in enumerate(rows[:6]):
+        vals = [str(v).strip() if v is not None else '' for v in r]
+        if 'Branch' in vals and 'Printed Pages' in vals:
+            header, header_idx = vals, i
+            break
+    if header is None:
+        return 0, 0, set(), ['Unrecognised print summary format — expected a '
+                             '"Branch" + "Printed Pages" header row']
+
+    branch_col = header.index('Branch')
+    # Map each recognised column index → metric name
+    col_to_metric = {header.index(col): metric
+                     for col, metric in PRINT_SUMMARY_COL_MAP.items()
+                     if col in header}
+
+    cat = Category.query.filter_by(name='Branch Stats').first()
+    if not cat:
+        return 0, 0, set(), ['Branch Stats category not found']
+
+    # Resolve (creating if needed) the metric object for each mapped column.
+    metric_ids = {}
+    for col_idx, metric_name in col_to_metric.items():
+        spec = PRINT_SUMMARY_NEW_METRICS.get(metric_name)
+        if spec:
+            metric = _ensure_metric(cat.id, metric_name, spec[0], spec[1])
+        else:
+            metric = Metric.query.filter_by(category_id=cat.id, name=metric_name).first()
+        if metric:
+            metric_ids[col_idx] = metric.id
+
+    created = updated = 0
+    unrecognised = set()
+    period_set = set()
+
+    for r in rows[header_idx + 1:]:
+        if r is None or all(v is None for v in r):
+            continue
+        raw = r[branch_col]
+        if raw is None:
+            continue
+        # 'Rock Hill*' / 'Rock Hill (RH)' → strip footnote marks/suffixes for matching
+        loc_lower = str(raw).strip().rstrip('*').strip().lower()
+        if not loc_lower or loc_lower in ('total', 'totals'):
+            continue
+
+        branch_name = next(
+            (name for key, name in PRINTING_BRANCH_MAP.items() if key in loc_lower),
+            None)
+        branch = branch_lookup.get(branch_name) if branch_name else None
+        if not branch:
+            unrecognised.add(str(raw).strip())
+            continue
+
+        for col_idx, metric_id in metric_ids.items():
+            val = r[col_idx] if col_idx < len(r) else None
+            if not isinstance(val, (int, float)):
+                continue
+            res = _upsert_branch_stat(cat.id, branch.id, year, month, metric_id, val)
+            if res == 'created': created += 1
+            else: updated += 1
+        period_set.add((year, month))
+
+    warnings = ([f'Unrecognised branches skipped: {sorted(unrecognised)}']
+                if unrecognised else [])
+    db.session.commit()
+    return created, updated, period_set, warnings
+
+
 # PC Reservation (EnvisionWare) branch-name variants → canonical branch name.
 PCRES_BRANCH_MAP = {
     'clover':     'Clover',
@@ -1345,11 +1503,14 @@ def import_door_count(ws, branch_lookup):
     return created, updated, period_set, []
 
 
-def detect_and_import(wb, year_override=None):
+def detect_and_import(wb, year_override=None, filename=None):
     """
     Auto-detect the report type from a workbook and route to the correct importer.
     Returns a list of result dicts for display.
     Must be called within an active Flask app context.
+
+    filename is used by date-less exports (e.g. the print summary) to recover the
+    period, and by the Year field on the upload form as a fallback/override.
     """
     branch_lookup = build_branch_lookup()
     results = []
@@ -1428,6 +1589,21 @@ def detect_and_import(wb, year_override=None):
             else:
                 results.append({'sheet': sheet_name, 'created': 0, 'updated': 0, 'skipped': 0,
                                  'warnings': ['Could not determine year/month from report']})
+
+        elif any(
+                {'Branch', 'Printed Pages'} <= {str(v).strip() for v in (r or []) if v is not None}
+                for r in rows[:6]):
+            year, month = parse_period_from_filename(filename)
+            if year_override:
+                year = year_override
+            created, updated, periods, w = import_print_summary(ws, branch_lookup, year, month)
+            results.append({'sheet': 'Branch Print Summary (Prints)',
+                             'created': created, 'updated': updated, 'skipped': 0, 'warnings': w,
+                             'periods': sorted(periods),
+                             'note': (f'Printed Jobs, Pages & Cost stored for {month}/{year}'
+                                      if year and month else ''),
+                             'year':  (sorted(periods)[0][0] if periods else year),
+                             'month': (sorted(periods)[0][1] if periods else month)})
 
         elif sheet_name == 'PC Reservations' or \
              ('Branch' in header_row and any(h in header_row for h in ('Total Uses', 'PC Reservations'))):

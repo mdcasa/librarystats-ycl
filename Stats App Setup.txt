@@ -1,0 +1,36 @@
+Stats App Setup
+
+Gitbhub 
+martin.house@yclibrary.org
+mhouse-ycl
+
+
+
+CNAME 
+@
+rrcsuxz4.up.railway.app
+
+
+TXT
+_railway-verify
+railway-verify=12efc6fcff557cb8a59d52bc2fba8018289d1d308f8fd5ec8feba83caef1efe6
+
+supabase-database password
+Baxter-YCL-2057
+
+supabase
+publishable key
+sb_publishable_mTqtiiPN1g8HxQD3F43GzQ_naX62zwk
+
+project url
+https://pxpoysibbaxrrnqvlvaw.supabase.co
+
+direct connect string
+postgresql://postgres.pxpoysibbaxrrnqvlvaw:Baxter-YCL-2057@aws-0-us-east-1.pooler.supabase.com:5432/postgres 
+
+
+
+CLI setup commands
+supabase login
+supabase init
+supabase link --project-ref pxpoysibbaxrrnqvlvaw

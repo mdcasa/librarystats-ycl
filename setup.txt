@@ -1,0 +1,26 @@
+  Step 1 — Create a Supabase database (free)                                                                                                     
+                                                                                                                                                 
+  1. Go to supabase.com → sign up → New project                                                                                                  
+  2. Give it a name (e.g. librarystats) and set a database password — save this somewhere                                                        
+  3. Once it's created (takes ~1 min), go to: Project Settings → Database → Connection string                                                    
+  4. Click the Transaction pooler tab and copy the URI — it looks like:                                                                          
+  postgresql://postgres.[ref]:[  Step 1 — Create a Supabase database (free)                                                                                                     
+                                                                                                                                                 
+  1. Go to supabase.com → sign up → New project                                                                                                  
+  2. Give it a name (e.g. librarystats) and set a database password — save this somewhere                                                        
+  3. Once it's created (takes ~1 min), go to: Project Settings → Database → Connection string                                                    
+  4. Click the Transaction pooler tab and copy the URI — it looks like:                                                                          
+  postgresql://postgres.[ref]:[YOUR-PASSWORD]@aws-0-us-east-1.pooler.supabase.com:6543/postgres                                                  
+                                                                                                                                                 
+  That's your DATABASE_URL. 
+
+password: Baxter-YCL-2057
+
+Project ID: gdrqwcxkugyyixoaydxy
+
+postgresql://postgres:Baxter-YCL-2057@db.gdrqwcxkugyyixoaydxy.supabase.co:5432/postgres
+
+9d2a1a63bbb16d96e0bd7b91cac38d46eaaa35bed8d5a1c65576456f35986174
+
+postgresql://postgres.gdrqwcxkugyyixoaydxy:Baxter-YCL-2057@aws-1-us-east-2.pooler.supabase.com:6543/postgres
+     

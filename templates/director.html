@@ -1,0 +1,234 @@
+{% extends 'base.html' %}
+{% block title %}Director's Dashboard{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4 fw-bold mb-0"><i class="bi bi-speedometer me-2 text-primary"></i>Director's Dashboard</h1>
+  {% if stats %}
+  <button class="btn btn-outline-secondary btn-sm d-print-none" onclick="window.print()">
+    <i class="bi bi-printer me-1"></i>Print / Save as PDF
+  </button>
+  {% endif %}
+</div>
+
+{# ── FY selector ── #}
+<div class="card mb-4 d-print-none">
+  <div class="card-body py-3">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-sm-4">
+        <label class="sidebar-label mb-1">Fiscal Year</label>
+        <select name="fy_year" class="form-select form-select-sm" required>
+          <option value="">— select —</option>
+          {% for fy in available_fy %}
+          <option value="{{ fy }}" {% if sel_fy == fy %}selected{% endif %}>
+            FY{{ fy }} &nbsp;(Jul {{ fy - 1 }} – Jun {{ fy }})
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-primary btn-sm">View Dashboard</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if stats %}
+
+{# ── Title ── #}
+<div class="text-center mb-4">
+  <h2 class="h4 fw-bold mb-0">York County Library</h2>
+  <p class="text-muted">{{ fy_label }} &nbsp;·&nbsp; State Library Annual Statistical Report Summary</p>
+</div>
+
+{# ── KPI cards ── #}
+<div class="row g-3 mb-4">
+  {% set kpis = [
+    ('bi-book',          'Total Circulation',     stats.totals.circulation, '#1a5276'),
+    ('bi-door-open',     'Gate Count',            stats.totals.gate,        '#1e8449'),
+    ('bi-people-fill',   'Program Sessions',      stats.totals.programs,    '#6c3483'),
+    ('bi-person-lines-fill','Total Attendance',   stats.totals.attendance,  '#784212'),
+    ('bi-credit-card',   'New Library Cards',     stats.totals.cards,       '#117a65'),
+    ('bi-globe',         'Website Hits',          stats.totals.website,     '#922b21'),
+  ] %}
+  {% for icon, label, val, color in kpis %}
+  <div class="col-6 col-md-4 col-lg-2">
+    <div class="card text-center h-100" style="border-top:4px solid {{ color }}">
+      <div class="card-body py-3 px-2">
+        <i class="bi {{ icon }} fs-4 mb-1" style="color:{{ color }}"></i>
+        <div class="fw-bold fs-5">{{ '{:,}'.format(val|int) if val else '—' }}</div>
+        <div class="text-muted" style="font-size:.72rem;line-height:1.2">{{ label }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{# ── LIBRARY USERS ── #}
+<div class="card mb-3">
+  <div class="card-header-custom fw-bold" style="color:#1a5276">
+    <i class="bi bi-people me-2"></i>Library Users, Visits &amp; Internet Usage
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered mb-0" style="font-size:.88rem">
+      <thead class="table-light">
+        <tr><th style="width:60px">Code</th><th>Metric</th><th class="text-end" style="width:120px">FY Total</th></tr>
+      </thead>
+      <tbody>
+        {% for code, label, val in stats.users %}
+        <tr>
+          <td class="text-muted">{{ code }}</td>
+          <td>{{ label }}</td>
+          <td class="text-end fw-semibold {{ 'text-muted' if not val }}">{{ '{:,}'.format(val|int) if val else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ── CIRCULATION ── #}
+<div class="card mb-3">
+  <div class="card-header-custom fw-bold" style="color:#1e8449">
+    <i class="bi bi-arrow-repeat me-2"></i>Reference &amp; Circulation
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered mb-0" style="font-size:.88rem">
+      <thead class="table-light">
+        <tr><th style="width:60px">Code</th><th>Metric</th><th class="text-end" style="width:120px">FY Total</th></tr>
+      </thead>
+      <tbody>
+        {% for code, label, val in stats.circulation %}
+        <tr>
+          <td class="text-muted">{{ code }}</td>
+          <td>{{ label }}</td>
+          <td class="text-end fw-semibold {{ 'text-muted' if not val }}">
+            {% if val %}{{ '{:,}'.format(val|int) }}{% else %}<span class="text-muted fst-italic" style="font-size:.8rem">not tracked</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ── PROGRAMMING ── #}
+<div class="card mb-3">
+  <div class="card-header-custom fw-bold" style="color:#6c3483">
+    <i class="bi bi-calendar-event me-2"></i>Programming
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered mb-0" style="font-size:.88rem">
+      <thead class="table-dark">
+        <tr>
+          <th>Age Group</th>
+          {% for t in TYPES %}
+          <th class="text-center">{{ t }} Sessions</th>
+          <th class="text-center">{{ t }} Attendance</th>
+          {% endfor %}
+          <th class="text-center bg-secondary bg-opacity-25">Total Sessions</th>
+          <th class="text-center bg-secondary bg-opacity-25">Total Attendance</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for age in AGE %}
+        {% set ts = namespace(s=0, a=0) %}
+        <tr>
+          <td class="fw-semibold">{{ age }}</td>
+          {% for t in TYPES %}
+            {% set sv = stats.sessions[t] | selectattr('0', 'equalto', age) | map(attribute='1') | first %}
+            {% set av = stats.attendance[t] | selectattr('0', 'equalto', age) | map(attribute='1') | first %}
+            {% if sv %}{% set ts.s = ts.s + sv %}{% endif %}
+            {% if av %}{% set ts.a = ts.a + av %}{% endif %}
+            <td class="text-center {{ 'text-muted' if not sv }}">{{ '{:,}'.format(sv|int) if sv else '—' }}</td>
+            <td class="text-center {{ 'text-muted' if not av }}">{{ '{:,}'.format(av|int) if av else '—' }}</td>
+          {% endfor %}
+          <td class="text-center fw-semibold bg-secondary bg-opacity-10">{{ '{:,}'.format(ts.s|int) if ts.s else '—' }}</td>
+          <td class="text-center fw-semibold bg-secondary bg-opacity-10">{{ '{:,}'.format(ts.a|int) if ts.a else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ── OUTREACH & ASYNC ── #}
+<div class="row g-3 mb-3">
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header-custom fw-bold" style="color:#117a65">
+        <i class="bi bi-signpost-2 me-2"></i>Outreach &amp; Other
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm table-bordered mb-0" style="font-size:.88rem">
+          <tbody>
+            {% for label, val in stats.outreach %}
+            <tr>
+              <td>{{ label }}</td>
+              <td class="text-end fw-semibold {{ 'text-muted' if not val }}">{{ '{:,}'.format(val|int) if val else '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header-custom fw-bold" style="color:#784212">
+        <i class="bi bi-play-circle me-2"></i>Asynchronous Programs
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm table-bordered mb-0" style="font-size:.88rem">
+          <tbody>
+            {% for label, val in stats.async_ %}
+            <tr>
+              <td>{{ label }}</td>
+              <td class="text-end fw-semibold {{ 'text-muted' if not val }}">{{ '{:,}'.format(val|int) if val else '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── ONLINE & SOCIAL ── #}
+<div class="card mb-4">
+  <div class="card-header-custom fw-bold" style="color:#922b21">
+    <i class="bi bi-globe me-2"></i>Online &amp; Social Media
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered mb-0" style="font-size:.88rem">
+      <thead class="table-light">
+        <tr><th>Metric</th><th class="text-end" style="width:120px">FY Total</th></tr>
+      </thead>
+      <tbody>
+        {% for label, val in stats.online %}
+        <tr>
+          <td>{{ label }}</td>
+          <td class="text-end fw-semibold {{ 'text-muted' if not val }}">{{ '{:,}'.format(val|int) if val else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<style>
+@media print {
+  .d-print-none { display: none !important; }
+  body { background: white !important; font-size: 11px; }
+  .card { box-shadow: none !important; border: 1px solid #ccc !important; break-inside: avoid; }
+  .card-header-custom { padding: .4rem .75rem !important; }
+  nav, footer { display: none !important; }
+  .container-lg { padding: 0 !important; max-width: 100% !important; }
+  .row.g-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+}
+</style>
+{% endblock %}

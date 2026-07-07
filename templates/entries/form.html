@@ -1,0 +1,190 @@
+{% extends 'base.html' %}
+{% set editing = entry is not none %}
+{% block title %}{{ 'Edit' if editing else 'New' }} Entry – {{ category.name }} – Library Stats{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb small">
+    <li class="breadcrumb-item"><a href="{{ url_for('index') }}">Dashboard</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('entries_list') }}">Browse Data</a></li>
+    {% if editing %}
+    <li class="breadcrumb-item"><a href="{{ url_for('entry_view', entry_id=entry.id) }}">Entry #{{ entry.id }}</a></li>
+    <li class="breadcrumb-item active">Edit</li>
+    {% else %}
+    <li class="breadcrumb-item active">New Entry – {{ category.name }}</li>
+    {% endif %}
+  </ol>
+</nav>
+
+<h1 class="h4 fw-bold mb-4">
+  <i class="bi bi-{{ 'pencil' if editing else 'plus-circle' }} me-2 text-primary"></i>
+  {{ 'Edit' if editing else 'New' }} Entry — {{ category.name }}
+  <span class="badge bg-secondary badge-freq ms-2">{{ category.freq_label }}</span>
+</h1>
+
+{% set action_url = url_for('entry_edit', entry_id=entry.id) if editing else url_for('entry_create', category_id=category.id) %}
+<form method="post" action="{{ action_url }}">
+
+  {# ── Period & context ── #}
+  <div class="card mb-4">
+    <div class="card-header-custom fw-semibold">Period &amp; Context</div>
+    <div class="card-body">
+      <div class="row g-3">
+
+        {# Year #}
+        <div class="col-sm-2">
+          <label class="form-label fw-semibold">Year <span class="text-danger">*</span></label>
+          <select name="year" class="form-select" required>
+            {% for y in year_range %}
+            <option value="{{ y }}"
+              {% if editing and entry.year == y %}selected
+              {% elif not editing and y == now.year %}selected
+              {% endif %}>{{ y }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        {# Month (monthly only) #}
+        {% if category.frequency == 'monthly' %}
+        <div class="col-sm-3">
+          <label class="form-label fw-semibold">Month</label>
+          <select name="month" class="form-select">
+            <option value="">— select —</option>
+            {% for m in months %}
+            <option value="{{ loop.index }}"
+              {% if editing and entry.month == loop.index %}selected
+              {% elif not editing and loop.index == now.month %}selected
+              {% endif %}>{{ m }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+
+        {# Quarter (quarterly only) #}
+        {% if category.frequency == 'quarterly' %}
+        <div class="col-sm-3">
+          <label class="form-label fw-semibold">Quarter</label>
+          <select name="quarter" class="form-select">
+            <option value="">— select —</option>
+            {% for q in [1,2,3,4] %}
+            <option value="{{ q }}"
+              {% if editing and entry.quarter == q %}selected{% endif %}>Q{{ q }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+
+        {# Branch (if applicable) #}
+        {% if category.has_branch %}
+        <div class="col-sm-4">
+          <label class="form-label fw-semibold">Branch / Location</label>
+          <select name="branch_id" class="form-select">
+            <option value="">— System-wide / N/A —</option>
+            {% for b in branches %}
+            <option value="{{ b.id }}"
+              {% if editing and entry.branch_id == b.id %}selected{% endif %}>{{ b.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+
+        {# Submitted by #}
+        <div class="col-sm-3">
+          <label class="form-label fw-semibold">Submitted by</label>
+          <input type="text" name="submitted_by" class="form-control"
+                 placeholder="Name or email"
+                 value="{{ entry.submitted_by if editing and entry.submitted_by else '' }}">
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  {# ── Metrics ── #}
+  <div class="card mb-4">
+    <div class="card-header-custom fw-semibold">Statistics</div>
+    <div class="table-responsive">
+      <table class="table mb-0 align-middle">
+        <colgroup>
+          <col style="width: 60%">
+          <col style="width: 40%">
+        </colgroup>
+        <thead class="table-light">
+          <tr>
+            <th>Metric</th>
+            <th>Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for group in metric_groups %}
+            {% if group.name %}
+            <tr class="group-header">
+              <td colspan="2">{{ group.name }}</td>
+            </tr>
+            {% endif %}
+            {% for m in group.metrics %}
+            {% set ev = values.get(m.id) %}
+            <tr>
+              <td>
+                {{ m.name }}
+                {% if m.description %}
+                <i class="bi bi-info-circle text-muted ms-1" title="{{ m.description }}"
+                   data-bs-toggle="tooltip"></i>
+                {% endif %}
+              </td>
+              <td>
+                {% if m.data_type == 'text' %}
+                <input type="text" name="metric_{{ m.id }}"
+                       class="form-control form-control-sm"
+                       value="{{ ev.value_text if ev and ev.value_text else '' }}">
+                {% elif m.data_type == 'decimal' %}
+                <input type="number" name="metric_{{ m.id }}"
+                       class="form-control form-control-sm metric-input"
+                       step="0.01" min="0"
+                       value="{{ ev.display_value if ev else '' }}">
+                {% else %}
+                <input type="number" name="metric_{{ m.id }}"
+                       class="form-control form-control-sm metric-input"
+                       step="1" min="0"
+                       value="{{ ev.display_value if ev else '' }}">
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {# ── Notes ── #}
+  <div class="card mb-4">
+    <div class="card-header-custom fw-semibold">Notes <span class="text-muted fw-normal">(optional)</span></div>
+    <div class="card-body">
+      <textarea name="notes" class="form-control" rows="3"
+                placeholder="Any notes or comments about this submission...">{{ entry.notes if editing and entry.notes else '' }}</textarea>
+    </div>
+  </div>
+
+  <div class="d-flex gap-2">
+    <button type="submit" class="btn btn-primary px-4">
+      <i class="bi bi-check-lg me-1"></i>{{ 'Save Changes' if editing else 'Submit Entry' }}
+    </button>
+    {% if editing %}
+    <a href="{{ url_for('entry_view', entry_id=entry.id) }}" class="btn btn-outline-secondary">Cancel</a>
+    {% else %}
+    <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">Cancel</a>
+    {% endif %}
+  </div>
+
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Enable Bootstrap tooltips
+  document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
+    new bootstrap.Tooltip(el);
+  });
+</script>
+{% endblock %}

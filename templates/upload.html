@@ -1,0 +1,125 @@
+{% extends 'base.html' %}
+{% block title %}Upload Data – Library Stats{% endblock %}
+
+{% block content %}
+<h1 class="h4 fw-bold mb-1"><i class="bi bi-upload me-2 text-primary"></i>Upload Data File</h1>
+<p class="text-muted mb-4">Upload any supported spreadsheet — the system will detect the file type automatically.</p>
+
+<div class="row g-4">
+
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header-custom fw-semibold">Select File</div>
+      <div class="card-body">
+        <form method="post" enctype="multipart/form-data">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Excel file (.xlsx)</label>
+            <input type="file" name="file" class="form-control" accept=".xlsx" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Year <span class="text-muted fw-normal">(required for manual stat files without a Year column)</span></label>
+            <select name="year" class="form-select">
+              <option value="">— auto-detect from file —</option>
+              {% for y in range(2030, 2022, -1) %}
+              <option value="{{ y }}" {% if y == now.year %}selected{% endif %}>{{ y }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary px-4">
+            <i class="bi bi-upload me-1"></i>Upload &amp; Import
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="card h-100">
+      <div class="card-header-custom fw-semibold">Supported File Types</div>
+      <div class="card-body small">
+        <table class="table table-sm mb-0">
+          <thead class="table-light">
+            <tr><th>File</th><th>What it updates</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="badge bg-info text-dark">SIRSI</span> Checkouts by Branch and Shelving Location</td>
+              <td>Circulation totals, Hotspot checkouts</td>
+            </tr>
+            <tr>
+              <td><span class="badge bg-info text-dark">SIRSI</span> Number of New Library Users by Branch and Patron Type</td>
+              <td>New Library Card Registrations (Adult &amp; Juvenile)</td>
+            </tr>
+            <tr>
+              <td><span class="badge bg-success text-white">Door Counter</span> daily_door_count</td>
+              <td>Gate Count per branch</td>
+            </tr>
+            <tr>
+              <td><span class="badge bg-warning text-dark">QRS</span> Quarterly Ref Stats</td>
+              <td>Quarterly Reference Stats entries</td>
+            </tr>
+            <tr>
+              <td><span class="badge bg-secondary text-white">Princh</span> princh-export (date range)</td>
+              <td>Total Prints per Month per branch</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="text-muted mt-2 mb-0">
+          <i class="bi bi-info-circle me-1"></i>
+          Uploading the same file twice is safe — existing records are updated, not duplicated.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  {% if results %}
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header-custom fw-semibold">Import Results</div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Data Type</th>
+              <th class="text-center">Created</th>
+              <th class="text-center">Updated</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in results %}
+            <tr>
+              <td class="fw-semibold">{{ r.sheet }}</td>
+              <td class="text-center">
+                {% if r.created > 0 %}
+                <span class="badge bg-success">{{ r.created }}</span>
+                {% else %}
+                <span class="text-muted">0</span>
+                {% endif %}
+              </td>
+              <td class="text-center">
+                {% if r.get('updated', 0) > 0 %}
+                <span class="badge bg-warning text-dark">{{ r.updated }}</span>
+                {% else %}
+                <span class="text-muted">0</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if r.get('note') %}
+                <div class="text-muted small">{{ r.note }}</div>
+                {% endif %}
+                {% for w in r.warnings %}
+                <div class="text-warning small"><i class="bi bi-exclamation-triangle me-1"></i>{{ w }}</div>
+                {% endfor %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

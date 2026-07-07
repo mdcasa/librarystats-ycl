@@ -2,3 +2,10 @@
 *.gdoc
 /data/
 /survey responses/
+.env
+.env2
+*.db
+instance/
+__pycache__/
+*.pyc
+.DS_Store

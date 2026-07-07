@@ -1,0 +1,89 @@
+{% extends 'base.html' %}
+{% block title %}Online Stats – Reports{% endblock %}
+{% block content %}
+<h1 class="h4 fw-bold mb-4"><i class="bi bi-globe me-2 text-secondary"></i>Online Stats</h1>
+
+<div class="card mb-4">
+  <div class="card-body py-3">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-sm-3">
+        <label class="sidebar-label mb-1">Month</label>
+        <select name="month" class="form-select form-select-sm" required>
+          <option value="">— select —</option>
+          {% for m in months %}
+          <option value="{{ loop.index }}" {% if sel_month == loop.index %}selected{% endif %}>{{ m }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-2">
+        <label class="sidebar-label mb-1">Year</label>
+        <select name="year" class="form-select form-select-sm" required>
+          <option value="">— select —</option>
+          {% for y in available_years %}
+          <option value="{{ y }}" {% if sel_year == y %}selected{% endif %}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-3">
+        <button class="btn btn-primary btn-sm">Run Report</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if stats is not none %}
+  {% if stats %}
+  <h5 class="mb-3">{{ months[sel_month-1] }} {{ sel_year }}</h5>
+  {% for group in groups %}
+  <div class="card mb-3">
+    {% if group.name %}
+    <div class="card-header-custom fw-semibold">{{ group.name }}</div>
+    {% endif %}
+    <div class="table-responsive">
+      <table class="table table-sm mb-0 align-middle" style="font-size:.88rem">
+        <thead class="table-light">
+          <tr>
+            <th style="min-width:240px">Metric</th>
+            <th class="text-end">Value</th>
+            <th class="text-end">Prev Month</th>
+            <th class="text-end">Change</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in group.metrics %}
+          {% set s = stats_by_id.get(m.id) %}
+          {% if s %}
+          <tr>
+            <td>{{ m.name }}</td>
+            <td class="text-end fw-semibold">
+              {{ s.value|int if s.value == s.value|int else s.value }}
+            </td>
+            <td class="text-end text-muted">
+              {{ s.prev|int if s.prev is not none and s.prev == s.prev|int else (s.prev if s.prev is not none else '—') }}
+            </td>
+            <td class="text-end">
+              {% if s.delta is not none %}
+                {% if s.delta > 0 %}
+                <span class="text-success"><i class="bi bi-arrow-up-short"></i>{{ s.delta|int }} ({{ s.delta_pct }}%)</span>
+                {% elif s.delta < 0 %}
+                <span class="text-danger"><i class="bi bi-arrow-down-short"></i>{{ (s.delta * -1)|int }} ({{ (s.delta_pct * -1) }}%)</span>
+                {% else %}
+                <span class="text-muted">—</span>
+                {% endif %}
+              {% else %}
+              <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endfor %}
+  {% else %}
+  <div class="alert alert-info">No Online Stats data found for this period.</div>
+  {% endif %}
+{% endif %}
+{% endblock %}

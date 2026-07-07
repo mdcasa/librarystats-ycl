@@ -1,0 +1,240 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard – Library Stats{% endblock %}
+
+{% block content %}
+{% set MN = ['January','February','March','April','May','June','July','August','September','October','November','December'] %}
+
+{# ── Page header ── #}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="h4 fw-bold mb-0">
+      <i class="bi bi-speedometer2 me-2 text-primary"></i>Dashboard
+    </h1>
+    {% if latest_month %}
+    <div class="text-muted small mt-1">
+      Key metrics for <strong>{{ MN[latest_month - 1] }} {{ latest_year }}</strong>
+      &mdash; vs prior month
+    </div>
+    {% endif %}
+  </div>
+  <a href="{{ url_for('entries_list') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-table me-1"></i>Browse Data
+  </a>
+</div>
+
+{# ── System summary ── #}
+<div class="row g-3 mb-4">
+  <div class="col-4">
+    <div class="card text-center py-3">
+      <div class="display-6 fw-bold text-primary">{{ total_entries | commas }}</div>
+      <div class="text-muted small mt-1">Total Entries</div>
+    </div>
+  </div>
+  <div class="col-4">
+    <div class="card text-center py-3">
+      <div class="display-6 fw-bold text-success">{{ total_categories }}</div>
+      <div class="text-muted small mt-1">Categories</div>
+    </div>
+  </div>
+  <div class="col-4">
+    <div class="card text-center py-3">
+      <div class="display-6 fw-bold text-info">{{ total_branches }}</div>
+      <div class="text-muted small mt-1">Branches</div>
+    </div>
+  </div>
+</div>
+
+{# ── KPI tiles ── #}
+{% macro kpi_tile(label, icon, color, value, prev) %}
+{% if prev and value is not none and value != '' %}
+  {% set delta = value - prev %}
+  {% set pct   = ((delta / prev) * 100) | round(1) %}
+{% else %}
+  {% set delta = none %}
+  {% set pct   = none %}
+{% endif %}
+<div class="card h-100" style="border-left: 4px solid {{ color }};">
+  <div class="card-body py-3 px-3">
+    <div class="d-flex justify-content-between align-items-start mb-2">
+      <div class="text-muted fw-semibold text-uppercase"
+           style="font-size:.7rem;letter-spacing:.5px">{{ label }}</div>
+      <div class="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0"
+           style="width:36px;height:36px;background:{{ color }}22">
+        <i class="bi {{ icon }}" style="color:{{ color }};font-size:1rem"></i>
+      </div>
+    </div>
+    <div class="fw-bold" style="font-size:1.7rem;color:{{ color }};line-height:1.1">
+      {% if value is not none %}{{ value | commas }}{% else %}&mdash;{% endif %}
+    </div>
+    {% if pct is not none %}
+    <div class="mt-1 small">
+      {% if delta >= 0 %}
+        <span class="text-success"><i class="bi bi-arrow-up-short"></i>{{ pct }}%</span>
+      {% else %}
+        <span class="text-danger"><i class="bi bi-arrow-down-short"></i>{{ pct | abs }}%</span>
+      {% endif %}
+      <span class="text-muted">vs prior month</span>
+    </div>
+    {% elif value is not none %}
+    <div class="mt-1 small text-muted">No prior-month data</div>
+    {% endif %}
+  </div>
+</div>
+{% endmacro %}
+
+{% if kpi %}
+<div class="row g-3 mb-4">
+  <div class="col-sm-6 col-lg-4">
+    {{ kpi_tile('Circulation',       'bi-book',         '#2c6e8a', kpi.circulation, kpi_prev.circulation) }}
+  </div>
+  <div class="col-sm-6 col-lg-4">
+    {{ kpi_tile('Gate Count',        'bi-door-open',    '#1e8449', kpi.gate,        kpi_prev.gate) }}
+  </div>
+  <div class="col-sm-6 col-lg-4">
+    {{ kpi_tile('Program Attendance','bi-people-fill',  '#6c3483', kpi.attendance,  kpi_prev.attendance) }}
+  </div>
+  <div class="col-sm-6 col-lg-4">
+    {{ kpi_tile('New Library Cards', 'bi-person-plus',  '#e67e22', kpi.cards,       kpi_prev.cards) }}
+  </div>
+  <div class="col-sm-6 col-lg-4">
+    {{ kpi_tile('Website Sessions',  'bi-globe',        '#117a65', kpi.website,     kpi_prev.website) }}
+  </div>
+  <div class="col-sm-6 col-lg-4">
+    {{ kpi_tile('PC Reservations',   'bi-pc-display',   '#922b21', kpi.pc,          kpi_prev.pc) }}
+  </div>
+</div>
+{% endif %}
+
+<div class="row g-4">
+
+  {# ── Trend chart ── #}
+  {% if circ_trend_data %}
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header-custom d-flex justify-content-between align-items-center">
+        <span class="fw-semibold">Circulation &amp; Gate Count — {{ latest_year }}</span>
+        <a href="{{ url_for('report_trend') }}" class="btn btn-outline-secondary btn-sm btn-xs">
+          Trend Report
+        </a>
+      </div>
+      <div class="card-body">
+        <canvas id="trendChart" height="130"></canvas>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Right column: data status + quick entry ── #}
+  <div class="col-lg-{{ '4' if circ_trend_data else '12' }}">
+
+    {# Data status #}
+    <div class="card mb-3">
+      <div class="card-header-custom fw-semibold">
+        <i class="bi bi-clipboard2-check me-1 text-primary"></i>Data Status
+      </div>
+      <div class="card-body p-0" style="max-height:260px;overflow-y:auto">
+        <ul class="list-group list-group-flush">
+          {% for item in coverage %}
+          <li class="list-group-item d-flex justify-content-between align-items-center py-2 px-3">
+            <span class="small fw-semibold text-truncate me-2">{{ item.category.name }}</span>
+            {% if item.last_entry %}
+              <span class="badge rounded-pill text-bg-success flex-shrink-0" style="font-size:.7rem">
+                {{ item.last_entry.period_label }}
+              </span>
+            {% else %}
+              <span class="badge rounded-pill text-bg-secondary flex-shrink-0" style="font-size:.7rem">
+                No data
+              </span>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+
+    {# Quick entry #}
+    <div class="card">
+      <div class="card-header-custom fw-semibold">
+        <i class="bi bi-plus-circle me-1 text-success"></i>Quick Entry
+      </div>
+      <div class="card-body">
+        {% for cat in nav_categories %}
+        <a href="{{ url_for('entry_create', category_id=cat.id) }}"
+           class="btn btn-outline-secondary w-100 text-start mb-2 d-flex justify-content-between align-items-center">
+          <span><i class="bi bi-plus me-1"></i>{{ cat.name }}</span>
+          <span class="badge bg-secondary badge-freq">{{ cat.freq_label }}</span>
+        </a>
+        {% else %}
+        <p class="text-muted small">No active categories.
+          <a href="{{ url_for('admin_categories') }}">Add one</a>.
+        </p>
+        {% endfor %}
+      </div>
+    </div>
+
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if circ_trend_data %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+  const labels = {{ circ_trend_labels | tojson }};
+  const circ   = {{ circ_trend_data   | tojson }};
+  const gate   = {{ gate_trend_data   | tojson }};
+
+  new Chart(document.getElementById('trendChart').getContext('2d'), {
+    data: {
+      labels,
+      datasets: [
+        {
+          type: 'bar',
+          label: 'Circulation',
+          data: circ,
+          backgroundColor: '#2c6e8a33',
+          borderColor: '#2c6e8a',
+          borderWidth: 2,
+          borderRadius: 4,
+          yAxisID: 'y',
+        },
+        {
+          type: 'line',
+          label: 'Gate Count',
+          data: gate,
+          borderColor: '#1e8449',
+          backgroundColor: '#1e844920',
+          borderWidth: 2,
+          pointRadius: 3,
+          tension: 0.3,
+          spanGaps: true,
+          yAxisID: 'y2',
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index' },
+      plugins: {
+        legend: { position: 'top', labels: { boxWidth: 12, font: { size: 12 } } },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${(ctx.raw ?? 0).toLocaleString()}`
+          }
+        }
+      },
+      scales: {
+        y:  { beginAtZero: true, position: 'left',
+              ticks: { callback: v => v.toLocaleString() }, grid: { color: '#e9ecef' } },
+        y2: { beginAtZero: true, position: 'right',
+              ticks: { callback: v => v.toLocaleString() },
+              grid: { drawOnChartArea: false } },
+      },
+    },
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

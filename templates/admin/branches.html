@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% block title %}Branches – Admin – Library Stats{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h4 fw-bold mb-0">
+    <i class="bi bi-building me-2 text-primary"></i>Branches / Locations
+  </h1>
+</div>
+
+{# ── Branch list ── #}
+<div class="card mb-4">
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>Name</th>
+          <th>Status</th>
+          <th class="text-end">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in branches %}
+        <tr class="{{ 'text-muted' if not b.is_active }}">
+          <td class="fw-semibold">{{ b.name }}</td>
+          <td>
+            <span class="badge {{ 'bg-success' if b.is_active else 'bg-secondary' }}">
+              {{ 'Active' if b.is_active else 'Inactive' }}
+            </span>
+          </td>
+          <td class="text-end">
+            <form method="post" action="{{ url_for('admin_branch_toggle', branch_id=b.id) }}"
+                  class="d-inline">
+              <button class="btn btn-xs btn-outline-secondary me-1">
+                {{ 'Deactivate' if b.is_active else 'Activate' }}
+              </button>
+            </form>
+            <form method="post" action="{{ url_for('admin_branch_delete', branch_id=b.id) }}"
+                  class="d-inline"
+                  onsubmit="return confirm('Delete branch \'{{ b.name }}\'?')">
+              <button class="btn btn-xs btn-outline-danger">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="3" class="text-center text-muted py-4">No branches defined.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ── Add branch ── #}
+<div class="card" style="max-width: 480px;">
+  <div class="card-header-custom fw-semibold">Add Branch / Location</div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('admin_branches') }}" class="d-flex gap-2">
+      <input type="text" name="name" class="form-control" placeholder="Branch name" required>
+      <button type="submit" class="btn btn-primary text-nowrap">
+        <i class="bi bi-plus-lg me-1"></i>Add
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}

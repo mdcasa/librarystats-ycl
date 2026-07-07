@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block title %}Edit Metric – Admin – Library Stats{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb small">
+    <li class="breadcrumb-item"><a href="{{ url_for('admin_categories') }}">Categories</a></li>
+    <li class="breadcrumb-item">
+      <a href="{{ url_for('admin_category_edit', cat_id=metric.category_id) }}">
+        {{ metric.category.name }}
+      </a>
+    </li>
+    <li class="breadcrumb-item active">Edit Metric</li>
+  </ol>
+</nav>
+
+<h1 class="h4 fw-bold mb-4">
+  <i class="bi bi-pencil me-2 text-primary"></i>Edit Metric
+</h1>
+
+<div class="card" style="max-width: 640px;">
+  <div class="card-body">
+    <form method="post" action="{{ url_for('admin_metric_edit', metric_id=metric.id) }}"
+          class="row g-3">
+      <div class="col-12">
+        <label class="form-label">Name <span class="text-danger">*</span></label>
+        <input type="text" name="name" class="form-control" value="{{ metric.name }}" required>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Group name</label>
+        <input type="text" name="group_name" class="form-control"
+               value="{{ metric.group_name or '' }}"
+               placeholder="e.g. Circulation">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Data type</label>
+        <select name="data_type" class="form-select">
+          <option value="integer" {% if metric.data_type == 'integer' %}selected{% endif %}>Integer</option>
+          <option value="decimal" {% if metric.data_type == 'decimal' %}selected{% endif %}>Decimal</option>
+          <option value="text"    {% if metric.data_type == 'text'    %}selected{% endif %}>Text</option>
+        </select>
+      </div>
+      <div class="col-12">
+        <label class="form-label">Description <span class="text-muted">(shown as tooltip)</span></label>
+        <input type="text" name="description" class="form-control"
+               value="{{ metric.description or '' }}" placeholder="Optional clarification">
+      </div>
+      <div class="col-12 d-flex gap-2">
+        <button type="submit" class="btn btn-primary">
+          <i class="bi bi-check-lg me-1"></i>Save
+        </button>
+        <a href="{{ url_for('admin_category_edit', cat_id=metric.category_id) }}"
+           class="btn btn-outline-secondary">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

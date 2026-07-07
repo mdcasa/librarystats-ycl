@@ -1536,6 +1536,78 @@ def import_door_count(ws, branch_lookup):
     return created, updated, period_set, []
 
 
+# ── Cisco Meraki WiFi "Summary Report" export ─────────────────────────────────
+#
+# The Meraki dashboard exports one workbook per branch per period. Neither the
+# branch nor the month appears inside the sheets — both come from the file name
+# (e.g. "Rock Hill - Summary Report 2026-06-01 - 2026-07-01.xlsx"). The single
+# figure we track is "Total Unique Clients" (the "Client stats" sheet): the
+# monthly count of distinct devices seen on the WiFi. This is the automated
+# replacement for the previously hand-entered "WiFi - Unique Sessions" metric
+# (the Google Forms field was literally "WiFi - Unique Clients").
+
+# Presence of these sheets identifies a Meraki summary workbook.
+MERAKI_SIGNATURE_SHEETS = {'Client stats', 'Usage stats'}
+
+# File-name branch token → canonical Branch.name (substring match, lowercased).
+MERAKI_BRANCH_MAP = {
+    'rock hill':  'Rock Hill',
+    'fort mill':  'Fort Mill',
+    'lake wylie': 'Lake Wylie',
+    'clover':     'Clover',
+    'york':       'York',
+}
+
+
+def import_meraki_wifi(wb, branch_lookup, filename, year_override=None):
+    """
+    Parse a Cisco Meraki 'Summary Report' workbook (one branch per file) and
+    upsert 'Total Unique Clients' into the Branch Stats 'WiFi - Unique Sessions'
+    metric. Both the branch and the period come from the file name.
+
+    Upsert semantics: an existing branch/month value is overwritten in place,
+    other data is untouched, and re-running the same file is a no-op.
+    Returns (created, updated, period_set, warnings).
+    """
+    name_lower = (filename or '').lower()
+    branch_name = next((n for key, n in MERAKI_BRANCH_MAP.items() if key in name_lower), None)
+    branch = branch_lookup.get(branch_name) if branch_name else None
+    if not branch:
+        return 0, 0, set(), ['Could not determine branch from file name — expected the branch '
+                             'name in it (e.g. "Rock Hill - Summary Report 2026-06-01 ...")']
+
+    # Period from the file name, e.g. 2026-06-01 → June 2026.
+    f_year, f_month = parse_period_from_filename(filename)
+    year, month = (f_year or year_override), f_month
+    if not (year and month):
+        return 0, 0, set(), ['Could not determine month/year from file name — expected a date '
+                             'like 2026-06-01 in it']
+
+    if 'Client stats' not in wb.sheetnames:
+        return 0, 0, set(), ['No "Client stats" sheet found in workbook']
+
+    rows = list(wb['Client stats'].iter_rows(values_only=True))
+    header = [str(v).strip() if v is not None else '' for v in (rows[0] if rows else [])]
+    try:
+        clients_col = header.index('Total Unique Clients')
+    except ValueError:
+        return 0, 0, set(), ['"Total Unique Clients" column not found in "Client stats" sheet']
+
+    value = next((r[clients_col] for r in rows[1:]
+                  if r and clients_col < len(r) and isinstance(r[clients_col], (int, float))), None)
+    if value is None:
+        return 0, 0, set(), ['No numeric "Total Unique Clients" value found']
+
+    metric_lookup, cat = build_metric_lookup('Branch Stats')
+    wifi_metric = metric_lookup.get('WiFi - Unique Sessions')
+    if not cat or not wifi_metric:
+        return 0, 0, set(), ['Branch Stats or "WiFi - Unique Sessions" metric not found']
+
+    res = _upsert_branch_stat(cat.id, branch.id, year, month, wifi_metric.id, int(value))
+    db.session.commit()
+    return (1 if res == 'created' else 0), (1 if res == 'updated' else 0), {(year, month)}, []
+
+
 def detect_and_import(wb, year_override=None, filename=None):
     """
     Auto-detect the report type from a workbook and route to the correct importer.
@@ -1568,6 +1640,19 @@ def detect_and_import(wb, year_override=None, filename=None):
                 'year': None, 'month': None,
             })
             return results
+
+    # Cisco Meraki WiFi "Summary Report" — one branch per workbook; branch and
+    # period both come from the file name. Detected at workbook level (its 13
+    # sheets carry no branch/date, so there is nothing to route per-sheet).
+    if MERAKI_SIGNATURE_SHEETS <= set(wb.sheetnames):
+        created, updated, periods, w = import_meraki_wifi(wb, branch_lookup, filename, year_override)
+        y, m = (sorted(periods)[0] if periods else (None, None))
+        results.append({'sheet': 'WiFi - Unique Sessions (Meraki)',
+                        'created': created, 'updated': updated, 'skipped': 0, 'warnings': w,
+                        'periods': sorted(periods),
+                        'note': (f'Total Unique Clients stored for {m}/{y}' if y and m else ''),
+                        'year': y, 'month': m})
+        return results
 
     for sheet_name in wb.sheetnames:
         ws = wb[sheet_name]

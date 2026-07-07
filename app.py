@@ -1833,6 +1833,7 @@ _UPLOAD_SOURCED_METRICS = {
     'Hotspots Circulation',
     'Locker Circulation',
     'WiFi - Unique Sessions',
+    'PC Reservations',
     'Total Prints per Month',
     'Printed Jobs',
     'Printed Cost',

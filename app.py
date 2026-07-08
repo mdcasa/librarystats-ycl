@@ -2909,7 +2909,7 @@ def report_overview():
         now = datetime.now()
         cur_fy = now.year + 1 if now.month >= 7 else now.year
         full_fy_years = sorted(
-            [fy for fy, months in fy_months.items() if fy < cur_fy and fy <= 2025 and is_full_fy(fy, months)],
+            [fy for fy, months in fy_months.items() if fy < cur_fy and is_full_fy(fy, months)],
             reverse=True
         )
 

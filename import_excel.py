@@ -1504,25 +1504,76 @@ def import_door_count(ws, branch_lookup):
     from collections import defaultdict
     monthly_outs = defaultdict(lambda: defaultdict(int))  # (year,month) → branch_id → total
 
+    # Common text-date formats seen in hand-built/converted reports, tried in
+    # order after real Excel date values.
+    DATE_FORMATS = ['%Y-%m-%d', '%m/%d/%Y', '%m/%d/%y', '%Y/%m/%d']
+
+    bad_dates     = set()  # raw date values that couldn't be parsed
+    bad_locations = set()  # location names with no entry in DOOR_COUNT_BRANCH_MAP
+    bad_branches  = set()  # mapped branch names missing from the database
+    bad_outs      = 0      # rows with a non-numeric, non-blank Outs value
+
     for r in rows[header_idx + 1:]:
         loc_name = r[loc_col]  if loc_col  < len(r) else None
         date     = r[date_col] if date_col < len(r) else None
         outs     = r[outs_col] if outs_col < len(r) else None
-        if not isinstance(outs, (int, float)) or outs == 0:
-            continue
+
         if not loc_name or loc_name == 'Location Name':
-            continue
+            continue  # blank row or a repeated header row
+
+        if not isinstance(outs, (int, float)):
+            if outs not in (None, ''):
+                try:
+                    outs = float(str(outs).replace(',', '').strip())
+                except ValueError:
+                    bad_outs += 1
+                    continue
+            else:
+                continue
+        if outs == 0:
+            continue  # a real, if unremarkable, day/branch total
+
         if not hasattr(date, 'year'):
-            continue
+            # Some exports store the date as text (e.g. '2026-06-01') rather
+            # than a real Excel date value.
+            parsed = None
+            for fmt in DATE_FORMATS:
+                try:
+                    parsed = datetime.strptime(str(date).strip(), fmt)
+                    break
+                except ValueError:
+                    continue
+            if parsed is None:
+                bad_dates.add(str(date))
+                continue
+            date = parsed
 
         branch_name = DOOR_COUNT_BRANCH_MAP.get(str(loc_name).strip())
         if not branch_name:
+            bad_locations.add(str(loc_name).strip())
             continue
         branch = branch_lookup.get(branch_name)
         if not branch:
+            bad_branches.add(branch_name)
             continue
 
         monthly_outs[(date.year, date.month)][branch.id] += int(outs)
+
+    warnings = []
+    if bad_dates:
+        sample = ', '.join(sorted(bad_dates)[:5])
+        warnings.append(f"Could not parse {len(bad_dates)} date value(s), rows skipped: {sample}"
+                         + (', ...' if len(bad_dates) > 5 else ''))
+    if bad_locations:
+        warnings.append('Unrecognized location name(s) — no branch mapping, rows skipped: '
+                         + ', '.join(sorted(bad_locations)))
+    if bad_branches:
+        warnings.append('Mapped branch name(s) not found in the database, rows skipped: '
+                         + ', '.join(sorted(bad_branches)))
+    if bad_outs:
+        warnings.append(f"{bad_outs} row(s) had a non-numeric 'Outs' value and were skipped")
+    if not monthly_outs and not warnings:
+        warnings.append('No usable data rows were found in the sheet')
 
     created = updated = 0
     for (year, month), branch_totals in monthly_outs.items():
@@ -1533,7 +1584,7 @@ def import_door_count(ws, branch_lookup):
 
     db.session.commit()
     period_set = set(monthly_outs.keys())
-    return created, updated, period_set, []
+    return created, updated, period_set, warnings
 
 
 # ── Cisco Meraki WiFi "Summary Report" export ─────────────────────────────────

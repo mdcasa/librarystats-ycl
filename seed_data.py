@@ -9,7 +9,8 @@ def seed(db):
         'Outreach / BKM',
     ]
     for i, name in enumerate(branches):
-        db.session.add(Branch(name=name, sort_order=i + 1))
+        if not Branch.query.filter_by(name=name).first():
+            db.session.add(Branch(name=name, sort_order=i + 1))
 
     # ── Category 1: Branch Stats ────────────────────────────────────────────
     c1 = Category(name='Branch Stats',

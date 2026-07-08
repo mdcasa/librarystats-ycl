@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+{% block title %}Reports{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+  <h1 class="h4 fw-bold mb-1"><i class="bi bi-bar-chart-line me-2 text-primary"></i>Reports</h1>
+  <p class="text-muted mb-0">Choose a report below. Each card explains what it shows and when to use it.</p>
+</div>
+
+{% macro report_card(endpoint, icon, color, title, description, use_when) %}
+<div class="col-md-6 col-xl-4">
+  <a href="{{ url_for(endpoint) }}" class="text-decoration-none">
+    <div class="card h-100">
+      <div class="card-body">
+        <div class="d-flex align-items-start mb-2">
+          <i class="bi {{ icon }} fs-3 me-3" style="color: {{ color }};"></i>
+          <h2 class="h6 fw-bold mb-0 mt-1">{{ title }}</h2>
+        </div>
+        <p class="text-body-secondary small mb-2">{{ description }}</p>
+        <p class="small mb-0"><span class="fw-semibold text-muted">Use when:</span> {{ use_when }}</p>
+      </div>
+    </div>
+  </a>
+</div>
+{% endmacro %}
+
+<div class="row g-3 mb-3">
+  {{ report_card('report_overview', 'bi-bar-chart-fill', '#1a4f9e',
+      'Annual Overview',
+      'A high-level snapshot comparing the two most recently completed fiscal years side by side.',
+      'you want a quick year-over-year headline view for leadership.') }}
+
+  {{ report_card('report_monthly_stats', 'bi-bar-chart-fill', '#1a4f9e',
+      'Monthly Board Report',
+      'System-wide totals across all categories for one month, compared to the same month last year.',
+      'preparing a board report for a specific month.') }}
+
+  {{ report_card('report_monthly', 'bi-calendar3', '#1a4f9e',
+      'Monthly Summary',
+      "Every branch's numbers for one category, for a single month, in a table.",
+      'you need the raw branch-by-branch figures for one category in one month.') }}
+
+  {{ report_card('report_fiscal', 'bi-calendar2-check', '#f39c12',
+      'Fiscal Year Totals',
+      'One category, one fiscal year (Jul–Jun). Sums every metric across the year, per branch.',
+      'you want annual totals per branch instead of a month-by-month breakdown.') }}
+
+  {{ report_card('report_trend', 'bi-graph-up', '#1a4f9e',
+      'Trend Over Time',
+      'One category and metric, plotted as a continuous month-by-month line across one or more fiscal years.',
+      'you want to see the pattern over time — seasonality, growth, decline.') }}
+
+  {{ report_card('report_yoy', 'bi-arrow-left-right', '#117a65',
+      'Year-over-Year',
+      'One category, metric, and branch — compare 2 or more fiscal years side by side, month-by-month or as annual totals.',
+      'you want to directly compare the same period across different years, not one continuous timeline.') }}
+
+  {{ report_card('report_quarterly_ref', 'bi-clipboard2-data', '#1a4f9e',
+      'Quarterly Ref',
+      'Quarterly Reference Stats (desk transactions per week) plus open days/hours for a fiscal year.',
+      'reviewing reference desk transaction volume and library open-hours data.') }}
+
+  {{ report_card('report_online', 'bi-globe', '#117a65',
+      'Online Stats',
+      'Online Stats category for one month, compared to the prior month with change and percent change.',
+      'tracking month-over-month movement in website/digital metrics.') }}
+
+  {{ report_card('report_branch_summary', 'bi-building', '#1a4f9e',
+      'Branch Summary',
+      'Every category rolled up onto one page for a single branch and fiscal year.',
+      'you want a complete annual picture for one specific branch.') }}
+</div>
+{% endblock %}

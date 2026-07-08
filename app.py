@@ -362,6 +362,16 @@ def index():
                           .filter_by(category_id=cat.id, branch_id=b.id)
                           .order_by(Entry.year.desc(), Entry.month.desc(), Entry.quarter.desc())
                           .first())
+                if b_last is None and cat.name == 'Circulation' and _circ_m:
+                    _bev = (EntryValue.query
+                            .join(Entry, Entry.id == EntryValue.entry_id)
+                            .filter(Entry.category_id == _bs_cat.id,
+                                    Entry.branch_id == b.id,
+                                    Entry.month.isnot(None),
+                                    EntryValue.metric_id == _circ_m.id)
+                            .order_by(Entry.year.desc(), Entry.month.desc())
+                            .first())
+                    b_last = _bev.entry if _bev else None
                 branch_detail.append({'branch': b, 'last_entry': b_last})
 
         coverage.append({'category': cat, 'last_entry': last, 'branch_detail': branch_detail})

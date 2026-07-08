@@ -194,41 +194,11 @@
           </ul>
         </li>
 
-        <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle {% if ep in _reports %}active-parent{% endif %}"
-             href="#" data-bs-toggle="dropdown">
+        <li class="nav-item">
+          <a class="nav-link {% if ep == 'reports_index' or ep in _reports %}active{% endif %}"
+             href="{{ url_for('reports_index') }}">
             <i class="bi bi-bar-chart-line me-1"></i>Reports
           </a>
-          <ul class="dropdown-menu shadow-sm">
-            <li><a class="dropdown-item {% if ep == 'report_overview' %}active{% endif %}"
-                   href="{{ url_for('report_overview') }}">
-              <i class="bi bi-bar-chart-fill me-2 text-primary"></i>Annual Overview</a></li>
-            <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item {% if ep == 'report_monthly_stats' %}active{% endif %}"
-                   href="{{ url_for('report_monthly_stats') }}">
-              <i class="bi bi-bar-chart-fill me-2 text-primary"></i>Monthly Board Report</a></li>
-            <li><a class="dropdown-item {% if ep == 'report_monthly' %}active{% endif %}"
-                   href="{{ url_for('report_monthly') }}">
-              <i class="bi bi-calendar3 me-2 text-primary"></i>Monthly Summary</a></li>
-            <li><a class="dropdown-item {% if ep == 'report_fiscal' %}active{% endif %}"
-                   href="{{ url_for('report_fiscal') }}">
-              <i class="bi bi-calendar2-check me-2 text-warning"></i>Fiscal Year Totals</a></li>
-            <li><a class="dropdown-item {% if ep == 'report_trend' %}active{% endif %}"
-                   href="{{ url_for('report_trend') }}">
-              <i class="bi bi-graph-up me-2 text-primary"></i>Trend Over Time</a></li>
-            <li><a class="dropdown-item {% if ep == 'report_yoy' %}active{% endif %}"
-                   href="{{ url_for('report_yoy') }}">
-              <i class="bi bi-arrow-left-right me-2 text-info"></i>Year-over-Year</a></li>
-            <li><a class="dropdown-item {% if ep == 'report_quarterly_ref' %}active{% endif %}"
-                   href="{{ url_for('report_quarterly_ref') }}">
-              <i class="bi bi-clipboard2-data me-2 text-primary"></i>Quarterly Ref</a></li>
-            <li><a class="dropdown-item {% if ep == 'report_online' %}active{% endif %}"
-                   href="{{ url_for('report_online') }}">
-              <i class="bi bi-globe me-2" style="color:#117a65"></i>Online Stats</a></li>
-            <li><a class="dropdown-item {% if ep == 'report_branch_summary' %}active{% endif %}"
-                   href="{{ url_for('report_branch_summary') }}">
-              <i class="bi bi-building me-2 text-primary"></i>Branch Summary</a></li>
-          </ul>
         </li>
 
         <li class="nav-item dropdown">

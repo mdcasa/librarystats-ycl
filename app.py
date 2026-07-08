@@ -342,9 +342,8 @@ def index():
 
     coverage = []
     for cat in Category.query.filter_by(is_active=True).order_by(Category.sort_order).all():
-        last = (Entry.query.filter_by(category_id=cat.id)
-                .order_by(Entry.year.desc(), Entry.month.desc(), Entry.quarter.desc())
-                .first())
+        last = _latest_entry(Entry.query.filter_by(category_id=cat.id),
+                              quarterly=(cat.frequency == 'quarterly'))
         if last is None and cat.name == 'Circulation' and _circ_m:
             _ev = (EntryValue.query
                    .join(Entry, Entry.id == EntryValue.entry_id)
@@ -364,10 +363,9 @@ def index():
             _branch_list = (_branches_for_category(cat)
                             if cat.name == 'Quarterly Reference Stats' else _real_branches)
             for b in _branch_list:
-                b_last = (Entry.query
-                          .filter_by(category_id=cat.id, branch_id=b.id)
-                          .order_by(Entry.year.desc(), Entry.month.desc(), Entry.quarter.desc())
-                          .first())
+                b_last = _latest_entry(
+                    Entry.query.filter_by(category_id=cat.id, branch_id=b.id),
+                    quarterly=(cat.frequency == 'quarterly'))
                 if b_last is None and cat.name == 'Circulation' and _circ_m:
                     _bev = (EntryValue.query
                             .join(Entry, Entry.id == EntryValue.entry_id)
@@ -448,6 +446,26 @@ def entries_list():
 
 
 # ── Create entry ─────────────────────────────────────────────────────────────
+
+# Quarterly Reference Stats' quarter labels are sample months, not calendar
+# quarters (Q1=June, Q2=October, Q3=January, Q4=April — see entries/form.html),
+# so raw quarter-number sorting does not match chronological order within a
+# year (confirmed: the stored "year" is the literal calendar year of the
+# sample month, no fiscal-year offset).
+_QRS_QUARTER_MONTH = {1: 6, 2: 10, 3: 1, 4: 4}
+
+
+def _qrs_calendar_key(entry):
+    """True (calendar_year, calendar_month) for a Quarterly Reference Stats entry."""
+    return (entry.year, _QRS_QUARTER_MONTH.get(entry.quarter, 0))
+
+
+def _latest_entry(query, quarterly=False):
+    """Most recent Entry from a query, honoring QRS's non-chronological quarter numbering."""
+    if quarterly:
+        return max(query.all(), key=_qrs_calendar_key, default=None)
+    return query.order_by(Entry.year.desc(), Entry.month.desc(), Entry.quarter.desc()).first()
+
 
 def _real_branch_q():
     """Filtered query for the 6 real service branches — excludes lockers, desks, System Wide, Administration."""

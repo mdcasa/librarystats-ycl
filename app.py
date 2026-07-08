@@ -357,7 +357,13 @@ def index():
 
         branch_detail = []
         if cat.has_branch:
-            for b in _real_branches:
+            # Quarterly Reference Stats is entered per Rock Hill desk
+            # (Circulation, Reference, YA, Children's), never under the
+            # parent "Rock Hill" branch — show the desks here too, matching
+            # the branch list the actual Quarterly Ref report uses.
+            _branch_list = (_branches_for_category(cat)
+                            if cat.name == 'Quarterly Reference Stats' else _real_branches)
+            for b in _branch_list:
                 b_last = (Entry.query
                           .filter_by(category_id=cat.id, branch_id=b.id)
                           .order_by(Entry.year.desc(), Entry.month.desc(), Entry.quarter.desc())
@@ -459,7 +465,7 @@ def _branches_for_category(category):
     if category.name == 'Quarterly Reference Stats':
         # Show desks (Circ, YA) but not the parent Rock Hill branch or system-wide
         return (Branch.query.filter_by(is_active=True)
-                .filter(~Branch.name.in_(['Rock Hill', 'YCL (System Wide)']),
+                .filter(~Branch.name.in_(['Rock Hill', 'YCL (System Wide)', 'Administration']),
                         ~Branch.name.ilike('%locker%'))
                 .order_by(Branch.name).all())
     # All other categories: exclude desk-level and locker branches

@@ -6,7 +6,7 @@
 <div class="roi-embed-wrap mb-2" id="roiEmbedWrap">
   <iframe id="roiFrame" src="{{ url_for('static', filename='roi-infographic.html') }}"
           title="Library ROI Infographic"
-          style="position:absolute; top:0; left:0; width:1200px; height:1090px; border:0; transform-origin:top left;"
+          style="position:absolute; top:0; left:0; width:1200px; border:0; transform-origin:top left;"
           loading="lazy">
   </iframe>
 </div>
@@ -22,16 +22,45 @@
 
 <script>
 (function() {
-  var wrap = document.getElementById('roiEmbedWrap');
+  var wrap  = document.getElementById('roiEmbedWrap');
   var frame = document.getElementById('roiFrame');
-  var NATURAL_W = 1200, NATURAL_H = 1090;
-  function resizeEmbed() {
+  var NATURAL_W = 1200;
+  var naturalH  = 1090; // fallback until the embedded page's real height is measured
+
+  function applyScale() {
     var scale = wrap.clientWidth / NATURAL_W;
+    frame.style.height = naturalH + 'px';
     frame.style.transform = 'scale(' + scale + ')';
-    wrap.style.height = (NATURAL_H * scale) + 'px';
+    wrap.style.height = (naturalH * scale) + 'px';
   }
-  window.addEventListener('resize', resizeEmbed);
-  resizeEmbed();
+
+  function measureHeight() {
+    try {
+      var doc = frame.contentDocument;
+      var h = doc && doc.body ? Math.max(doc.documentElement.scrollHeight, doc.body.scrollHeight) : 0;
+      if (h > 0) naturalH = h;
+    } catch (e) { /* not same-origin — keep fallback height */ }
+    applyScale();
+  }
+
+  // The bundled page unpacks its assets asynchronously after load, so its
+  // final height isn't known right away — poll briefly until it settles.
+  frame.addEventListener('load', function() {
+    var tries = 0;
+    var poll = setInterval(function() {
+      measureHeight();
+      if (++tries >= 10) clearInterval(poll);
+    }, 300);
+  });
+
+  if (window.ResizeObserver) {
+    new ResizeObserver(applyScale).observe(wrap);
+  } else {
+    window.addEventListener('resize', applyScale);
+  }
+  window.addEventListener('orientationchange', applyScale);
+
+  applyScale();
 })();
 </script>
 

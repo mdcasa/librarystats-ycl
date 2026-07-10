@@ -177,6 +177,8 @@ _PUBLIC_ENDPOINTS = {'login', 'logout', 'static', 'public_annual_overview'}
 
 @app.before_request
 def require_login():
+    if request.endpoint == 'index' and not current_user.is_authenticated:
+        return redirect(url_for('public_annual_overview'))
     if request.endpoint not in _PUBLIC_ENDPOINTS and not current_user.is_authenticated:
         return redirect(url_for('login', next=request.path))
 

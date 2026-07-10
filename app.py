@@ -172,7 +172,7 @@ def commas_filter(value):
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
-_PUBLIC_ENDPOINTS = {'login', 'logout', 'static'}
+_PUBLIC_ENDPOINTS = {'login', 'logout', 'static', 'public_annual_overview'}
 
 
 @app.before_request
@@ -2917,8 +2917,9 @@ def annual_survey_calculate_bulk():
     return redirect(url_for('annual_survey_dashboard'))
 
 
-@app.route('/reports/overview')
-def report_overview():
+def _overview_fy_stats():
+    """Fiscal-year-over-fiscal-year Branch Stats totals, shared by the internal
+    and public Annual Overview pages."""
     bs_cat = Category.query.filter_by(name='Branch Stats').first()
 
     full_fy_years = []
@@ -3009,7 +3010,22 @@ def report_overview():
             ('bi-printer',         'Total Prints',                  iv(d1, 'Total Prints per Month'),   iv(d2, 'Total Prints per Month'),   True),
         ]
 
+    return full_fy_years, fy1, fy2, stats
+
+
+@app.route('/reports/overview')
+def report_overview():
+    full_fy_years, fy1, fy2, stats = _overview_fy_stats()
     return render_template('reports/overview.html',
+                           full_fy_years=full_fy_years,
+                           fy1=fy1, fy2=fy2,
+                           stats=stats)
+
+
+@app.route('/public/annual-stats')
+def public_annual_overview():
+    full_fy_years, fy1, fy2, stats = _overview_fy_stats()
+    return render_template('public/annual_overview.html',
                            full_fy_years=full_fy_years,
                            fy1=fy1, fy2=fy2,
                            stats=stats)

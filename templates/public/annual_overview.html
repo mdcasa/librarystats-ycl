@@ -3,6 +3,12 @@
 
 {% block content %}
 
+<div class="d-flex justify-content-end mb-2 d-print-none">
+  <button type="button" class="btn btn-sm btn-outline-primary" onclick="window.print()">
+    <i class="bi bi-printer me-1"></i>Print / Save as PDF
+  </button>
+</div>
+
 <div class="roi-embed-wrap mb-2" id="roiEmbedWrap">
   <iframe id="roiFrame" src="{{ url_for('static', filename='roi-infographic.html') }}"
           title="Library ROI Infographic"
@@ -10,7 +16,7 @@
           loading="lazy">
   </iframe>
 </div>
-<div class="text-end mb-4">
+<div class="text-end mb-4 d-print-none">
   <a href="{{ url_for('static', filename='roi-infographic.html') }}" target="_blank" rel="noopener" class="small text-muted">
     <i class="bi bi-arrows-fullscreen me-1"></i>View full-size infographic
   </a>
@@ -18,6 +24,9 @@
 
 <style>
   .roi-embed-wrap { position:relative; overflow:hidden; border-radius:10px; box-shadow:0 1px 6px rgba(0,0,0,.08); }
+  @media print {
+    .roi-embed-wrap { box-shadow:none; border:1px solid #dee2e6; break-inside: avoid; break-after: page; }
+  }
 </style>
 
 <script>
@@ -59,6 +68,14 @@
     window.addEventListener('resize', applyScale);
   }
   window.addEventListener('orientationchange', applyScale);
+  // Print layout (page width, margins) differs from the on-screen layout,
+  // so the iframe's scale factor must be recomputed right before printing.
+  window.addEventListener('beforeprint', applyScale);
+  if (window.matchMedia) {
+    window.matchMedia('print').addEventListener('change', function(e) {
+      if (e.matches) applyScale();
+    });
+  }
 
   applyScale();
 })();

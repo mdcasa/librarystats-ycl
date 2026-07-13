@@ -33,12 +33,20 @@
 
     /* ── Print ── */
     @media print {
-      .public-header, footer, .btn { display: none !important; }
+      * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+      @page { size: letter portrait; margin: 0.5in; }
+      .public-header, footer, .d-print-none { display: none !important; }
+      .print-header { display: flex !important; }
       .container-lg { max-width: 100% !important; padding: 0 !important; }
       body { background: #fff !important; font-size: .85rem; }
       .card { box-shadow: none !important; border: 1px solid #dee2e6 !important; break-inside: avoid; }
+      .row, .col-sm-6, .col-lg-4 { break-inside: avoid; }
+      table, tr { break-inside: avoid; }
+      thead { display: table-header-group; }
       h1, h2, h3, h4, h5 { color: #1a4f9e !important; }
+      a[href]::after { content: none !important; }
     }
+    .print-header { display: none; }
   </style>
 </head>
 <body>
@@ -54,6 +62,11 @@
 </header>
 
 <div class="container-lg py-4">
+  <div class="print-header align-items-center gap-2 mb-3 pb-2" style="border-bottom:2px solid #1a4f9e;">
+    <span class="logo-wrap" style="background:#fff;"><img src="{{ url_for('static', filename='ycl-logo.png') }}" alt="YCL logo" style="height:34px;"></span>
+    <span class="fw-bold" style="font-size:1rem;color:#1a4f9e;">York County Library &mdash; Public Statistics</span>
+    <span class="text-muted ms-auto" style="font-size:.75rem;">Printed {{ now.strftime('%d %b %Y') }} &nbsp;·&nbsp; yclstats.org/public/annual-stats</span>
+  </div>
   {% block content %}{% endblock %}
 </div>
 

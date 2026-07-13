@@ -41,12 +41,25 @@
       body { background: #fff !important; font-size: .85rem; }
       .card { box-shadow: none !important; border: 1px solid #dee2e6 !important; break-inside: avoid; }
       .col-sm-6, .col-lg-4 { break-inside: avoid; }
-      table, tr { break-inside: avoid; }
-      thead { display: table-header-group; }
+      .table, .table tr { break-inside: avoid; }
+      .table thead { display: table-header-group; }
       h1, h2, h3, h4, h5 { color: #1a4f9e !important; }
       a[href]::after { content: none !important; }
+
+      /* Repeat the print header on every printed page via the CSS
+         table-header-group trick — browsers reprint <thead> content
+         at the top of each page a <table> spans, including across
+         forced (break-after) page breaks. */
+      .print-page-wrap { display: table; width: 100%; }
+      .print-page-wrap > thead { display: table-header-group; }
+      .print-page-wrap > tbody { display: table-row-group; }
+      .print-page-wrap tr { display: table-row; }
+      .print-page-wrap td { display: table-cell; }
+      .print-header { display: flex !important; }
     }
     .print-header { display: none; }
+    .print-page-wrap, .print-page-wrap thead, .print-page-wrap tbody,
+    .print-page-wrap tr, .print-page-wrap td { display: block; }
   </style>
 </head>
 <body>
@@ -62,12 +75,22 @@
 </header>
 
 <div class="container-lg py-4">
-  <div class="print-header align-items-center gap-2 mb-3 pb-2" style="border-bottom:2px solid #1a4f9e;">
-    <span class="logo-wrap" style="background:#fff;"><img src="{{ url_for('static', filename='ycl-logo.png') }}" alt="YCL logo" style="height:34px;"></span>
-    <span class="fw-bold" style="font-size:1rem;color:#1a4f9e;">York County Library &mdash; Public Statistics</span>
-    <span class="text-muted ms-auto" style="font-size:.75rem;">Printed {{ now.strftime('%d %b %Y') }} &nbsp;·&nbsp; yclstats.org/public/annual-stats</span>
-  </div>
-  {% block content %}{% endblock %}
+  <table class="print-page-wrap">
+    <thead>
+      <tr><td>
+        <div class="print-header align-items-center gap-2 mb-3 pb-2" style="border-bottom:2px solid #1a4f9e;">
+          <span class="logo-wrap" style="background:#fff;"><img src="{{ url_for('static', filename='ycl-logo.png') }}" alt="YCL logo" style="height:34px;"></span>
+          <span class="fw-bold" style="font-size:1rem;color:#1a4f9e;">York County Library &mdash; Public Statistics</span>
+          <span class="text-muted ms-auto" style="font-size:.75rem;">Printed {{ now.strftime('%d %b %Y') }} &nbsp;·&nbsp; yclstats.org/public/annual-stats</span>
+        </div>
+      </td></tr>
+    </thead>
+    <tbody>
+      <tr><td>
+        {% block content %}{% endblock %}
+      </td></tr>
+    </tbody>
+  </table>
 </div>
 
 <footer class="text-center text-muted small py-4 mt-4 border-top bg-white">

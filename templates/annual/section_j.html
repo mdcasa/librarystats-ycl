@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+{% block title %}Section J — Outlet Hours FY{{ year }} – Library Stats{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <div>
+    <h1 class="h4 fw-bold mb-0">
+      <i class="bi bi-clock-history me-2 text-primary"></i>Section J — Outlet Hours &amp; Weeks Open
+    </h1>
+    <p class="text-muted small mb-0">FY{{ year }} — July {{ year - 1 }} through June {{ year }}</p>
+  </div>
+  <div class="d-flex gap-2 align-items-center">
+    <select class="form-select form-select-sm" style="width:auto"
+            onchange="window.location='/annual-survey/'+this.value+'/section-j'">
+      {% for y in all_years %}
+      <option value="{{ y }}" {% if y == year %}selected{% endif %}>FY{{ y }}</option>
+      {% endfor %}
+      <option value="{{ (all_years[0] if all_years else year) + 1 }}">+ New Year</option>
+    </select>
+    <a href="{{ url_for('annual_survey_holidays') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-calendar-x me-1"></i>Holiday Schedule
+    </a>
+  </div>
+</div>
+
+<div class="alert alert-info py-2">
+  <i class="bi bi-info-circle me-1"></i>
+  Hours Open = Scheduled Hours &minus; Holiday Closure Hours ({{ holiday_hours | int }} this FY, system-wide)
+  &minus; Unexpected Closure Hours (per branch, from the monthly Branch Stats closures log).
+  Weeks Open defaults to 52 per the state survey's own guidance, unless a branch was closed for an
+  extended consecutive period.
+</div>
+
+<form method="post" action="{{ url_for('annual_survey_section_j', year=year) }}">
+  <div class="card mb-4">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Branch / Outlet</th>
+            <th class="text-center">Scheduled Hours</th>
+            <th class="text-center">Holiday Hours</th>
+            <th class="text-center">Unexpected Closure Hours</th>
+            <th class="text-center">Hours Open</th>
+            <th class="text-center">Weeks Open</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>{{ row.branch.name }}</td>
+            <td class="text-center" style="max-width:140px">
+              <input type="number" name="scheduled_{{ row.branch.id }}" step="0.5" min="0"
+                     class="form-control form-control-sm text-center mx-auto"
+                     value="{{ row.scheduled_hours if row.scheduled_hours is not none else '' }}"
+                     placeholder="—">
+            </td>
+            <td class="text-center text-muted">{{ row.holiday_hours | int }}</td>
+            <td class="text-center text-muted">{{ row.unexpected_hours | int }}</td>
+            <td class="text-center fw-semibold">
+              {% if row.hours_open is not none %}{{ '%g' | format(row.hours_open) }}{% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
+            <td class="text-center" style="max-width:110px">
+              <input type="number" name="weeks_{{ row.branch.id }}" step="0.5" min="0" max="52"
+                     class="form-control form-control-sm text-center mx-auto"
+                     value="{{ row.weeks_open }}">
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <button class="btn btn-primary btn-sm">
+    <i class="bi bi-floppy me-1"></i>Save &amp; Calculate
+  </button>
+</form>
+{% endblock %}

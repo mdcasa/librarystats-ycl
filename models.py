@@ -215,6 +215,57 @@ class BranchClosure(db.Model):
         return f'{self.hours_closed:.2f}'.rstrip('0').rstrip('.')
 
 
+class HolidayClosure(db.Model):
+    """One date on the official, system-wide holiday closure calendar."""
+    __tablename__ = 'holiday_closures'
+    id           = db.Column(db.Integer, primary_key=True)
+    closure_date = db.Column(db.Date, nullable=False, unique=True)
+    name         = db.Column(db.String(200), nullable=False)
+    hours_closed = db.Column(db.Float, nullable=False)
+    created_at   = db.Column(db.DateTime, default=datetime.utcnow)
+
+    @property
+    def display_hours(self):
+        if self.hours_closed == int(self.hours_closed):
+            return str(int(self.hours_closed))
+        return f'{self.hours_closed:.2f}'.rstrip('0').rstrip('.')
+
+
+class OutletScheduledHours(db.Model):
+    """A branch's normal/baseline annual open hours for one fiscal year (Section J baseline)."""
+    __tablename__ = 'outlet_scheduled_hours'
+    id              = db.Column(db.Integer, primary_key=True)
+    branch_id       = db.Column(db.Integer, db.ForeignKey('branches.id'), nullable=False)
+    fiscal_year     = db.Column(db.Integer, nullable=False)
+    scheduled_hours = db.Column(db.Float, nullable=False)
+    submitted_by    = db.Column(db.String(200))
+    submitted_at    = db.Column(db.DateTime, default=datetime.utcnow)
+
+    branch = db.relationship('Branch')
+
+    __table_args__ = (
+        db.UniqueConstraint('branch_id', 'fiscal_year', name='uq_outlet_hours_branch_fy'),
+    )
+
+
+class SectionJOutletData(db.Model):
+    """Saved Section J (Hours/Weeks Open) result for one branch/fiscal year."""
+    __tablename__ = 'section_j_outlet_data'
+    id          = db.Column(db.Integer, primary_key=True)
+    branch_id   = db.Column(db.Integer, db.ForeignKey('branches.id'), nullable=False)
+    fiscal_year = db.Column(db.Integer, nullable=False)
+    hours_open  = db.Column(db.Float, nullable=False)
+    weeks_open  = db.Column(db.Float, nullable=False, default=52)
+    saved_by    = db.Column(db.String(200))
+    saved_at    = db.Column(db.DateTime, default=datetime.utcnow)
+
+    branch = db.relationship('Branch')
+
+    __table_args__ = (
+        db.UniqueConstraint('branch_id', 'fiscal_year', name='uq_section_j_branch_fy'),
+    )
+
+
 class ImportLog(db.Model):
     """Records each file upload so it can be undone."""
     __tablename__ = 'import_logs'

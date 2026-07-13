@@ -2654,7 +2654,7 @@ def admin_user_toggle(user_id):
 
 # ── Annual Survey Dashboard ───────────────────────────────────────────────────
 
-from models import AnnualSurveyMetric, AnnualSurveyValue
+from models import AnnualSurveyMetric, AnnualSurveyValue, HolidayClosure, OutletScheduledHours, SectionJOutletData
 
 _ANNUAL_CHART_METRICS = [
     'Annual Library Visits (gate count)',
@@ -2973,6 +2973,145 @@ def annual_survey_calculate_bulk():
     flash(f'{total} metrics auto-calculated across {len(years)} fiscal year(s): '
           + ', '.join(f'FY{y}' for y in sorted(years)) + '.', 'success')
     return redirect(url_for('annual_survey_dashboard'))
+
+
+# ── Section J: Outlet Hours/Weeks Open ───────────────────────────────────────
+
+def _fy_date_range(fy_year):
+    """Jul 1 of fy_year-1 through Jun 30 of fy_year, matching the FY convention
+    already used by report_quarterly_ref and the rest of the app."""
+    from datetime import date
+    return date(fy_year - 1, 7, 1), date(fy_year, 6, 30)
+
+
+def _outlet_branches():
+    """Real public-service outlets for Section J (excludes admin/backoffice, desks, lockers, system-wide)."""
+    return (Branch.query.filter_by(is_active=True, is_desk=False)
+            .filter(~Branch.name.ilike('%locker%'),
+                    ~Branch.name.in_(['YCL (System Wide)', 'Administration']))
+            .order_by(Branch.name).all())
+
+
+@app.route('/annual-survey/<int:year>/section-j', methods=['GET', 'POST'])
+def annual_survey_section_j(year):
+    branches = _outlet_branches()
+    fy_start, fy_end = _fy_date_range(year)
+
+    holiday_hours = db.session.query(db.func.coalesce(db.func.sum(HolidayClosure.hours_closed), 0)).filter(
+        HolidayClosure.closure_date >= fy_start,
+        HolidayClosure.closure_date <= fy_end,
+    ).scalar()
+
+    if request.method == 'POST':
+        for b in branches:
+            scheduled = request.form.get(f'scheduled_{b.id}', type=float)
+            weeks     = request.form.get(f'weeks_{b.id}', type=float)
+            if scheduled is None:
+                continue
+            weeks = weeks if weeks is not None else 52
+
+            sh = OutletScheduledHours.query.filter_by(branch_id=b.id, fiscal_year=year).first()
+            if sh:
+                sh.scheduled_hours = scheduled
+                sh.submitted_by = current_user.username
+            else:
+                db.session.add(OutletScheduledHours(
+                    branch_id=b.id, fiscal_year=year,
+                    scheduled_hours=scheduled, submitted_by=current_user.username,
+                ))
+
+            unexpected_hours = db.session.query(
+                db.func.coalesce(db.func.sum(BranchClosure.hours_closed), 0)
+            ).filter(
+                BranchClosure.branch_id == b.id,
+                BranchClosure.closure_date >= fy_start,
+                BranchClosure.closure_date <= fy_end,
+            ).scalar()
+
+            hours_open = scheduled - holiday_hours - unexpected_hours
+
+            sj = SectionJOutletData.query.filter_by(branch_id=b.id, fiscal_year=year).first()
+            if sj:
+                sj.hours_open = hours_open
+                sj.weeks_open = weeks
+                sj.saved_by = current_user.username
+            else:
+                db.session.add(SectionJOutletData(
+                    branch_id=b.id, fiscal_year=year,
+                    hours_open=hours_open, weeks_open=weeks, saved_by=current_user.username,
+                ))
+
+        db.session.commit()
+        flash(f'Section J data saved for FY{year}.', 'success')
+        return redirect(url_for('annual_survey_section_j', year=year))
+
+    scheduled_by_branch = {sh.branch_id: sh for sh in
+                            OutletScheduledHours.query.filter_by(fiscal_year=year).all()}
+    saved_by_branch = {sj.branch_id: sj for sj in
+                        SectionJOutletData.query.filter_by(fiscal_year=year).all()}
+
+    rows = []
+    for b in branches:
+        sh = scheduled_by_branch.get(b.id)
+        unexpected_hours = db.session.query(
+            db.func.coalesce(db.func.sum(BranchClosure.hours_closed), 0)
+        ).filter(
+            BranchClosure.branch_id == b.id,
+            BranchClosure.closure_date >= fy_start,
+            BranchClosure.closure_date <= fy_end,
+        ).scalar()
+        sj = saved_by_branch.get(b.id)
+        rows.append({
+            'branch': b,
+            'scheduled_hours': sh.scheduled_hours if sh else None,
+            'holiday_hours': holiday_hours,
+            'unexpected_hours': unexpected_hours,
+            'hours_open': sj.hours_open if sj else None,
+            'weeks_open': sj.weeks_open if sj else 52,
+        })
+
+    all_years = sorted({sh.fiscal_year for sh in OutletScheduledHours.query.all()} | {year}, reverse=True)
+
+    return render_template('annual/section_j.html',
+                           year=year,
+                           all_years=all_years,
+                           rows=rows,
+                           holiday_hours=holiday_hours)
+
+
+@app.route('/annual-survey/holidays', methods=['GET', 'POST'])
+def annual_survey_holidays():
+    if request.method == 'POST':
+        closure_date = request.form.get('closure_date', '').strip()
+        name = request.form.get('name', '').strip()
+        hours = request.form.get('hours_closed', type=float)
+        if not closure_date or not name or hours is None:
+            flash('Date, name, and hours closed are all required.', 'danger')
+        else:
+            try:
+                parsed_date = datetime.strptime(closure_date, '%Y-%m-%d').date()
+            except ValueError:
+                flash('Invalid date.', 'danger')
+                return redirect(url_for('annual_survey_holidays'))
+            if HolidayClosure.query.filter_by(closure_date=parsed_date).first():
+                flash(f'A holiday closure is already recorded for {parsed_date}.', 'danger')
+            else:
+                db.session.add(HolidayClosure(closure_date=parsed_date, name=name, hours_closed=hours))
+                db.session.commit()
+                flash('Holiday closure added.', 'success')
+        return redirect(url_for('annual_survey_holidays'))
+
+    holidays = HolidayClosure.query.order_by(HolidayClosure.closure_date).all()
+    return render_template('annual/holidays.html', holidays=holidays)
+
+
+@app.route('/annual-survey/holidays/<int:holiday_id>/delete', methods=['POST'])
+def annual_survey_holiday_delete(holiday_id):
+    holiday = HolidayClosure.query.get_or_404(holiday_id)
+    db.session.delete(holiday)
+    db.session.commit()
+    flash('Holiday closure removed.', 'info')
+    return redirect(url_for('annual_survey_holidays'))
 
 
 def _overview_fy_stats():

@@ -153,6 +153,62 @@
     </div>
   </div>
 
+  {# ── Unexpected Closures (Branch Stats only) ── #}
+  {% if category.name == 'Branch Stats' %}
+  <div class="card mb-4">
+    <div class="card-header-custom fw-semibold">Unexpected Closures</div>
+    <div class="table-responsive">
+      <table class="table mb-0 align-middle">
+        <colgroup>
+          <col style="width: 45%">
+          <col style="width: 45%">
+          <col style="width: 10%">
+        </colgroup>
+        <thead class="table-light">
+          <tr>
+            <th>Date</th>
+            <th>Hours Closed</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="closures-rows">
+          {% for c in closures %}
+          <tr class="closure-row">
+            <td><input type="date" name="closure_date" class="form-control form-control-sm"
+                       value="{{ c.closure_date.isoformat() }}"></td>
+            <td><input type="number" name="closure_hours" step="0.5" min="0" max="24"
+                       class="form-control form-control-sm" value="{{ c.display_hours }}"></td>
+            <td class="text-end">
+              <button type="button" class="btn btn-outline-danger btn-sm remove-closure-row">
+                <i class="bi bi-trash"></i>
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="card-body border-top">
+      <button type="button" id="add-closure-row" class="btn btn-outline-primary btn-sm">
+        <i class="bi bi-plus-lg me-1"></i>Add Closure
+      </button>
+    </div>
+  </div>
+
+  <template id="closure-row-template">
+    <tr class="closure-row">
+      <td><input type="date" name="closure_date" class="form-control form-control-sm"></td>
+      <td><input type="number" name="closure_hours" step="0.5" min="0" max="24"
+                 class="form-control form-control-sm"></td>
+      <td class="text-end">
+        <button type="button" class="btn btn-outline-danger btn-sm remove-closure-row">
+          <i class="bi bi-trash"></i>
+        </button>
+      </td>
+    </tr>
+  </template>
+  {% endif %}
+
   {# ── Notes ── #}
   <div class="card mb-4">
     <div class="card-header-custom fw-semibold">Notes <span class="text-muted fw-normal">(optional)</span></div>
@@ -181,6 +237,17 @@
   // Enable Bootstrap tooltips
   document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
     new bootstrap.Tooltip(el);
+  });
+
+  // Unexpected Closures: add/remove rows client-side before submit
+  const closuresRows = document.getElementById('closures-rows');
+  const closureTemplate = document.getElementById('closure-row-template');
+  document.getElementById('add-closure-row')?.addEventListener('click', () => {
+    closuresRows.appendChild(closureTemplate.content.cloneNode(true));
+  });
+  closuresRows?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.remove-closure-row');
+    if (btn) btn.closest('tr').remove();
   });
 </script>
 {% endblock %}

@@ -536,6 +536,9 @@ def entry_create(category_id):
                             pass
                     db.session.add(ev)
 
+            if category.name == 'Branch Stats' and entry.branch_id:
+                _save_branch_closures(entry.branch_id, current_user.username)
+
             db.session.commit()
             flash('Entry submitted successfully!', 'success')
             return redirect(url_for('entry_view', entry_id=entry.id))
@@ -547,7 +550,8 @@ def entry_create(category_id):
                            months=MONTHS,
                            year_range=year_range,
                            entry=None,
-                           values={})
+                           values={},
+                           closures=[])
 
 
 # ── View entry ───────────────────────────────────────────────────────────────
@@ -560,11 +564,7 @@ def entry_view(entry_id):
 
     closures = []
     if entry.category.name == 'Branch Stats' and entry.branch_id and entry.month:
-        closures = (BranchClosure.query
-                    .filter(BranchClosure.branch_id == entry.branch_id)
-                    .filter(db.extract('year', BranchClosure.closure_date) == entry.year)
-                    .filter(db.extract('month', BranchClosure.closure_date) == entry.month)
-                    .order_by(BranchClosure.closure_date).all())
+        closures = _branch_closures_for(entry.branch_id, entry.year, entry.month)
 
     return render_template('entries/view.html',
                            entry=entry,
@@ -575,40 +575,34 @@ def entry_view(entry_id):
 
 # ── Branch closures ─────────────────────────────────────────────────────────
 
-@app.route('/entries/<int:entry_id>/closures/add', methods=['POST'])
-def branch_closure_add(entry_id):
-    entry = Entry.query.get_or_404(entry_id)
-    closure_date = request.form.get('closure_date', '').strip()
-    hours = request.form.get('hours_closed', type=float)
-    if not entry.branch_id:
-        flash('This entry has no branch to attach a closure to.', 'danger')
-    elif not closure_date or hours is None:
-        flash('Date and hours closed are required.', 'danger')
-    else:
+def _branch_closures_for(branch_id, year, month):
+    return (BranchClosure.query
+            .filter(BranchClosure.branch_id == branch_id)
+            .filter(db.extract('year', BranchClosure.closure_date) == year)
+            .filter(db.extract('month', BranchClosure.closure_date) == month)
+            .order_by(BranchClosure.closure_date).all())
+
+
+def _save_branch_closures(branch_id, submitted_by):
+    """Create BranchClosure rows from parallel closure_date/closure_hours form fields."""
+    dates = request.form.getlist('closure_date')
+    hours_list = request.form.getlist('closure_hours')
+    for raw_date, raw_hours in zip(dates, hours_list):
+        raw_date = raw_date.strip()
+        raw_hours = raw_hours.strip()
+        if not raw_date or not raw_hours:
+            continue
         try:
-            parsed_date = datetime.strptime(closure_date, '%Y-%m-%d').date()
+            parsed_date = datetime.strptime(raw_date, '%Y-%m-%d').date()
+            hours = float(raw_hours)
         except ValueError:
-            flash('Invalid date.', 'danger')
-            return redirect(url_for('entry_view', entry_id=entry_id))
+            continue
         db.session.add(BranchClosure(
-            branch_id=entry.branch_id,
+            branch_id=branch_id,
             closure_date=parsed_date,
             hours_closed=hours,
-            submitted_by=current_user.username,
+            submitted_by=submitted_by,
         ))
-        db.session.commit()
-        flash('Closure added.', 'success')
-    return redirect(url_for('entry_view', entry_id=entry_id))
-
-
-@app.route('/branch_closures/<int:closure_id>/delete', methods=['POST'])
-def branch_closure_delete(closure_id):
-    closure = BranchClosure.query.get_or_404(closure_id)
-    entry_id = request.form.get('entry_id', type=int)
-    db.session.delete(closure)
-    db.session.commit()
-    flash('Closure removed.', 'info')
-    return redirect(url_for('entry_view', entry_id=entry_id) if entry_id else url_for('index'))
 
 
 # ── Edit entry ───────────────────────────────────────────────────────────────
@@ -627,6 +621,8 @@ def entry_edit(entry_id):
     year_range = range(datetime.now().year - 5, datetime.now().year + 2)
 
     if request.method == 'POST':
+        old_branch_id, old_year, old_month = entry.branch_id, entry.year, entry.month
+
         entry.branch_id = request.form.get('branch_id', type=int) or None
         entry.year = request.form.get('year', type=int)
         entry.month = request.form.get('month', type=int) or None
@@ -653,9 +649,20 @@ def entry_edit(entry_id):
             elif ev is not None:
                 db.session.delete(ev)
 
+        if category.name == 'Branch Stats':
+            if old_branch_id and old_month:
+                for c in _branch_closures_for(old_branch_id, old_year, old_month):
+                    db.session.delete(c)
+            if entry.branch_id:
+                _save_branch_closures(entry.branch_id, current_user.username)
+
         db.session.commit()
         flash('Entry updated successfully!', 'success')
         return redirect(url_for('entry_view', entry_id=entry.id))
+
+    closures = []
+    if category.name == 'Branch Stats' and entry.branch_id and entry.month:
+        closures = _branch_closures_for(entry.branch_id, entry.year, entry.month)
 
     return render_template('entries/form.html',
                            category=category,
@@ -664,7 +671,8 @@ def entry_edit(entry_id):
                            months=MONTHS,
                            year_range=year_range,
                            entry=entry,
-                           values=values)
+                           values=values,
+                           closures=closures)
 
 
 # ── Delete entry ─────────────────────────────────────────────────────────────

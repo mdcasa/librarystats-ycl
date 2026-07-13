@@ -100,7 +100,6 @@
         <tr>
           <th>Date</th>
           <th>Hours Closed</th>
-          <th></th>
         </tr>
       </thead>
       <tbody>
@@ -108,42 +107,14 @@
         <tr>
           <td>{{ c.closure_date.strftime('%b %d, %Y') }}</td>
           <td>{{ c.display_hours }}</td>
-          <td class="text-end">
-            <form method="post" action="{{ url_for('branch_closure_delete', closure_id=c.id) }}"
-                  onsubmit="return confirm('Remove this closure?')">
-              <input type="hidden" name="entry_id" value="{{ entry.id }}">
-              <button class="btn btn-outline-danger btn-sm">
-                <i class="bi bi-trash"></i>
-              </button>
-            </form>
-          </td>
         </tr>
         {% else %}
         <tr>
-          <td colspan="3" class="text-muted">No unexpected closures logged for this month.</td>
+          <td colspan="2" class="text-muted">No unexpected closures logged for this month.</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
-  </div>
-  <div class="card-body border-top">
-    <form method="post" action="{{ url_for('branch_closure_add', entry_id=entry.id) }}"
-          class="row g-2 align-items-end">
-      <div class="col-sm-4">
-        <label class="form-label small fw-semibold">Date</label>
-        <input type="date" name="closure_date" class="form-control form-control-sm" required>
-      </div>
-      <div class="col-sm-4">
-        <label class="form-label small fw-semibold">Hours Closed</label>
-        <input type="number" name="hours_closed" step="0.5" min="0" max="24"
-               class="form-control form-control-sm" required>
-      </div>
-      <div class="col-sm-4">
-        <button class="btn btn-primary btn-sm">
-          <i class="bi bi-plus-lg me-1"></i>Add Closure
-        </button>
-      </div>
-    </form>
   </div>
 </div>
 {% endif %}

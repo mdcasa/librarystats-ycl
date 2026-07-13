@@ -99,7 +99,7 @@
 {% set _enter   = ['ill_entry','icl_entry','entry_create','entry_edit','entry_delete'] %}
 {% set _data    = ['upload_data','entries_list','entry_view'] %}
 {% set _dash    = ['director_dashboard','annual_survey_dashboard','annual_survey_enter','annual_survey_calculate',
-                   'annual_survey_section_j','annual_survey_holidays'] %}
+                   'annual_survey_section_j','annual_survey_holidays','annual_survey_branch_hours'] %}
 {% set _reports = ['report_monthly_stats','report_monthly','report_fiscal','report_trend',
                    'report_yoy','report_quarterly_ref','report_online','report_overview','report_impact',
                    'report_branch_summary'] %}
@@ -195,6 +195,10 @@
             <li><a class="dropdown-item {% if ep == 'annual_survey_section_j' %}active{% endif %}"
                    href="{{ url_for('annual_survey_section_j', year=now.year) }}">
               <i class="bi bi-clock-history me-2 text-primary"></i>Section J — Outlet Hours
+            </a></li>
+            <li><a class="dropdown-item {% if ep == 'annual_survey_branch_hours' %}active{% endif %}"
+                   href="{{ url_for('annual_survey_branch_hours') }}">
+              <i class="bi bi-clock me-2 text-primary"></i>Branch Weekly Hours
             </a></li>
             <li><a class="dropdown-item {% if ep == 'annual_survey_holidays' %}active{% endif %}"
                    href="{{ url_for('annual_survey_holidays') }}">

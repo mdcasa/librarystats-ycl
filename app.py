@@ -2654,7 +2654,7 @@ def admin_user_toggle(user_id):
 
 # ── Annual Survey Dashboard ───────────────────────────────────────────────────
 
-from models import AnnualSurveyMetric, AnnualSurveyValue, HolidayClosure, OutletScheduledHours, SectionJOutletData
+from models import AnnualSurveyMetric, AnnualSurveyValue, HolidayClosure, OutletScheduledHours, SectionJOutletData, BranchWeeklyHours
 
 _ANNUAL_CHART_METRICS = [
     'Annual Library Visits (gate count)',
@@ -2992,15 +2992,29 @@ def _outlet_branches():
             .order_by(Branch.name).all())
 
 
+def _holiday_hours_for_branch(branch_id, weekly_hours_by_branch, fy_start, fy_end):
+    """Sum of hours lost to official holiday closures for one branch within a FY date range.
+    Full-day closures cost that branch's own normal hours for that weekday; partial
+    closures (e.g. early-closing days) use their flat hours_closed value for every branch."""
+    wh = weekly_hours_by_branch.get(branch_id)
+    total = 0.0
+    for h in HolidayClosure.query.filter(
+        HolidayClosure.closure_date >= fy_start,
+        HolidayClosure.closure_date <= fy_end,
+    ).all():
+        if h.is_full_day:
+            if wh:
+                total += wh.hours_for_weekday(h.closure_date.weekday())
+        else:
+            total += h.hours_closed or 0
+    return total
+
+
 @app.route('/annual-survey/<int:year>/section-j', methods=['GET', 'POST'])
 def annual_survey_section_j(year):
     branches = _outlet_branches()
     fy_start, fy_end = _fy_date_range(year)
-
-    holiday_hours = db.session.query(db.func.coalesce(db.func.sum(HolidayClosure.hours_closed), 0)).filter(
-        HolidayClosure.closure_date >= fy_start,
-        HolidayClosure.closure_date <= fy_end,
-    ).scalar()
+    weekly_hours_by_branch = {wh.branch_id: wh for wh in BranchWeeklyHours.query.all()}
 
     if request.method == 'POST':
         for b in branches:
@@ -3020,6 +3034,7 @@ def annual_survey_section_j(year):
                     scheduled_hours=scheduled, submitted_by=current_user.username,
                 ))
 
+            holiday_hours = _holiday_hours_for_branch(b.id, weekly_hours_by_branch, fy_start, fy_end)
             unexpected_hours = db.session.query(
                 db.func.coalesce(db.func.sum(BranchClosure.hours_closed), 0)
             ).filter(
@@ -3053,6 +3068,9 @@ def annual_survey_section_j(year):
     rows = []
     for b in branches:
         sh = scheduled_by_branch.get(b.id)
+        wh = weekly_hours_by_branch.get(b.id)
+        default_scheduled = round(wh.weekly_total * 52, 1) if wh else None
+        holiday_hours = _holiday_hours_for_branch(b.id, weekly_hours_by_branch, fy_start, fy_end)
         unexpected_hours = db.session.query(
             db.func.coalesce(db.func.sum(BranchClosure.hours_closed), 0)
         ).filter(
@@ -3063,7 +3081,7 @@ def annual_survey_section_j(year):
         sj = saved_by_branch.get(b.id)
         rows.append({
             'branch': b,
-            'scheduled_hours': sh.scheduled_hours if sh else None,
+            'scheduled_hours': sh.scheduled_hours if sh else default_scheduled,
             'holiday_hours': holiday_hours,
             'unexpected_hours': unexpected_hours,
             'hours_open': sj.hours_open if sj else None,
@@ -3075,8 +3093,34 @@ def annual_survey_section_j(year):
     return render_template('annual/section_j.html',
                            year=year,
                            all_years=all_years,
-                           rows=rows,
-                           holiday_hours=holiday_hours)
+                           rows=rows)
+
+
+@app.route('/annual-survey/branch-hours', methods=['GET', 'POST'])
+def annual_survey_branch_hours():
+    branches = _outlet_branches()
+    days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+
+    if request.method == 'POST':
+        for b in branches:
+            wh = BranchWeeklyHours.query.filter_by(branch_id=b.id).first()
+            if not wh:
+                wh = BranchWeeklyHours(branch_id=b.id)
+                db.session.add(wh)
+            for d in days:
+                val = request.form.get(f'{d}_{b.id}', type=float)
+                setattr(wh, d, val or 0)
+        db.session.commit()
+        flash('Branch weekly hours saved.', 'success')
+        return redirect(url_for('annual_survey_branch_hours'))
+
+    hours_by_branch = {wh.branch_id: wh for wh in BranchWeeklyHours.query.all()}
+    rows = []
+    for b in branches:
+        wh = hours_by_branch.get(b.id)
+        values = {d: getattr(wh, d) for d in days} if wh else {d: 0 for d in days}
+        rows.append({'branch': b, 'values': values, 'weekly_total': (wh.weekly_total if wh else 0)})
+    return render_template('annual/branch_hours.html', rows=rows, days=days)
 
 
 @app.route('/annual-survey/holidays', methods=['GET', 'POST'])
@@ -3084,9 +3128,10 @@ def annual_survey_holidays():
     if request.method == 'POST':
         closure_date = request.form.get('closure_date', '').strip()
         name = request.form.get('name', '').strip()
+        is_full_day = request.form.get('is_full_day') == 'on'
         hours = request.form.get('hours_closed', type=float)
-        if not closure_date or not name or hours is None:
-            flash('Date, name, and hours closed are all required.', 'danger')
+        if not closure_date or not name or (not is_full_day and hours is None):
+            flash('Date and name are required (and hours closed, for a partial-day closure).', 'danger')
         else:
             try:
                 parsed_date = datetime.strptime(closure_date, '%Y-%m-%d').date()
@@ -3096,7 +3141,10 @@ def annual_survey_holidays():
             if HolidayClosure.query.filter_by(closure_date=parsed_date).first():
                 flash(f'A holiday closure is already recorded for {parsed_date}.', 'danger')
             else:
-                db.session.add(HolidayClosure(closure_date=parsed_date, name=name, hours_closed=hours))
+                db.session.add(HolidayClosure(
+                    closure_date=parsed_date, name=name,
+                    is_full_day=is_full_day, hours_closed=None if is_full_day else hours,
+                ))
                 db.session.commit()
                 flash('Holiday closure added.', 'success')
         return redirect(url_for('annual_survey_holidays'))

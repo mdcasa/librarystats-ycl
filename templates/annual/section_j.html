@@ -17,6 +17,9 @@
       {% endfor %}
       <option value="{{ (all_years[0] if all_years else year) + 1 }}">+ New Year</option>
     </select>
+    <a href="{{ url_for('annual_survey_branch_hours') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-clock me-1"></i>Weekly Hours
+    </a>
     <a href="{{ url_for('annual_survey_holidays') }}" class="btn btn-outline-secondary btn-sm">
       <i class="bi bi-calendar-x me-1"></i>Holiday Schedule
     </a>
@@ -25,8 +28,9 @@
 
 <div class="alert alert-info py-2">
   <i class="bi bi-info-circle me-1"></i>
-  Hours Open = Scheduled Hours &minus; Holiday Closure Hours ({{ holiday_hours | int }} this FY, system-wide)
-  &minus; Unexpected Closure Hours (per branch, from the monthly Branch Stats closures log).
+  Hours Open = Scheduled Hours &minus; Holiday Closure Hours (this branch's own hours for each holiday's
+  weekday, from its Weekly Hours) &minus; Unexpected Closure Hours (from the monthly Branch Stats closures
+  log). Scheduled Hours defaults to Weekly Hours &times; 52 the first time — override if needed.
   Weeks Open defaults to 52 per the state survey's own guidance, unless a branch was closed for an
   extended consecutive period.
 </div>

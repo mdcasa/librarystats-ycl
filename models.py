@@ -192,6 +192,29 @@ class QuarterlyRefClosureDays(db.Model):
     saved_at   = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class BranchClosure(db.Model):
+    """One unexpected-closure instance for a branch: a specific date and hours closed."""
+    __tablename__ = 'branch_closures'
+    id           = db.Column(db.Integer, primary_key=True)
+    branch_id    = db.Column(db.Integer, db.ForeignKey('branches.id'), nullable=False)
+    closure_date = db.Column(db.Date, nullable=False)
+    hours_closed = db.Column(db.Float, nullable=False)
+    submitted_by = db.Column(db.String(200))
+    created_at   = db.Column(db.DateTime, default=datetime.utcnow)
+
+    branch = db.relationship('Branch')
+
+    __table_args__ = (
+        db.Index('ix_branch_closures_branch_date', 'branch_id', 'closure_date'),
+    )
+
+    @property
+    def display_hours(self):
+        if self.hours_closed == int(self.hours_closed):
+            return str(int(self.hours_closed))
+        return f'{self.hours_closed:.2f}'.rstrip('0').rstrip('.')
+
+
 class ImportLog(db.Model):
     """Records each file upload so it can be undone."""
     __tablename__ = 'import_logs'

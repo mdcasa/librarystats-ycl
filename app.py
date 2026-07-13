@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, session
 from flask_login import LoginManager, login_user, logout_user, current_user
-from models import db, Category, Metric, Branch, Entry, EntryValue, User, QuarterlyRefClosureDays, ImportLog
+from models import db, Category, Metric, Branch, Entry, EntryValue, User, QuarterlyRefClosureDays, ImportLog, BranchClosure
 from sqlalchemy.orm import joinedload
 from sqlalchemy import or_, and_
 from jinja2 import ChoiceLoader, FileSystemLoader
@@ -557,10 +557,58 @@ def entry_view(entry_id):
     entry = Entry.query.get_or_404(entry_id)
     all_metrics = Metric.query.filter_by(category_id=entry.category_id).order_by(Metric.sort_order).all()
     values = {ev.metric_id: ev for ev in entry.values}
+
+    closures = []
+    if entry.category.name == 'Branch Stats' and entry.branch_id and entry.month:
+        closures = (BranchClosure.query
+                    .filter(BranchClosure.branch_id == entry.branch_id)
+                    .filter(db.extract('year', BranchClosure.closure_date) == entry.year)
+                    .filter(db.extract('month', BranchClosure.closure_date) == entry.month)
+                    .order_by(BranchClosure.closure_date).all())
+
     return render_template('entries/view.html',
                            entry=entry,
                            metric_groups=group_metrics(all_metrics),
-                           values=values)
+                           values=values,
+                           closures=closures)
+
+
+# ── Branch closures ─────────────────────────────────────────────────────────
+
+@app.route('/entries/<int:entry_id>/closures/add', methods=['POST'])
+def branch_closure_add(entry_id):
+    entry = Entry.query.get_or_404(entry_id)
+    closure_date = request.form.get('closure_date', '').strip()
+    hours = request.form.get('hours_closed', type=float)
+    if not entry.branch_id:
+        flash('This entry has no branch to attach a closure to.', 'danger')
+    elif not closure_date or hours is None:
+        flash('Date and hours closed are required.', 'danger')
+    else:
+        try:
+            parsed_date = datetime.strptime(closure_date, '%Y-%m-%d').date()
+        except ValueError:
+            flash('Invalid date.', 'danger')
+            return redirect(url_for('entry_view', entry_id=entry_id))
+        db.session.add(BranchClosure(
+            branch_id=entry.branch_id,
+            closure_date=parsed_date,
+            hours_closed=hours,
+            submitted_by=current_user.username,
+        ))
+        db.session.commit()
+        flash('Closure added.', 'success')
+    return redirect(url_for('entry_view', entry_id=entry_id))
+
+
+@app.route('/branch_closures/<int:closure_id>/delete', methods=['POST'])
+def branch_closure_delete(closure_id):
+    closure = BranchClosure.query.get_or_404(closure_id)
+    entry_id = request.form.get('entry_id', type=int)
+    db.session.delete(closure)
+    db.session.commit()
+    flash('Closure removed.', 'info')
+    return redirect(url_for('entry_view', entry_id=entry_id) if entry_id else url_for('index'))
 
 
 # ── Edit entry ───────────────────────────────────────────────────────────────

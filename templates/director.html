@@ -222,6 +222,29 @@
   </div>
 </div>
 
+{# ── OUTLETS ── #}
+<div class="card mb-4">
+  <div class="card-header-custom fw-bold" style="color:#b9770e">
+    <i class="bi bi-door-closed me-2"></i>Outlets
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered mb-0" style="font-size:.88rem">
+      <thead class="table-light">
+        <tr><th style="width:60px">Code</th><th>Metric</th><th class="text-end" style="width:120px">FY Total</th></tr>
+      </thead>
+      <tbody>
+        {% for code, label, val in stats.outlets %}
+        <tr>
+          <td class="text-muted">{{ code }}</td>
+          <td>{{ label }}</td>
+          <td class="text-end fw-semibold {{ 'text-muted' if not val }}">{{ '{:,}'.format(val|int) if val else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
 {% endif %}
 {% endblock %}
 

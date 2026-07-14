@@ -2246,7 +2246,14 @@ def director_dashboard():
         def attend_row(type_, age):
             return v(bs, f'{type_} Attendance {age}')
 
+        outlet_rows = []
+        for _ob in _outlet_branches():
+            _sj = SectionJOutletData.query.filter_by(branch_id=_ob.id, fiscal_year=fy_year).first()
+            outlet_rows.append(('J10', f'{_ob.name} — Hours Open',  _sj.hours_open if _sj else None))
+            outlet_rows.append(('J12', f'{_ob.name} — Weeks Open',  _sj.weeks_open if _sj else None))
+
         stats = {
+            'outlets': outlet_rows,
             'users': [
                 ('G1',  'Registered Users, Adult',            v(bs, 'New Library Card Registrations, Adult')),
                 ('G2',  'Registered Users, Juvenile',         v(bs, 'New Library Card Registrations, Juvenile')),

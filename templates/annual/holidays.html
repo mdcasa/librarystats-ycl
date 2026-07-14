@@ -1,0 +1,99 @@
+{% extends 'base.html' %}
+{% block title %}Holiday Closure Schedule – Library Stats{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <h1 class="h4 fw-bold mb-0">
+    <i class="bi bi-calendar-x me-2 text-primary"></i>Official Holiday Closure Schedule
+  </h1>
+  <a href="#" onclick="history.back()" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left me-1"></i>Back
+  </a>
+</div>
+
+<p class="text-muted small">
+  System-wide dates the library is closed or closes early. <strong>Full-day</strong> closures cost each
+  branch its own normal hours for that weekday (set on the <a href="{{ url_for('annual_survey_branch_hours') }}">Weekly Hours</a>
+  page), so branches with different Friday/Saturday schedules lose different amounts of time on the same
+  date. <strong>Partial</strong> closures (e.g. an early-closing day) use a flat hours-closed value applied
+  to every branch. Either way, these feed into Section J "Hours Open" for whichever fiscal year the date falls in.
+</p>
+
+{# ── Holidays list ── #}
+<div class="card mb-4">
+  <div class="card-header-custom fw-semibold">Holidays ({{ holidays|length }})</div>
+  <div class="table-responsive">
+    <table class="table mb-0 align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>Date</th>
+          <th>Name</th>
+          <th class="text-center">Hours Closed</th>
+          <th class="text-end">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for h in holidays %}
+        <tr>
+          <td>{{ h.closure_date.strftime('%b %d, %Y') }}</td>
+          <td>{{ h.name }}</td>
+          <td class="text-center">{{ h.display_hours }}</td>
+          <td class="text-end">
+            <form method="post" action="{{ url_for('annual_survey_holiday_delete', holiday_id=h.id) }}"
+                  class="d-inline" onsubmit="return confirm('Remove {{ h.name }}?')">
+              <button class="btn btn-xs btn-outline-danger">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="text-center text-muted py-3">No holidays entered yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ── Add holiday ── #}
+<div class="card">
+  <div class="card-header-custom fw-semibold">Add Holiday</div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('annual_survey_holidays') }}" class="row g-3" id="add-holiday-form">
+      <div class="col-md-3">
+        <label class="form-label">Date <span class="text-danger">*</span></label>
+        <input type="date" name="closure_date" class="form-control" required>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Name <span class="text-danger">*</span></label>
+        <input type="text" name="name" class="form-control" placeholder="e.g. Independence Day" required>
+      </div>
+      <div class="col-md-2 d-flex align-items-end">
+        <div class="form-check mb-2">
+          <input type="checkbox" name="is_full_day" id="is_full_day" class="form-check-input" checked>
+          <label for="is_full_day" class="form-check-label">Full day</label>
+        </div>
+      </div>
+      <div class="col-md-2" id="hours-closed-field">
+        <label class="form-label">Hours Closed</label>
+        <input type="number" name="hours_closed" step="0.5" min="0" max="24" class="form-control" disabled>
+      </div>
+      <div class="col-md-2 d-flex align-items-end">
+        <button type="submit" class="btn btn-primary btn-sm">
+          <i class="bi bi-plus-lg me-1"></i>Add Holiday
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const fullDayCheckbox = document.getElementById('is_full_day');
+  const hoursInput = document.querySelector('#hours-closed-field input');
+  fullDayCheckbox.addEventListener('change', () => {
+    const partial = !fullDayCheckbox.checked;
+    hoursInput.disabled = !partial;
+    hoursInput.required = partial;
+  });
+</script>
+{% endblock %}

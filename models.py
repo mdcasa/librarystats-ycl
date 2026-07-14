@@ -215,6 +215,98 @@ class BranchClosure(db.Model):
         return f'{self.hours_closed:.2f}'.rstrip('0').rstrip('.')
 
 
+class HolidayClosure(db.Model):
+    """One date on the official, system-wide holiday closure calendar.
+
+    Full-day closures (is_full_day=True) cost each branch that branch's own normal
+    hours for that weekday (looked up from BranchWeeklyHours) — branches with
+    different Fri/Sat schedules lose different amounts of time on the same date.
+    Partial closures (is_full_day=False, e.g. an early-closing day) use the flat
+    hours_closed value, applied the same to every branch.
+    """
+    __tablename__ = 'holiday_closures'
+    id           = db.Column(db.Integer, primary_key=True)
+    closure_date = db.Column(db.Date, nullable=False, unique=True)
+    name         = db.Column(db.String(200), nullable=False)
+    is_full_day  = db.Column(db.Boolean, nullable=False, default=True)
+    hours_closed = db.Column(db.Float, nullable=True)  # only used when is_full_day is False
+    created_at   = db.Column(db.DateTime, default=datetime.utcnow)
+
+    @property
+    def display_hours(self):
+        if self.is_full_day:
+            return 'Full day'
+        if self.hours_closed == int(self.hours_closed):
+            return f'{int(self.hours_closed)} hrs (partial)'
+        return f'{self.hours_closed:.2f} hrs (partial)'.rstrip('0').rstrip('.')
+
+
+class BranchWeeklyHours(db.Model):
+    """A branch's normal weekly service hours, one value per weekday.
+
+    Used to compute (a) a default annual Scheduled Hours suggestion (weekly total x 52)
+    and (b) the actual hours lost to each full-day HolidayClosure, since branches can
+    have different Friday/Saturday hours.
+    """
+    __tablename__ = 'branch_weekly_hours'
+    id        = db.Column(db.Integer, primary_key=True)
+    branch_id = db.Column(db.Integer, db.ForeignKey('branches.id'), nullable=False, unique=True)
+    monday    = db.Column(db.Float, nullable=False, default=0)
+    tuesday   = db.Column(db.Float, nullable=False, default=0)
+    wednesday = db.Column(db.Float, nullable=False, default=0)
+    thursday  = db.Column(db.Float, nullable=False, default=0)
+    friday    = db.Column(db.Float, nullable=False, default=0)
+    saturday  = db.Column(db.Float, nullable=False, default=0)
+    sunday    = db.Column(db.Float, nullable=False, default=0)
+
+    branch = db.relationship('Branch')
+
+    _DAY_COLS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+
+    def hours_for_weekday(self, weekday):
+        """weekday: 0=Monday ... 6=Sunday, matching Python's date.weekday()."""
+        return getattr(self, self._DAY_COLS[weekday])
+
+    @property
+    def weekly_total(self):
+        return sum(getattr(self, c) for c in self._DAY_COLS)
+
+
+class OutletScheduledHours(db.Model):
+    """A branch's normal/baseline annual open hours for one fiscal year (Section J baseline)."""
+    __tablename__ = 'outlet_scheduled_hours'
+    id              = db.Column(db.Integer, primary_key=True)
+    branch_id       = db.Column(db.Integer, db.ForeignKey('branches.id'), nullable=False)
+    fiscal_year     = db.Column(db.Integer, nullable=False)
+    scheduled_hours = db.Column(db.Float, nullable=False)
+    submitted_by    = db.Column(db.String(200))
+    submitted_at    = db.Column(db.DateTime, default=datetime.utcnow)
+
+    branch = db.relationship('Branch')
+
+    __table_args__ = (
+        db.UniqueConstraint('branch_id', 'fiscal_year', name='uq_outlet_hours_branch_fy'),
+    )
+
+
+class SectionJOutletData(db.Model):
+    """Saved Section J (Hours/Weeks Open) result for one branch/fiscal year."""
+    __tablename__ = 'section_j_outlet_data'
+    id          = db.Column(db.Integer, primary_key=True)
+    branch_id   = db.Column(db.Integer, db.ForeignKey('branches.id'), nullable=False)
+    fiscal_year = db.Column(db.Integer, nullable=False)
+    hours_open  = db.Column(db.Float, nullable=False)
+    weeks_open  = db.Column(db.Float, nullable=False, default=52)
+    saved_by    = db.Column(db.String(200))
+    saved_at    = db.Column(db.DateTime, default=datetime.utcnow)
+
+    branch = db.relationship('Branch')
+
+    __table_args__ = (
+        db.UniqueConstraint('branch_id', 'fiscal_year', name='uq_section_j_branch_fy'),
+    )
+
+
 class ImportLog(db.Model):
     """Records each file upload so it can be undone."""
     __tablename__ = 'import_logs'

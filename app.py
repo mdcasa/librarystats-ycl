@@ -2261,10 +2261,12 @@ def director_dashboard():
                 _ob.name,
                 v(fy_filter_by_branch('Branch Stats', _ob.id), 'External Party Library Room Use')
             ))
+        outlet_meeting_total = sum(val for _, val in outlet_meeting_rows if val) or None
 
         stats = {
             'outlets': outlet_rows,
             'outlet_meeting_rooms': outlet_meeting_rows,
+            'outlet_meeting_total': outlet_meeting_total,
             'users': [
                 ('G1',  'Registered Users, Adult',            v(bs, 'New Library Card Registrations, Adult')),
                 ('G2',  'Registered Users, Juvenile',         v(bs, 'New Library Card Registrations, Juvenile')),

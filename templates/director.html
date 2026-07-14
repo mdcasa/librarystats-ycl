@@ -264,6 +264,12 @@
         </tr>
         {% endfor %}
       </tbody>
+      <tfoot class="table-secondary fw-bold">
+        <tr>
+          <td>All Branches Total</td>
+          <td class="text-end">{{ '{:,}'.format(stats.outlet_meeting_total|int) if stats.outlet_meeting_total else '—' }}</td>
+        </tr>
+      </tfoot>
     </table>
   </div>
 </div>

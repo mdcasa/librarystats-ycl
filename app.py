@@ -3007,8 +3007,8 @@ def _outlet_branches():
 
 def _j11_weekly_hours(wh):
     """Weekly Section J11 hours: evening (Mon-Fri after 5pm) + weekend (all Sat/Sun hours).
-    Evening hours assume every branch opens by 9:00am, so hours beyond the first 8 of a
-    weekday are after 5pm."""
+    Every branch opens at 9:00am (confirmed actual open/close times), so hours beyond
+    the first 8 of a weekday fall after 5pm."""
     if not wh:
         return None
     evening = sum(max(0, getattr(wh, d) - 8) for d in

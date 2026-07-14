@@ -2251,7 +2251,12 @@ def director_dashboard():
         ]
         for _ob in _outlet_branches():
             _sj = SectionJOutletData.query.filter_by(branch_id=_ob.id, fiscal_year=fy_year).first()
+            _wh = BranchWeeklyHours.query.filter_by(branch_id=_ob.id).first()
+            _weeks = _sj.weeks_open if _sj else 52
+            _j11_weekly = _j11_weekly_hours(_wh)
+            _j11_annual = round(_j11_weekly * _weeks, 1) if _j11_weekly is not None else None
             outlet_rows.append(('J10', f'{_ob.name} — Hours Open',  _sj.hours_open if _sj else None))
+            outlet_rows.append(('J11', f'{_ob.name} — Weekend/Evening Hours', _j11_annual))
             outlet_rows.append(('J12', f'{_ob.name} — Weeks Open',  _sj.weeks_open if _sj else None))
 
         stats = {
@@ -2998,6 +3003,18 @@ def _outlet_branches():
             .filter(~Branch.name.ilike('%locker%'),
                     ~Branch.name.in_(['YCL (System Wide)', 'Administration']))
             .order_by(Branch.name).all())
+
+
+def _j11_weekly_hours(wh):
+    """Weekly Section J11 hours: evening (Mon-Fri after 5pm) + weekend (all Sat/Sun hours).
+    Every branch opens at 9:00am (confirmed actual open/close times), so hours beyond
+    the first 8 of a weekday fall after 5pm."""
+    if not wh:
+        return None
+    evening = sum(max(0, getattr(wh, d) - 8) for d in
+                  ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'])
+    weekend = wh.saturday + wh.sunday
+    return evening + weekend
 
 
 def _holiday_hours_for_branch(branch_id, weekly_hours_by_branch, fy_start, fy_end):

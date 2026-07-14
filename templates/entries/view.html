@@ -93,7 +93,7 @@
 
 {% if entry.category.name == 'Branch Stats' and entry.branch_id and entry.month %}
 <div class="card mt-4">
-  <div class="card-header-custom fw-semibold">Unexpected Closures — {{ entry.period_label }}</div>
+  <div class="card-header-custom fw-semibold">Non-holiday Closures — {{ entry.period_label }}</div>
   <div class="table-responsive">
     <table class="table mb-0 align-middle">
       <thead class="table-light">
@@ -110,7 +110,7 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="2" class="text-muted">No unexpected closures logged for this month.</td>
+          <td colspan="2" class="text-muted">No non-holiday closures logged for this month.</td>
         </tr>
         {% endfor %}
       </tbody>

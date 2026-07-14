@@ -193,7 +193,7 @@ class QuarterlyRefClosureDays(db.Model):
 
 
 class BranchClosure(db.Model):
-    """One unexpected-closure instance for a branch: a specific date and hours closed."""
+    """One non-holiday closure instance for a branch: a specific date and hours closed."""
     __tablename__ = 'branch_closures'
     id           = db.Column(db.Integer, primary_key=True)
     branch_id    = db.Column(db.Integer, db.ForeignKey('branches.id'), nullable=False)

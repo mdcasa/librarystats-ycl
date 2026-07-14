@@ -153,10 +153,10 @@
     </div>
   </div>
 
-  {# ── Unexpected Closures (Branch Stats only) ── #}
+  {# ── Non-holiday Closures (Branch Stats only) ── #}
   {% if category.name == 'Branch Stats' %}
   <div class="card mb-4">
-    <div class="card-header-custom fw-semibold">Unexpected Closures</div>
+    <div class="card-header-custom fw-semibold">Non-holiday Closures</div>
     <div class="table-responsive">
       <table class="table mb-0 align-middle">
         <colgroup>
@@ -239,7 +239,7 @@
     new bootstrap.Tooltip(el);
   });
 
-  // Unexpected Closures: add/remove rows client-side before submit
+  // Non-holiday Closures: add/remove rows client-side before submit
   const closuresRows = document.getElementById('closures-rows');
   const closureTemplate = document.getElementById('closure-row-template');
   document.getElementById('add-closure-row')?.addEventListener('click', () => {

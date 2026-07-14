@@ -2246,7 +2246,9 @@ def director_dashboard():
         def attend_row(type_, age):
             return v(bs, f'{type_} Attendance {age}')
 
-        outlet_rows = []
+        outlet_rows = [
+            ('J15', 'External Party Meeting Room Use', v(bs, 'External Party Library Room Use')),
+        ]
         for _ob in _outlet_branches():
             _sj = SectionJOutletData.query.filter_by(branch_id=_ob.id, fiscal_year=fy_year).first()
             outlet_rows.append(('J10', f'{_ob.name} — Hours Open',  _sj.hours_open if _sj else None))
@@ -2261,7 +2263,6 @@ def director_dashboard():
                 ('G6',  'Public Internet Computer Use',       v(bs, 'PC Reservations')),
                 ('G9',  'WiFi Sessions',                      v(bs, 'WiFi - Unique Sessions')),
                 ('G11', 'Website Visits',                     v(os, 'yclibrary.org - Web Sessions')),
-                ('G12', 'External Party Meeting Room Use',    v(bs, 'External Party Library Room Use')),
             ],
             'circulation': [
                 ('',    'Total Branch Circulation',           v(bs, 'Total Branch Circulation')),

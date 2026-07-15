@@ -627,7 +627,7 @@ def entry_edit(entry_id):
         entry.year = request.form.get('year', type=int)
         entry.month = request.form.get('month', type=int) or None
         entry.quarter = request.form.get('quarter', type=int) or None
-        entry.submitted_by = current_user.username
+        entry.add_source(current_user.username)
         entry.notes = request.form.get('notes', '').strip()
 
         for m in metrics:
@@ -1972,9 +1972,10 @@ def _ill_icl_entry(metric_names_set, form_title, endpoint):
                                           year=year, month=month).first()
             if not entry:
                 entry = Entry(category_id=branch_cat.id, branch_id=rock_hill.id,
-                              year=year, month=month, submitted_by=submitted_by)
+                              year=year, month=month)
                 db.session.add(entry)
                 db.session.flush()
+            entry.add_source(submitted_by)
 
             for metric_id, val in vals.items():
                 ev = EntryValue.query.filter_by(entry_id=entry.id,

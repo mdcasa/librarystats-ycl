@@ -118,6 +118,17 @@ class Entry(db.Model):
     def branch_label(self):
         return self.branch.name if self.branch else '(System-wide)'
 
+    def add_source(self, source):
+        """Merge a contributing source into submitted_by (e.g. 'SIRSI Import + admin')
+        instead of overwriting it, so an entry populated by multiple imports/forms
+        shows all of them rather than just whichever wrote it first or last."""
+        if not source:
+            return
+        parts = [p.strip() for p in (self.submitted_by or '').split('+') if p.strip()]
+        if source not in parts:
+            parts.append(source)
+        self.submitted_by = ' + '.join(parts)
+
 
 class SirsiCheckout(db.Model):
     """Granular SIRSI ILS checkout data: one row per branch/patron-type/shelving-location/month."""

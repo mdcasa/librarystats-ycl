@@ -410,13 +410,13 @@ def import_branch_stats(ws, cat, metric_lookup, branch_lookup, year_override=Non
             category_id=cat.id, branch_id=branch_id, year=year, month=month
         ).first()
         if entry is None:
-            entry = Entry(category_id=cat.id, branch_id=branch_id,
-                          year=year, month=month, submitted_by='Excel Import')
+            entry = Entry(category_id=cat.id, branch_id=branch_id, year=year, month=month)
             db.session.add(entry)
             db.session.flush()
             created += 1
         else:
             updated += 1
+        entry.add_source('Excel Import')
         ev_map = {ev.metric_id: ev for ev in entry.values}
         for metric_id, val in values.items():
             ev = ev_map.get(metric_id)
@@ -536,13 +536,13 @@ def import_google_forms_stats(ws, cat, metric_lookup, branch_lookup):
             category_id=cat.id, branch_id=branch_id, year=year, month=month
         ).first()
         if entry is None:
-            entry = Entry(category_id=cat.id, branch_id=branch_id,
-                          year=year, month=month, submitted_by='Excel Import')
+            entry = Entry(category_id=cat.id, branch_id=branch_id, year=year, month=month)
             db.session.add(entry)
             db.session.flush()
             created += 1
         else:
             updated += 1
+        entry.add_source('Excel Import')
         ev_map = {ev.metric_id: ev for ev in entry.values}
         for metric_id, val in values.items():
             ev = ev_map.get(metric_id)
@@ -594,13 +594,13 @@ def import_online_stats(ws, cat, metric_lookup, year_override=None):
             category_id=cat.id, branch_id=None, year=year, month=month
         ).first()
         if entry is None:
-            entry = Entry(category_id=cat.id, year=year, month=month,
-                          submitted_by='Excel Import')
+            entry = Entry(category_id=cat.id, year=year, month=month)
             db.session.add(entry)
             db.session.flush()
             created += 1
         else:
             updated += 1
+        entry.add_source('Excel Import')
         ev_map = {ev.metric_id: ev for ev in entry.values}
         for metric_id, val in values.items():
             ev = ev_map.get(metric_id)
@@ -1252,10 +1252,10 @@ def import_sirsi_checkouts(ws, year, month, branch_lookup):
                      .filter_by(category_id=bs_cat.id, branch_id=branch_id, year=year, month=month)
                      .first())
             if not entry:
-                entry = Entry(category_id=bs_cat.id, branch_id=branch_id,
-                              year=year, month=month, submitted_by='SIRSI Import')
+                entry = Entry(category_id=bs_cat.id, branch_id=branch_id, year=year, month=month)
                 db.session.add(entry)
                 db.session.flush()
+            entry.add_source('SIRSI Import')
 
             ev = EntryValue.query.filter_by(entry_id=entry.id, metric_id=total_circ_metric.id).first()
             if ev:
@@ -1293,10 +1293,10 @@ def import_sirsi_checkouts(ws, year, month, branch_lookup):
                      .filter_by(category_id=bs_cat.id, branch_id=parent_id, year=year, month=month)
                      .first())
             if not entry:
-                entry = Entry(category_id=bs_cat.id, branch_id=parent_id,
-                              year=year, month=month, submitted_by='SIRSI Import')
+                entry = Entry(category_id=bs_cat.id, branch_id=parent_id, year=year, month=month)
                 db.session.add(entry)
                 db.session.flush()
+            entry.add_source('SIRSI Import')
             ev_l = EntryValue.query.filter_by(entry_id=entry.id, metric_id=locker_metric.id).first()
             if ev_l:
                 ev_l.value_number = locker_circ
@@ -1393,10 +1393,10 @@ def _upsert_branch_stat(cat_id, branch_id, year, month, metric_id, value):
     entry = Entry.query.filter_by(category_id=cat_id, branch_id=branch_id,
                                   year=year, month=month).first()
     if not entry:
-        entry = Entry(category_id=cat_id, branch_id=branch_id,
-                      year=year, month=month, submitted_by='File Import')
+        entry = Entry(category_id=cat_id, branch_id=branch_id, year=year, month=month)
         db.session.add(entry)
         db.session.flush()
+    entry.add_source('File Import')
     ev = EntryValue.query.filter_by(entry_id=entry.id, metric_id=metric_id).first()
     if ev:
         ev.value_number = value

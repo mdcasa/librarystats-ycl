@@ -2247,6 +2247,7 @@ def director_dashboard():
         def attend_row(type_, age):
             return v(bs, f'{type_} Attendance {age}')
 
+        _outlet_fy_start, _outlet_fy_end = _fy_date_range(fy_year)
         outlet_rows = []
         outlet_meeting_rows = []
         for _ob in _outlet_branches():
@@ -2255,7 +2256,8 @@ def director_dashboard():
             _weeks = _sj.weeks_open if _sj else 52
             _j11_weekly = _j11_weekly_hours(_wh)
             _j11_annual = round(_j11_weekly * _weeks, 1) if _j11_weekly is not None else None
-            outlet_rows.append(('J10', f'{_ob.name} — Hours Open',  _sj.hours_open if _sj else None))
+            _hours_open = _live_hours_open(_ob.id, fy_year, _wh, _outlet_fy_start, _outlet_fy_end)
+            outlet_rows.append(('J10', f'{_ob.name} — Hours Open',  _hours_open))
             outlet_rows.append(('J11', f'{_ob.name} — Weekend/Evening Hours', _j11_annual))
             outlet_rows.append(('J12', f'{_ob.name} — Weeks Open',  _sj.weeks_open if _sj else None))
             outlet_meeting_rows.append((
@@ -3042,6 +3044,25 @@ def _holiday_hours_for_branch(branch_id, weekly_hours_by_branch, fy_start, fy_en
     return total
 
 
+def _live_hours_open(branch_id, fy_year, wh, fy_start, fy_end):
+    """Section J Hours Open for one branch/FY, computed fresh every time from Scheduled
+    Hours, the Holiday Schedule, and the Non-holiday Closures log — never a stale saved
+    snapshot, so newly logged closures show up immediately everywhere this is used."""
+    sh = OutletScheduledHours.query.filter_by(branch_id=branch_id, fiscal_year=fy_year).first()
+    scheduled = sh.scheduled_hours if sh else (round(wh.weekly_total * 52, 1) if wh else None)
+    if scheduled is None:
+        return None
+    holiday_hours = _holiday_hours_for_branch(branch_id, {branch_id: wh}, fy_start, fy_end)
+    unexpected_hours = db.session.query(
+        db.func.coalesce(db.func.sum(BranchClosure.hours_closed), 0)
+    ).filter(
+        BranchClosure.branch_id == branch_id,
+        BranchClosure.closure_date >= fy_start,
+        BranchClosure.closure_date <= fy_end,
+    ).scalar()
+    return scheduled - holiday_hours - unexpected_hours
+
+
 @app.route('/annual-survey/<int:year>/section-j', methods=['GET', 'POST'])
 def annual_survey_section_j(year):
     branches = _outlet_branches()
@@ -3102,6 +3123,7 @@ def annual_survey_section_j(year):
         sh = scheduled_by_branch.get(b.id)
         wh = weekly_hours_by_branch.get(b.id)
         default_scheduled = round(wh.weekly_total * 52, 1) if wh else None
+        scheduled = sh.scheduled_hours if sh else default_scheduled
         holiday_hours = _holiday_hours_for_branch(b.id, weekly_hours_by_branch, fy_start, fy_end)
         unexpected_hours = db.session.query(
             db.func.coalesce(db.func.sum(BranchClosure.hours_closed), 0)
@@ -3113,10 +3135,10 @@ def annual_survey_section_j(year):
         sj = saved_by_branch.get(b.id)
         rows.append({
             'branch': b,
-            'scheduled_hours': sh.scheduled_hours if sh else default_scheduled,
+            'scheduled_hours': scheduled,
             'holiday_hours': holiday_hours,
             'unexpected_hours': unexpected_hours,
-            'hours_open': sj.hours_open if sj else None,
+            'hours_open': (scheduled - holiday_hours - unexpected_hours) if scheduled is not None else None,
             'weeks_open': sj.weeks_open if sj else 52,
         })
 

@@ -2253,13 +2253,14 @@ def director_dashboard():
         for _ob in _outlet_branches():
             _sj = SectionJOutletData.query.filter_by(branch_id=_ob.id, fiscal_year=fy_year).first()
             _wh = BranchWeeklyHours.query.filter_by(branch_id=_ob.id).first()
-            _weeks = _sj.weeks_open if _sj else 52
+            _weeks = _sj.weeks_open if _sj else _live_weeks_open(_ob.id, _wh, _outlet_fy_start, _outlet_fy_end)
             _j11_weekly = _j11_weekly_hours(_wh)
-            _j11_annual = round(_j11_weekly * _weeks, 1) if _j11_weekly is not None else None
+            _j11_annual = (round(_j11_weekly * _weeks, 1)
+                           if _j11_weekly is not None and _weeks is not None else None)
             _hours_open = _live_hours_open(_ob.id, fy_year, _wh, _outlet_fy_start, _outlet_fy_end)
             outlet_rows.append(('J10', f'{_ob.name} — Hours Open',  _hours_open))
             outlet_rows.append(('J11', f'{_ob.name} — Weekend/Evening Hours', _j11_annual))
-            outlet_rows.append(('J12', f'{_ob.name} — Weeks Open',  _sj.weeks_open if _sj else None))
+            outlet_rows.append(('J12', f'{_ob.name} — Weeks Open',  _weeks))
             outlet_meeting_rows.append((
                 _ob.name,
                 v(fy_filter_by_branch('Branch Stats', _ob.id), 'External Party Library Room Use')
@@ -3061,6 +3062,46 @@ def _live_hours_open(branch_id, fy_year, wh, fy_start, fy_end):
         BranchClosure.closure_date <= fy_end,
     ).scalar()
     return scheduled - holiday_hours - unexpected_hours
+
+
+def _live_weeks_open(branch_id, wh, fy_start, fy_end):
+    """Section J12 Weeks Open for one branch/FY, computed fresh from the Holiday Schedule and
+    Non-holiday Closures log: a week only fails to count if every one of the branch's normally-
+    scheduled open days that week was fully closed (e.g. Rock Hill's renovation closure).
+    52 weeks total, matching the flat default used elsewhere when nothing has closed."""
+    from datetime import timedelta
+    if not wh:
+        return None
+    holidays = {h.closure_date: h for h in HolidayClosure.query.filter(
+        HolidayClosure.closure_date >= fy_start, HolidayClosure.closure_date <= fy_end).all()}
+    branch_closed_hours = {}
+    for bc in BranchClosure.query.filter(
+        BranchClosure.branch_id == branch_id,
+        BranchClosure.closure_date >= fy_start, BranchClosure.closure_date <= fy_end,
+    ).all():
+        branch_closed_hours[bc.closure_date] = branch_closed_hours.get(bc.closure_date, 0) + bc.hours_closed
+
+    total_weeks = 52
+    closed_weeks = 0
+    for w in range(total_weeks):
+        week_start = fy_start + timedelta(days=7 * w)
+        any_open = False
+        for i in range(7):
+            d = week_start + timedelta(days=i)
+            normal_hours = wh.hours_for_weekday(d.weekday())
+            if normal_hours <= 0:
+                continue
+            lost = 0.0
+            h = holidays.get(d)
+            if h:
+                lost += normal_hours if h.is_full_day else (h.hours_closed or 0)
+            lost += branch_closed_hours.get(d, 0)
+            if lost < normal_hours - 1e-6:
+                any_open = True
+                break
+        if not any_open:
+            closed_weeks += 1
+    return total_weeks - closed_weeks
 
 
 @app.route('/annual-survey/<int:year>/section-j', methods=['GET', 'POST'])

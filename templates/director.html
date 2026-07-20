@@ -241,6 +241,15 @@
         </tr>
         {% endfor %}
       </tbody>
+      <tfoot class="table-secondary fw-bold">
+        {% for code, label, val in stats.outlet_hours_totals %}
+        <tr>
+          <td class="text-muted">{{ code }}</td>
+          <td>{{ label }}</td>
+          <td class="text-end">{{ '{:,}'.format(val|int) if val else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tfoot>
     </table>
   </div>
 </div>

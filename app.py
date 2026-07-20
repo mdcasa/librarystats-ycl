@@ -2250,6 +2250,8 @@ def director_dashboard():
         _outlet_fy_start, _outlet_fy_end = _fy_date_range(fy_year)
         outlet_rows = []
         outlet_meeting_rows = []
+        _hours_open_total = 0
+        _j11_annual_total = 0
         for _ob in _outlet_branches():
             _sj = SectionJOutletData.query.filter_by(branch_id=_ob.id, fiscal_year=fy_year).first()
             _wh = BranchWeeklyHours.query.filter_by(branch_id=_ob.id).first()
@@ -2261,14 +2263,23 @@ def director_dashboard():
             outlet_rows.append(('J10', f'{_ob.name} — Hours Open',  _hours_open))
             outlet_rows.append(('J11', f'{_ob.name} — Weekend/Evening Hours', _j11_annual))
             outlet_rows.append(('J12', f'{_ob.name} — Weeks Open',  _weeks))
+            if _hours_open is not None:
+                _hours_open_total += _hours_open
+            if _j11_annual is not None:
+                _j11_annual_total += _j11_annual
             outlet_meeting_rows.append((
                 _ob.name,
                 v(fy_filter_by_branch('Branch Stats', _ob.id), 'External Party Library Room Use')
             ))
         outlet_meeting_total = sum(val for _, val in outlet_meeting_rows if val) or None
+        outlet_hours_totals = [
+            ('J10', 'All Branches — Hours Open',            round(_hours_open_total, 1) or None),
+            ('J11', 'All Branches — Weekend/Evening Hours', round(_j11_annual_total, 1) or None),
+        ]
 
         stats = {
             'outlets': outlet_rows,
+            'outlet_hours_totals': outlet_hours_totals,
             'outlet_meeting_rooms': outlet_meeting_rows,
             'outlet_meeting_total': outlet_meeting_total,
             'users': [

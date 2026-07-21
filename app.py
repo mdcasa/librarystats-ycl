@@ -3079,7 +3079,13 @@ def _live_weeks_open(branch_id, wh, fy_start, fy_end):
     """Section J12 Weeks Open for one branch/FY, computed fresh from the Holiday Schedule and
     Non-holiday Closures log: a week only fails to count if every one of the branch's normally-
     scheduled open days that week was fully closed (e.g. Rock Hill's renovation closure).
-    52 weeks total, matching the flat default used elsewhere when nothing has closed."""
+
+    Weeks are real Monday-Sunday calendar weeks (not 7-day blocks offset from fy_start, which
+    for a fy_start that isn't a Monday would misalign closures spanning a week boundary --
+    e.g. a Mon-Sat closure could straddle two such blocks and register as fully open in both).
+    Still 52 weeks total, matching the flat default used elsewhere when nothing has closed --
+    the first bucket starts on the Monday on/before fy_start, and the last bucket is extended
+    through fy_end to absorb the day or two that shift introduces at the far end."""
     from datetime import timedelta
     if not wh:
         return None
@@ -3093,23 +3099,26 @@ def _live_weeks_open(branch_id, wh, fy_start, fy_end):
         branch_closed_hours[bc.closure_date] = branch_closed_hours.get(bc.closure_date, 0) + bc.hours_closed
 
     total_weeks = 52
+    cal_week_start = fy_start - timedelta(days=fy_start.weekday())  # Monday on/before fy_start
     closed_weeks = 0
     for w in range(total_weeks):
-        week_start = fy_start + timedelta(days=7 * w)
+        week_start = cal_week_start + timedelta(days=7 * w)
+        week_end = fy_end if w == total_weeks - 1 else week_start + timedelta(days=6)
         any_open = False
-        for i in range(7):
-            d = week_start + timedelta(days=i)
-            normal_hours = wh.hours_for_weekday(d.weekday())
-            if normal_hours <= 0:
-                continue
-            lost = 0.0
-            h = holidays.get(d)
-            if h:
-                lost += normal_hours if h.is_full_day else (h.hours_closed or 0)
-            lost += branch_closed_hours.get(d, 0)
-            if lost < normal_hours - 1e-6:
-                any_open = True
-                break
+        d = week_start
+        while d <= week_end:
+            if fy_start <= d <= fy_end:
+                normal_hours = wh.hours_for_weekday(d.weekday())
+                if normal_hours > 0:
+                    lost = 0.0
+                    h = holidays.get(d)
+                    if h:
+                        lost += normal_hours if h.is_full_day else (h.hours_closed or 0)
+                    lost += branch_closed_hours.get(d, 0)
+                    if lost < normal_hours - 1e-6:
+                        any_open = True
+                        break
+            d += timedelta(days=1)
         if not any_open:
             closed_weeks += 1
     return total_weeks - closed_weeks

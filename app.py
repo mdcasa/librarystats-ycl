@@ -1166,44 +1166,85 @@ def report_programs():
                            grouped=grouped)
 
 
+# Display buckets for the Programs Summary report: collapses the 5 stored
+# age_bucket values (0-5, 6-11, 12-18, 19+, General Interest — shared with the
+# ONSITE/OFFSITE/VIRTUAL metrics) into the 4 buckets requested for this report.
+_PROGRAMS_SUMMARY_BUCKET_MAP = {
+    '0-5': '0-11', '6-11': '0-11',
+    '12-18': '12-18',
+    '19+': '18+',
+    'General Interest': 'General Interest',
+}
+_PROGRAMS_SUMMARY_BUCKETS = ['0-11', '12-18', '18+', 'General Interest']
+
+
 @app.route('/reports/programs/summary')
 def report_programs_summary():
     from models import ProgramEvent
 
-    year = request.args.get('year', type=int)
+    fy_year = request.args.get('year', type=int)
 
-    available_years = [r[0] for r in db.session.query(ProgramEvent.year).distinct()
-                                                 .order_by(ProgramEvent.year.desc()).all()]
+    # Fiscal year (Jul–Jun), matching Trend/Fiscal/Year-over-Year elsewhere in the app.
+    fy_rows = db.session.query(ProgramEvent.year, ProgramEvent.month).distinct().all()
+    _now = datetime.now()
+    _cur_fy = _now.year + 1 if _now.month >= 7 else _now.year
+    fy_set = {(yr + 1 if mo >= 7 else yr) for yr, mo in fy_rows}
+    available_years = sorted((y for y in fy_set if y <= _cur_fy), reverse=True)
+
+    FY_MONTHS = list(range(7, 13)) + list(range(1, 7))  # Jul–Dec, then Jan–Jun
+
     monthly = year_total = None
 
-    if year:
+    if fy_year:
         rows = (db.session.query(
-                    ProgramEvent.month,
+                    ProgramEvent.year, ProgramEvent.month, ProgramEvent.age_bucket,
                     db.func.count(ProgramEvent.id),
                     db.func.coalesce(db.func.sum(ProgramEvent.attendance), 0))
-                .filter(ProgramEvent.year == year,
-                        ProgramEvent.location_mode != 'STUDY_ROOM')
-                .group_by(ProgramEvent.month)
+                .filter(ProgramEvent.location_mode != 'STUDY_ROOM')
+                .group_by(ProgramEvent.year, ProgramEvent.month, ProgramEvent.age_bucket)
                 .all())
-        by_month = {m: (count, attendance) for m, count, attendance in rows}
+
+        # (calendar_year, calendar_month) -> {display_bucket: [count, attendance]}
+        by_period = {}
+        for yr, mo, bucket, count, attendance in rows:
+            if (yr + 1 if mo >= 7 else yr) != fy_year:
+                continue
+            display_bucket = _PROGRAMS_SUMMARY_BUCKET_MAP.get(bucket, 'General Interest')
+            cell = by_period.setdefault((yr, mo), {})
+            cell.setdefault(display_bucket, [0, 0])
+            cell[display_bucket][0] += count
+            cell[display_bucket][1] += attendance
 
         monthly = []
-        for m in range(1, 13):
-            count, attendance = by_month.get(m, (0, 0))
-            monthly.append({
-                'month': m,
-                'label': MONTHS[m - 1],
-                'count': count,
-                'attendance': attendance,
-            })
+        for mo in FY_MONTHS:
+            cal_year = fy_year - 1 if mo >= 7 else fy_year
+            cell = by_period.get((cal_year, mo), {})
+            row = {
+                'label': MONTHS[mo - 1], 'cal_year': cal_year, 'month': mo,
+                'buckets': {}, 'total_count': 0, 'total_attendance': 0,
+            }
+            for b in _PROGRAMS_SUMMARY_BUCKETS:
+                count, attendance = cell.get(b, (0, 0))
+                row['buckets'][b] = {'count': count, 'attendance': attendance}
+                row['total_count']      += count
+                row['total_attendance'] += attendance
+            monthly.append(row)
+
         year_total = {
-            'count':      sum(row['count'] for row in monthly),
-            'attendance': sum(row['attendance'] for row in monthly),
+            'buckets': {
+                b: {
+                    'count':      sum(r['buckets'][b]['count'] for r in monthly),
+                    'attendance': sum(r['buckets'][b]['attendance'] for r in monthly),
+                } for b in _PROGRAMS_SUMMARY_BUCKETS
+            },
+            'count':      sum(r['total_count'] for r in monthly),
+            'attendance': sum(r['total_attendance'] for r in monthly),
         }
 
     return render_template('reports/programs_summary.html',
-                           available_years=available_years, sel_year=year,
-                           monthly=monthly, year_total=year_total)
+                           available_years=available_years, sel_year=fy_year,
+                           monthly=monthly, year_total=year_total,
+                           age_buckets=_PROGRAMS_SUMMARY_BUCKETS)
 
 
 @app.route('/reports/online')

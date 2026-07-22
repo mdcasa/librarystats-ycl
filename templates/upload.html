@@ -66,6 +66,10 @@
               <td><span class="badge bg-primary text-white">Prints</span> YCL_Print_Summary <span class="text-muted">(LPTOne / Princh)</span></td>
               <td>Printed Jobs, Printed Pages &amp; Printed Cost per branch</td>
             </tr>
+            <tr>
+              <td><span class="badge bg-danger text-white">Programming</span> Communico events-only-export</td>
+              <td>Individual programs (<a href="{{ url_for('report_programs') }}">Programs report</a>), plus ONSITE/OFFSITE/VIRTUAL Sessions &amp; Attendance by age group and Study Room Use per branch</td>
+            </tr>
           </tbody>
         </table>
         <p class="text-muted mt-2 mb-0">
@@ -76,6 +80,11 @@
           <i class="bi bi-calendar-event me-1"></i>
           The print summary has no date inside it — keep the month in the file name
           (e.g. <code>YCL_Print_Summary_June2026.xlsx</code>) or set the Year field.
+        </p>
+        <p class="text-muted mt-1 mb-0">
+          <i class="bi bi-calendar-event me-1"></i>
+          For Programming, export the month's events list from Communico as <code>.xlsx</code>
+          and upload it — study room bookings are tracked separately and excluded automatically.
         </p>
       </div>
     </div>

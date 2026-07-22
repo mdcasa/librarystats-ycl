@@ -69,5 +69,20 @@
       'Branch Summary',
       'Every category rolled up onto one page for a single branch and fiscal year.',
       'you want a complete annual picture for one specific branch.') }}
+
+  {{ report_card('report_programming', 'bi-people', '#c0392b',
+      'Programming Summary',
+      'Sessions and attendance by ONSITE/OFFSITE/VIRTUAL and age group, for a selected year.',
+      'reporting on programming totals by delivery mode and age group.') }}
+
+  {{ report_card('report_programs', 'bi-calendar-event', '#c0392b',
+      'Programs',
+      'Browse every individual program from the monthly Communico import, with attendance.',
+      'you need the raw list of programs for a month or year.') }}
+
+  {{ report_card('report_programs_summary', 'bi-calendar-range', '#c0392b',
+      'Programs Summary',
+      'Month-by-month program counts and attendance for a selected year.',
+      'you want to see the monthly shape of programming activity across a year.') }}
 </div>
 {% endblock %}

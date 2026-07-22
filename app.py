@@ -1149,6 +1149,46 @@ def report_programs():
                            sel_branch=branch_id, programs=programs, summary=summary)
 
 
+@app.route('/reports/programs/summary')
+def report_programs_summary():
+    from models import ProgramEvent
+
+    year = request.args.get('year', type=int)
+
+    available_years = [r[0] for r in db.session.query(ProgramEvent.year).distinct()
+                                                 .order_by(ProgramEvent.year.desc()).all()]
+    monthly = year_total = None
+
+    if year:
+        rows = (db.session.query(
+                    ProgramEvent.month,
+                    db.func.count(ProgramEvent.id),
+                    db.func.coalesce(db.func.sum(ProgramEvent.attendance), 0))
+                .filter(ProgramEvent.year == year,
+                        ProgramEvent.location_mode != 'STUDY_ROOM')
+                .group_by(ProgramEvent.month)
+                .all())
+        by_month = {m: (count, attendance) for m, count, attendance in rows}
+
+        monthly = []
+        for m in range(1, 13):
+            count, attendance = by_month.get(m, (0, 0))
+            monthly.append({
+                'month': m,
+                'label': MONTHS[m - 1],
+                'count': count,
+                'attendance': attendance,
+            })
+        year_total = {
+            'count':      sum(row['count'] for row in monthly),
+            'attendance': sum(row['attendance'] for row in monthly),
+        }
+
+    return render_template('reports/programs_summary.html',
+                           available_years=available_years, sel_year=year,
+                           monthly=monthly, year_total=year_total)
+
+
 @app.route('/reports/online')
 def report_online():
     year  = request.args.get('year',  type=int)

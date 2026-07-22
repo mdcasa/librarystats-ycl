@@ -15,14 +15,14 @@ Can also be called from the web admin via do_import(workbook).
 import os
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, date
 
 from dotenv import load_dotenv
 load_dotenv()
 
 import openpyxl
 from app import app, db
-from models import Category, Metric, Branch, Entry, EntryValue, SirsiCheckout
+from models import Category, Metric, Branch, Entry, EntryValue, SirsiCheckout, ProgramEvent
 
 DEFAULT_EXCEL_PATH = os.path.join('Data files', 'statsonly423.xlsx')
 
@@ -1307,6 +1307,240 @@ def import_sirsi_checkouts(ws, year, month, branch_lookup):
     return len(detail), circ_entries, warnings
 
 
+# Communico "events-only-export" — Library Branch text → DB branch name.
+PROGRAMMING_BRANCH_MAP = {
+    'Main Library (Rock Hill)': 'Rock Hill',
+    'Clover Library':           'Clover',
+    'Fort Mill Library':        'Fort Mill',
+    'Lake Wylie Library':       'Lake Wylie',
+    'York Library':             'York',
+    'Bookmobile':                'Bookmobile/Outreach',
+    'Outreach Sprinter Van':     'Bookmobile/Outreach',
+    'Online':                    'YCL (System Wide)',
+}
+_OFFSITE_LIBRARY_BRANCH_VALUES = {'Bookmobile', 'Outreach Sprinter Van'}
+
+_AGE_BUCKET_PATTERNS = [
+    ('0-5',    ('0–2', '0-2', 'babies', 'toddler', '3–5', '3-5', 'preschooler')),
+    ('6-11',   ('6–11', '6-11', 'elementary')),
+    ('12-18',  ('12–18', '12-18', 'teen')),
+    ('19+',    ('18 years & up', '18 years and up', 'adult', '19+')),
+]
+
+
+def _parse_event_date(value):
+    """Extract a date from an Event Start Date cell — either a real datetime/date
+    object (openpyxl reads formatted date cells this way) or a string like
+    '07/01/2026 @ 10:30am'."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    m = re.search(r'(\d{1,2})/(\d{1,2})/(\d{4})', str(value))
+    if not m:
+        return None
+    mo, d, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    try:
+        return date(y, mo, d)
+    except ValueError:
+        return None
+
+
+def _classify_age_bucket(age_group_raw, warnings, unrecognized_seen):
+    """Map a Communico Age Group string to one of the app's five age buckets.
+    A row listing multiple age groups (comma-separated) is classified by the
+    first/broadest one listed. Blank or unrecognised text → General Interest."""
+    if not age_group_raw:
+        return 'General Interest'
+    first = age_group_raw.split(',')[0].strip()
+    low = first.lower()
+    for bucket, keys in _AGE_BUCKET_PATTERNS:
+        if any(k in low for k in keys):
+            return bucket
+    if 'all ages' in low or 'family' in low:
+        return 'General Interest'
+    if first not in unrecognized_seen:
+        unrecognized_seen.add(first)
+        warnings.append(f'Unrecognised Age Group "{first}" — counted as General Interest')
+    return 'General Interest'
+
+
+def import_programming_stats(ws, branch_lookup):
+    """
+    Parse a Communico 'events-only-export' sheet (one row per individual program
+    occurrence) into the ProgramEvent detail table, then recompute the Branch
+    Stats ONSITE/OFFSITE/VIRTUAL Sessions & Attendance (by age group) metrics
+    from all ProgramEvent rows on record for each period touched — so a
+    corrected re-upload always reflects the full current state.
+
+    Rows booked in a study room aren't programs — they're stored with
+    location_mode='STUDY_ROOM' (excluded from the Programs report and from
+    ONSITE/OFFSITE/VIRTUAL Sessions/Attendance) and counted instead into a
+    separate 'Study Room Use' Branch Stats metric, per branch per month.
+
+    Upserts by Event URL — safe to re-upload the same or a corrected file.
+    Returns (created, updated, skipped, periods, warnings) — 'skipped' counts
+    rows dropped for lacking a usable date, not study room bookings.
+    """
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return 0, 0, 0, set(), ['Sheet is empty']
+    header = [str(v).strip() if v is not None else '' for v in rows[0]]
+
+    col = {
+        'title':        col_index(header, 'Title'),
+        'age_group':    col_index(header, 'Age Group'),
+        'prog_type':    col_index(header, 'Program Type'),
+        'categories':   col_index(header, 'Internal Categories'),
+        'branch':       col_index(header, 'Library Branch'),
+        'room':         col_index(header, 'Room'),
+        'online_url':   col_index(header, 'Online URL'),
+        'offsite_addr': col_index(header, 'Offsite/Contact Address'),
+        'start_date':   col_index(header, 'Event Start Date'),
+        'expected':     col_index(header, 'Expected Attendance'),
+        'actual':       col_index(header, 'People in Attendance'),
+        'event_url':    col_index(header, 'Event URL'),
+    }
+    missing = [k for k in ('title', 'start_date', 'event_url') if col[k] is None]
+    if missing:
+        return 0, 0, 0, set(), [f'Missing required column(s): {missing}']
+
+    def cell(r, key):
+        i = col[key]
+        return r[i] if i is not None and i < len(r) else None
+
+    def text(v):
+        return str(v).strip() if v is not None and str(v).strip() else None
+
+    created = updated = skipped = 0
+    periods = set()
+    warnings = []
+    unmapped_branches = set()
+    unrecognized_ages = set()
+
+    for r in rows[1:]:
+        if r is None or all(v is None for v in r):
+            continue
+        event_url = text(cell(r, 'event_url'))
+        if not event_url:
+            continue  # not a real data row
+
+        room_raw = text(cell(r, 'room'))
+        is_study_room = bool(room_raw and 'study room' in room_raw.lower())
+
+        event_date = _parse_event_date(cell(r, 'start_date'))
+        if not event_date:
+            warnings.append(f'Could not determine date for event URL {event_url} — skipped')
+            skipped += 1
+            continue
+        year, month = event_date.year, event_date.month
+        periods.add((year, month))
+
+        branch_raw   = text(cell(r, 'branch'))
+        online_url   = text(cell(r, 'online_url'))
+        offsite_addr = text(cell(r, 'offsite_addr'))
+
+        if is_study_room:
+            # Study room bookings aren't programs — tracked as a separate
+            # Study Room Use count instead of ONSITE/OFFSITE/VIRTUAL Sessions.
+            location_mode = 'STUDY_ROOM'
+        elif online_url or branch_raw == 'Online':
+            location_mode = 'VIRTUAL'
+        elif branch_raw in _OFFSITE_LIBRARY_BRANCH_VALUES or offsite_addr:
+            location_mode = 'OFFSITE'
+        else:
+            location_mode = 'ONSITE'
+
+        branch_obj = None
+        if branch_raw:
+            db_name = PROGRAMMING_BRANCH_MAP.get(branch_raw)
+            branch_obj = branch_lookup.get(db_name) if db_name else branch_lookup.get(branch_raw)
+            if branch_obj is None:
+                unmapped_branches.add(branch_raw)
+
+        actual_att   = cell(r, 'actual')
+        expected_att = cell(r, 'expected')
+        if isinstance(actual_att, (int, float)):
+            attendance, is_estimate = int(actual_att), False
+        elif isinstance(expected_att, (int, float)):
+            attendance, is_estimate = int(expected_att), True
+        else:
+            attendance, is_estimate = 0, False
+
+        age_group_raw = text(cell(r, 'age_group'))
+        age_bucket = None if is_study_room else _classify_age_bucket(
+            age_group_raw, warnings, unrecognized_ages)
+
+        pe = ProgramEvent.query.filter_by(event_url=event_url).first()
+        is_new = pe is None
+        if is_new:
+            pe = ProgramEvent(event_url=event_url)
+            db.session.add(pe)
+
+        pe.year = year
+        pe.month = month
+        pe.event_date = event_date
+        pe.title = text(cell(r, 'title'))
+        pe.age_group_raw = age_group_raw
+        pe.program_type = text(cell(r, 'prog_type'))
+        pe.internal_categories = text(cell(r, 'categories'))
+        pe.branch_id = branch_obj.id if branch_obj else None
+        pe.room = room_raw
+        pe.attendance = attendance
+        pe.attendance_is_estimate = is_estimate
+        pe.location_mode = location_mode
+        pe.age_bucket = age_bucket
+
+        if is_new:
+            created += 1
+        else:
+            updated += 1
+
+    if unmapped_branches:
+        warnings.append(f'Unrecognised Library Branch value(s), stored without a branch: {sorted(unmapped_branches)}')
+
+    db.session.flush()
+
+    # Recompute Branch Stats Sessions/Attendance metrics for every period touched,
+    # from ALL ProgramEvent rows currently on record (not just this file's rows).
+    metric_lookup, cat = build_metric_lookup('Branch Stats')
+    if cat:
+        study_metric = _ensure_metric(cat.id, 'Study Room Use', 'Access & Usage', 'integer')
+
+        for (year, month) in periods:
+            agg = {}          # (branch_id, location_mode, age_bucket) -> [sessions, attendance]
+            study_counts = {}  # branch_id -> count
+            for row in ProgramEvent.query.filter_by(year=year, month=month).all():
+                if row.branch_id is None:
+                    continue
+                if row.location_mode == 'STUDY_ROOM':
+                    study_counts[row.branch_id] = study_counts.get(row.branch_id, 0) + 1
+                    continue
+                key = (row.branch_id, row.location_mode, row.age_bucket)
+                if key not in agg:
+                    agg[key] = [0, 0]
+                agg[key][0] += 1
+                agg[key][1] += row.attendance or 0
+
+            for (branch_id, location_mode, age_bucket), (sessions, attendance) in agg.items():
+                sess_metric = metric_lookup.get(f'{location_mode} Sessions {age_bucket}')
+                att_metric  = metric_lookup.get(f'{location_mode} Attendance {age_bucket}')
+                if sess_metric:
+                    _upsert_branch_stat(cat.id, branch_id, year, month, sess_metric.id, sessions)
+                if att_metric:
+                    _upsert_branch_stat(cat.id, branch_id, year, month, att_metric.id, attendance)
+
+            for branch_id, count in study_counts.items():
+                _upsert_branch_stat(cat.id, branch_id, year, month, study_metric.id, count)
+    else:
+        warnings.append('Branch Stats category not found — Sessions/Attendance metrics were not updated')
+
+    db.session.commit()
+    return created, updated, skipped, periods, warnings
+
+
 def import_sirsi_user_profile(ws, branch_lookup):
     """
     Parse 'Checkouts by Branch and User Profile' SIRSI report.
@@ -1731,6 +1965,15 @@ def detect_and_import(wb, year_override=None, filename=None):
             else:
                 results.append({'sheet': sheet_name, 'created': 0, 'skipped': 0,
                                  'warnings': ['Could not determine year/month from report']})
+
+        elif {'Title', 'Library Branch', 'People in Attendance',
+              'Expected Attendance', 'Event URL'} <= set(header_row):
+            created, updated, skipped, periods, w = import_programming_stats(ws, branch_lookup)
+            results.append({'sheet': 'Programming (Communico Events)',
+                             'created': created, 'updated': updated, 'skipped': skipped, 'warnings': w,
+                             'periods': sorted(periods),
+                             'year':  (sorted(periods)[0][0] if periods else None),
+                             'month': (sorted(periods)[0][1] if periods else None)})
 
         elif 'Number of New Library Users' in title:
             year = month = None

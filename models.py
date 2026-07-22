@@ -149,6 +149,36 @@ class SirsiCheckout(db.Model):
     )
 
 
+class ProgramEvent(db.Model):
+    """One row per individual program occurrence, imported from the library's
+    events system (Communico) export. Mirrors SirsiCheckout's role: a granular
+    detail table that also drives a Branch Stats rollup (ONSITE/OFFSITE/VIRTUAL
+    Sessions & Attendance by age group)."""
+    __tablename__ = 'program_events'
+    id                     = db.Column(db.Integer, primary_key=True)
+    event_url              = db.Column(db.String(500), unique=True, nullable=False)
+    year                   = db.Column(db.Integer, nullable=False)
+    month                  = db.Column(db.Integer, nullable=False)
+    event_date             = db.Column(db.Date, nullable=True)
+    title                  = db.Column(db.String(500))
+    age_group_raw          = db.Column(db.String(300))
+    program_type           = db.Column(db.String(200))
+    internal_categories    = db.Column(db.String(500))
+    branch_id              = db.Column(db.Integer, db.ForeignKey('branches.id'), nullable=True)
+    room                   = db.Column(db.String(200))
+    attendance             = db.Column(db.Integer, default=0)
+    attendance_is_estimate = db.Column(db.Boolean, default=False)  # True = fell back to Expected Attendance
+    location_mode          = db.Column(db.String(20))   # ONSITE / OFFSITE / VIRTUAL
+    age_bucket             = db.Column(db.String(30))   # 0-5 / 6-11 / 12-18 / 19+ / General Interest
+    created_at             = db.Column(db.DateTime, default=datetime.utcnow)
+
+    branch = db.relationship('Branch')
+
+    __table_args__ = (
+        db.Index('ix_program_events_period_branch', 'year', 'month', 'branch_id'),
+    )
+
+
 class AnnualSurveyMetric(db.Model):
     """Defines a metric tracked in the annual SC State Library survey report."""
     __tablename__ = 'annual_survey_metrics'

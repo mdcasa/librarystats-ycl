@@ -1118,6 +1118,37 @@ def report_programming():
                            prog_types=TYPES, age_groups=AGE_GROUPS)
 
 
+@app.route('/reports/programs')
+def report_programs():
+    from models import ProgramEvent
+
+    year      = request.args.get('year',   type=int)
+    month     = request.args.get('month',  type=int)
+    branch_id = request.args.get('branch', type=int)
+
+    available_years = [r[0] for r in db.session.query(ProgramEvent.year).distinct()
+                                                 .order_by(ProgramEvent.year.desc()).all()]
+    branches = _real_branch_q().order_by(Branch.name).all()
+    programs = summary = None
+
+    if year:
+        q = ProgramEvent.query.filter_by(year=year).filter(ProgramEvent.location_mode != 'STUDY_ROOM')
+        if month:
+            q = q.filter_by(month=month)
+        if branch_id:
+            q = q.filter_by(branch_id=branch_id)
+        programs = q.order_by(ProgramEvent.event_date, ProgramEvent.title).all()
+        summary = {
+            'count':      len(programs),
+            'attendance': sum(p.attendance or 0 for p in programs),
+        }
+
+    return render_template('reports/programs.html',
+                           available_years=available_years, branches=branches,
+                           months=MONTHS, sel_year=year, sel_month=month,
+                           sel_branch=branch_id, programs=programs, summary=summary)
+
+
 @app.route('/reports/online')
 def report_online():
     year  = request.args.get('year',  type=int)
@@ -1766,10 +1797,12 @@ def _import_snapshot():
     sirsi_full = {r[0]: dict(year=r[1], month=r[2], branch_id=r[3], patron_type=r[4],
                               shelving_location=r[5], checkouts=r[6], renewals=r[7])
                   for r in sirsi_rows}
-    return ev_snap, entry_snap, sirsi_snap, sirsi_full
+    program_snap = {r[0] for r in
+                    db.session.execute(db.text('SELECT id FROM program_events')).fetchall()}
+    return ev_snap, entry_snap, sirsi_snap, sirsi_full, program_snap
 
 
-def _import_diff(ev_before, entries_before, sirsi_before, sirsi_full_before):
+def _import_diff(ev_before, entries_before, sirsi_before, sirsi_full_before, program_before):
     """Compute what changed since the snapshot was taken."""
     ev_after = {row[0]: row[1] for row in
                 db.session.execute(db.text('SELECT id, value_number FROM entry_values')).fetchall()}
@@ -1777,6 +1810,8 @@ def _import_diff(ev_before, entries_before, sirsi_before, sirsi_full_before):
                      db.session.execute(db.text('SELECT id FROM entries')).fetchall()}
     sirsi_after = {row[0] for row in
                    db.session.execute(db.text('SELECT id FROM sirsi_checkouts')).fetchall()}
+    program_after = {row[0] for row in
+                     db.session.execute(db.text('SELECT id FROM program_events')).fetchall()}
 
     ev_created  = [eid for eid in ev_after if eid not in ev_before]
     ev_updated  = [{'id': eid, 'old': ev_before[eid], 'new': ev_after[eid]}
@@ -1785,6 +1820,7 @@ def _import_diff(ev_before, entries_before, sirsi_before, sirsi_full_before):
     entries_created  = list(entries_after - entries_before)
     sirsi_created    = list(sirsi_after - sirsi_before)
     sirsi_deleted    = [sirsi_full_before[sid] for sid in (sirsi_before - sirsi_after)]
+    program_events_created = list(program_after - program_before)
 
     return {
         'entries_created': entries_created,
@@ -1792,6 +1828,7 @@ def _import_diff(ev_before, entries_before, sirsi_before, sirsi_full_before):
         'ev_updated':      ev_updated,
         'sirsi_created':   sirsi_created,
         'sirsi_deleted':   sirsi_deleted,
+        'program_events_created': program_events_created,
     }
 
 
@@ -1815,9 +1852,9 @@ def upload_data():
                     tmp_path = tmp.name
                 wb = openpyxl.load_workbook(tmp_path, data_only=True)
 
-                ev_before, entries_before, sirsi_before, sirsi_full = _import_snapshot()
+                ev_before, entries_before, sirsi_before, sirsi_full, program_before = _import_snapshot()
                 results = detect_and_import(wb, year_override=year_override, filename=f.filename)
-                changes = _import_diff(ev_before, entries_before, sirsi_before, sirsi_full)
+                changes = _import_diff(ev_before, entries_before, sirsi_before, sirsi_full, program_before)
 
                 # Derive period + type summary from results
                 periods = {(r['year'], r['month']) for r in results if r.get('year') and r.get('month')}
@@ -1865,7 +1902,7 @@ def upload_data():
 @app.route('/upload/undo/<int:log_id>', methods=['POST'])
 def upload_undo(log_id):
     import json
-    from models import SirsiCheckout
+    from models import SirsiCheckout, ProgramEvent
     if not current_user.is_admin:
         flash('Admin access required.', 'danger')
         return redirect(url_for('upload_data'))
@@ -1905,6 +1942,12 @@ def upload_undo(log_id):
                 patron_type=row['patron_type'], shelving_location=row['shelving_location'],
                 checkouts=row['checkouts'], renewals=row['renewals'],
             ))
+
+        # Delete program event rows that were created by this import
+        if changes.get('program_events_created'):
+            ProgramEvent.query.filter(
+                ProgramEvent.id.in_(changes['program_events_created'])
+            ).delete(synchronize_session=False)
 
         log.undone_at = datetime.utcnow()
         db.session.commit()

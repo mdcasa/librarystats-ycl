@@ -1152,7 +1152,12 @@ def report_programs():
         ordered_labels = sorted(k for k in buckets if k != 'Uncategorized')
         if 'Uncategorized' in buckets:
             ordered_labels.append('Uncategorized')
-        grouped = [(label, buckets[label]) for label in ordered_labels]
+        grouped = [{
+            'label':      label,
+            'programs':   buckets[label],
+            'count':      len(buckets[label]),
+            'attendance': sum(p.attendance or 0 for p in buckets[label]),
+        } for label in ordered_labels]
 
     return render_template('reports/programs.html',
                            available_years=available_years, branches=branches,

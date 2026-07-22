@@ -61,46 +61,67 @@
 </div>
 
 {% if programs %}
-{% for label, group in grouped %}
-<div class="card mb-3">
-  <div class="card-header-custom fw-semibold">{{ label }} <span class="text-muted fw-normal">({{ group|length }})</span></div>
-  <div class="table-responsive">
-    <table class="table table-sm table-bordered mb-0 align-middle" style="font-size:.88rem">
-      <thead class="table-light">
-        <tr>
-          <th>Date</th>
-          <th>Title</th>
-          <th>Age Group</th>
-          <th>Internal Categories</th>
-          <th>Branch</th>
-          <th>Room</th>
-          <th class="text-center">Attendance</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for p in group %}
-        <tr>
-          <td class="text-nowrap">{{ p.event_date.strftime('%m/%d/%Y') if p.event_date else '—' }}</td>
-          <td>
-            {{ p.title or '—' }}
-            {% if p.program_type and ',' in p.program_type %}
-            <br><span class="text-muted small">{{ p.program_type }}</span>
-            {% endif %}
-          </td>
-          <td>{{ p.age_group_raw or '—' }}</td>
-          <td>{{ p.internal_categories or '—' }}</td>
-          <td>{{ p.branch.name if p.branch else '—' }}</td>
-          <td>{{ p.room or '—' }}</td>
-          <td class="text-center">
-            {{ p.attendance }}{% if p.attendance_is_estimate %} <span class="text-muted" title="Expected attendance — no actual count recorded">(est.)</span>{% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+<div class="accordion" id="programsAccordion">
+  {% for g in grouped %}
+  {% set panel_id = 'programsPanel' ~ loop.index %}
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button"
+              data-bs-toggle="collapse" data-bs-target="#{{ panel_id }}">
+        <span class="fw-semibold">{{ g.label }}</span>
+        <span class="text-muted ms-2">
+          {{ g.count }} program{{ 's' if g.count != 1 }} &middot; {{ g.attendance }} attendance
+        </span>
+      </button>
+    </h2>
+    <div id="{{ panel_id }}" class="accordion-collapse collapse" data-bs-parent="#programsAccordion">
+      <div class="accordion-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered mb-0 align-middle" style="font-size:.88rem">
+            <thead class="table-light">
+              <tr>
+                <th>Date</th>
+                <th>Title</th>
+                <th>Age Group</th>
+                <th>Internal Categories</th>
+                <th>Branch</th>
+                <th>Room</th>
+                <th class="text-center">Attendance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in g.programs %}
+              <tr>
+                <td class="text-nowrap">{{ p.event_date.strftime('%m/%d/%Y') if p.event_date else '—' }}</td>
+                <td>
+                  {{ p.title or '—' }}
+                  {% if p.program_type and ',' in p.program_type %}
+                  <br><span class="text-muted small">{{ p.program_type }}</span>
+                  {% endif %}
+                </td>
+                <td>{{ p.age_group_raw or '—' }}</td>
+                <td>{{ p.internal_categories or '—' }}</td>
+                <td>{{ p.branch.name if p.branch else '—' }}</td>
+                <td>{{ p.room or '—' }}</td>
+                <td class="text-center">
+                  {{ p.attendance }}{% if p.attendance_is_estimate %} <span class="text-muted" title="Expected attendance — no actual count recorded">(est.)</span>{% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+            <tfoot class="table-secondary">
+              <tr>
+                <td colspan="6" class="fw-bold text-end">Total</td>
+                <td class="text-center fw-bold">{{ g.attendance }}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
+  {% endfor %}
 </div>
-{% endfor %}
 {% else %}
 <div class="alert alert-info">No programs found for this selection.</div>
 {% endif %}

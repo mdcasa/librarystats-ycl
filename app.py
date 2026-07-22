@@ -1129,7 +1129,7 @@ def report_programs():
     available_years = [r[0] for r in db.session.query(ProgramEvent.year).distinct()
                                                  .order_by(ProgramEvent.year.desc()).all()]
     branches = _real_branch_q().order_by(Branch.name).all()
-    programs = summary = None
+    programs = summary = grouped = None
 
     if year:
         q = ProgramEvent.query.filter_by(year=year).filter(ProgramEvent.location_mode != 'STUDY_ROOM')
@@ -1143,10 +1143,22 @@ def report_programs():
             'attendance': sum(p.attendance or 0 for p in programs),
         }
 
+        # Group by Program Type (first type listed, for rows tagged with several)
+        # so each program lands in exactly one section.
+        buckets = {}
+        for p in programs:
+            label = p.program_type.split(',')[0].strip() if p.program_type else 'Uncategorized'
+            buckets.setdefault(label, []).append(p)
+        ordered_labels = sorted(k for k in buckets if k != 'Uncategorized')
+        if 'Uncategorized' in buckets:
+            ordered_labels.append('Uncategorized')
+        grouped = [(label, buckets[label]) for label in ordered_labels]
+
     return render_template('reports/programs.html',
                            available_years=available_years, branches=branches,
                            months=MONTHS, sel_year=year, sel_month=month,
-                           sel_branch=branch_id, programs=programs, summary=summary)
+                           sel_branch=branch_id, programs=programs, summary=summary,
+                           grouped=grouped)
 
 
 @app.route('/reports/programs/summary')

@@ -61,7 +61,9 @@
 </div>
 
 {% if programs %}
-<div class="card">
+{% for label, group in grouped %}
+<div class="card mb-3">
+  <div class="card-header-custom fw-semibold">{{ label }} <span class="text-muted fw-normal">({{ group|length }})</span></div>
   <div class="table-responsive">
     <table class="table table-sm table-bordered mb-0 align-middle" style="font-size:.88rem">
       <thead class="table-light">
@@ -69,7 +71,6 @@
           <th>Date</th>
           <th>Title</th>
           <th>Age Group</th>
-          <th>Program Type</th>
           <th>Internal Categories</th>
           <th>Branch</th>
           <th>Room</th>
@@ -77,12 +78,16 @@
         </tr>
       </thead>
       <tbody>
-        {% for p in programs %}
+        {% for p in group %}
         <tr>
           <td class="text-nowrap">{{ p.event_date.strftime('%m/%d/%Y') if p.event_date else '—' }}</td>
-          <td>{{ p.title or '—' }}</td>
+          <td>
+            {{ p.title or '—' }}
+            {% if p.program_type and ',' in p.program_type %}
+            <br><span class="text-muted small">{{ p.program_type }}</span>
+            {% endif %}
+          </td>
           <td>{{ p.age_group_raw or '—' }}</td>
-          <td>{{ p.program_type or '—' }}</td>
           <td>{{ p.internal_categories or '—' }}</td>
           <td>{{ p.branch.name if p.branch else '—' }}</td>
           <td>{{ p.room or '—' }}</td>
@@ -95,6 +100,7 @@
     </table>
   </div>
 </div>
+{% endfor %}
 {% else %}
 <div class="alert alert-info">No programs found for this selection.</div>
 {% endif %}

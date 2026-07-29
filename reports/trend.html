@@ -20,7 +20,7 @@
         <select name="metric" id="metric-select" class="form-select form-select-sm" required>
           <option value="">— select category first —</option>
           {% if sel_cat and metrics_json[sel_cat] %}
-            {% for m in metrics_json[sel_cat] %}
+            {% for m in metrics_json[sel_cat] if not sel_groups or m.group in sel_groups %}
             <option value="{{ m.id }}" {% if sel_metric == m.id %}selected{% endif %}>{{ m.name }}</option>
             {% endfor %}
           {% endif %}
@@ -29,6 +29,9 @@
       <div class="col-sm-4 d-flex align-items-end">
         <button class="btn btn-primary btn-sm w-100">Run Report</button>
       </div>
+      {% for g in sel_groups %}
+      <input type="hidden" name="group" value="{{ g }}">
+      {% endfor %}
       <div class="col-12">
         <label class="sidebar-label mb-1">Fiscal Year(s)</label>
         <div class="d-flex flex-wrap gap-2">

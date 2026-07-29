@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, session
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, session, abort
 from flask_login import LoginManager, login_user, logout_user, current_user
 from models import db, Category, Metric, Branch, Entry, EntryValue, User, QuarterlyRefClosureDays, ImportLog, BranchClosure
 from sqlalchemy.orm import joinedload
@@ -892,11 +892,11 @@ def report_data_table(metrics, branch_list, data):
 
 
 def metrics_by_category_json():
-    """Return {cat_id: [{id, name}]} for use in JS cascading dropdowns."""
+    """Return {cat_id: [{id, name, group}]} for use in JS cascading dropdowns."""
     result = {}
     for cat in Category.query.filter_by(is_active=True).all():
         result[cat.id] = [
-            {'id': m.id, 'name': m.name}
+            {'id': m.id, 'name': m.name, 'group': m.group_name or ''}
             for m in Metric.query.filter_by(category_id=cat.id, is_active=True)
                                  .order_by(Metric.sort_order).all()
         ]
@@ -929,6 +929,68 @@ def _xl_header(ws, bold_font, text):
 @app.route('/reports')
 def reports_index():
     return render_template('reports/index.html')
+
+
+# ── Category landing pages ──────────────────────────────────────────────────
+# Groups the reports by the data-collection categories used day-to-day
+# (Circulation / Facility Usage / Programming live inside Branch Stats as
+# metric groups, not separate Category rows — see CLAUDE.md).
+REPORT_CATEGORIES = {
+    'circulation': {
+        'title': 'Circulation',
+        'icon': 'bi-arrow-repeat',
+        'color': '#1a4f9e',
+        'description': 'Checkouts, hotspot circulation, curbside, and locker circulation for real service locations.',
+        'category_name': 'Branch Stats',
+        'groups': ['Circulation'],
+        'fiscal_anchor': 'circulation',
+    },
+    'facility-usage': {
+        'title': 'Facility Usage',
+        'icon': 'bi-door-open',
+        'color': '#f39c12',
+        'description': 'Gate counts, PC reservations, WiFi sessions, room use, and printing.',
+        'category_name': 'Branch Stats',
+        'groups': ['Access & Usage'],
+        'fiscal_anchor': 'access-and-usage',
+    },
+    'programming': {
+        'title': 'Programming',
+        'icon': 'bi-people',
+        'color': '#c0392b',
+        'description': 'ONSITE, OFFSITE, and VIRTUAL program sessions and attendance by age group.',
+        'category_name': 'Branch Stats',
+        'groups': ['ONSITE Programming', 'OFFSITE Programming', 'VIRTUAL Programming'],
+        'fiscal_anchor': 'onsite-programming',
+    },
+    'online': {
+        'title': 'Online',
+        'icon': 'bi-globe',
+        'color': '#117a65',
+        'description': 'Website sessions, Dial-A-Story, and other digital platform activity.',
+        'category_name': 'Online Stats',
+        'groups': [],
+        'fiscal_anchor': None,
+    },
+    'eresources': {
+        'title': 'eResources',
+        'icon': 'bi-book',
+        'color': '#8e44ad',
+        'description': 'E-book, e-audio, e-video, and e-serials circulation.',
+        'category_name': 'eResources',
+        'groups': [],
+        'fiscal_anchor': None,
+    },
+}
+
+
+@app.route('/reports/category/<slug>')
+def report_category_landing(slug):
+    info = REPORT_CATEGORIES.get(slug)
+    if not info:
+        abort(404)
+    category = Category.query.filter_by(name=info['category_name']).first()
+    return render_template('reports/category_landing.html', slug=slug, info=info, category=category)
 
 
 @app.route('/reports/monthly')
@@ -981,6 +1043,7 @@ def report_trend():
     metric_id  = request.args.get('metric',   type=int)
     years      = request.args.getlist('year', type=int)
     branch_ids = request.args.getlist('branches', type=int)
+    sel_groups = request.args.getlist('group')
 
     categories  = Category.query.filter(Category.is_active == True, Category.name != 'Circulation').order_by(Category.sort_order).all()
     fy_rows = db.session.query(Entry.year, Entry.month).filter(Entry.month.isnot(None)).distinct().all()
@@ -1059,7 +1122,7 @@ def report_trend():
                            categories=categories, available_years=available_years,
                            all_branches=all_branches, metrics_json=metrics_json,
                            sel_cat=cat_id, sel_metric=metric_id,
-                           sel_years=years, sel_branches=branch_ids,
+                           sel_years=years, sel_branches=branch_ids, sel_groups=sel_groups,
                            category=category, metric=metric, chart_data=chart_data)
 
 
@@ -1295,6 +1358,7 @@ def report_yoy():
     metric_id = request.args.get('metric',   type=int)
     mode      = request.args.get('mode', 'annual')
     years     = sorted(request.args.getlist('years', type=int))  # fiscal years (e.g. 2024 = Jul 2023–Jun 2024)
+    sel_groups = request.args.getlist('group')
 
     categories   = Category.query.filter(Category.is_active == True, ~Category.name.in_(['Circulation', 'Quarterly Reference Stats'])).order_by(Category.sort_order).all()
     metrics_json = metrics_by_category_json()
@@ -1437,7 +1501,7 @@ def report_yoy():
                            categories=categories, available_years=available_years,
                            metrics_json=metrics_json, all_branches=all_branches,
                            sel_cat=cat_id, sel_branch=branch_id, sel_metric=metric_id,
-                           sel_mode=mode, sel_years=years,
+                           sel_mode=mode, sel_years=years, sel_groups=sel_groups,
                            category=category, metric=metric,
                            col_headers=col_headers, table=table, chart_data=chart_data,
                            annual_chart_json=annual_chart_json, chart_years=chart_year_labels)

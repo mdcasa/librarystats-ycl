@@ -101,7 +101,7 @@
 {% set _dash    = ['director_dashboard','annual_survey_dashboard','annual_survey_enter','annual_survey_calculate'] %}
 {% set _reports = ['report_monthly_stats','report_monthly','report_fiscal','report_trend',
                    'report_yoy','report_quarterly_ref','report_online','report_overview','report_impact',
-                   'report_branch_summary'] %}
+                   'report_branch_summary','report_category_landing'] %}
 {% set _admin   = ['admin_categories','admin_category_edit','admin_branches',
                    'admin_import','admin_export','admin_metric_edit',
                    'admin_users','admin_user_new','admin_user_edit',
@@ -195,11 +195,38 @@
           </ul>
         </li>
 
-        <li class="nav-item">
-          <a class="nav-link {% if ep == 'reports_index' or ep in _reports %}active{% endif %}"
-             href="{{ url_for('reports_index') }}">
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle {% if ep == 'reports_index' or ep in _reports %}active-parent{% endif %}"
+             href="#" data-bs-toggle="dropdown">
             <i class="bi bi-bar-chart-line me-1"></i>Reports
           </a>
+          <ul class="dropdown-menu shadow-sm">
+            <li><a class="dropdown-item {% if ep == 'report_category_landing' and request.view_args and request.view_args.slug == 'circulation' %}active{% endif %}"
+                   href="{{ url_for('report_category_landing', slug='circulation') }}">
+              <i class="bi bi-arrow-repeat me-2 text-primary"></i>Circulation
+            </a></li>
+            <li><a class="dropdown-item {% if ep == 'report_category_landing' and request.view_args and request.view_args.slug == 'facility-usage' %}active{% endif %}"
+                   href="{{ url_for('report_category_landing', slug='facility-usage') }}">
+              <i class="bi bi-door-open me-2 text-primary"></i>Facility Usage
+            </a></li>
+            <li><a class="dropdown-item {% if ep == 'report_category_landing' and request.view_args and request.view_args.slug == 'programming' %}active{% endif %}"
+                   href="{{ url_for('report_category_landing', slug='programming') }}">
+              <i class="bi bi-people me-2 text-primary"></i>Programming
+            </a></li>
+            <li><a class="dropdown-item {% if ep == 'report_category_landing' and request.view_args and request.view_args.slug == 'online' %}active{% endif %}"
+                   href="{{ url_for('report_category_landing', slug='online') }}">
+              <i class="bi bi-globe me-2 text-primary"></i>Online
+            </a></li>
+            <li><a class="dropdown-item {% if ep == 'report_category_landing' and request.view_args and request.view_args.slug == 'eresources' %}active{% endif %}"
+                   href="{{ url_for('report_category_landing', slug='eresources') }}">
+              <i class="bi bi-book me-2 text-primary"></i>eResources
+            </a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item {% if ep == 'reports_index' %}active{% endif %}"
+                   href="{{ url_for('reports_index') }}">
+              <i class="bi bi-grid me-2 text-secondary"></i>All Reports
+            </a></li>
+          </ul>
         </li>
 
         <li class="nav-item dropdown">

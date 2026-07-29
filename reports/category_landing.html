@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+{% block title %}{{ info.title }} – Reports{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+  <h1 class="h4 fw-bold mb-1"><i class="bi {{ info.icon }} me-2" style="color: {{ info.color }};"></i>{{ info.title }}</h1>
+  <p class="text-muted mb-0">{{ info.description }}</p>
+</div>
+
+{% if not category %}
+<div class="alert alert-warning">
+  <i class="bi bi-exclamation-triangle me-1"></i>
+  Category data isn't set up yet for {{ info.title }}.
+</div>
+{% else %}
+<div class="row g-3 mb-3">
+
+  <div class="col-md-4">
+    <a href="{{ url_for('report_trend', category=category.id, group=info.groups) }}" class="text-decoration-none">
+      <div class="card h-100">
+        <div class="card-body">
+          <div class="d-flex align-items-start mb-2">
+            <i class="bi bi-graph-up fs-3 me-3 text-info"></i>
+            <h2 class="h6 fw-bold mb-0 mt-1">Trend Over Time</h2>
+          </div>
+          <p class="text-body-secondary small mb-0">See the month-by-month pattern for one metric across one or more fiscal years.</p>
+        </div>
+      </div>
+    </a>
+  </div>
+
+  <div class="col-md-4">
+    <a href="{{ url_for('report_yoy', category=category.id, group=info.groups) }}" class="text-decoration-none">
+      <div class="card h-100">
+        <div class="card-body">
+          <div class="d-flex align-items-start mb-2">
+            <i class="bi bi-arrow-left-right fs-3 me-3 text-info"></i>
+            <h2 class="h6 fw-bold mb-0 mt-1">Annual Overview</h2>
+          </div>
+          <p class="text-body-secondary small mb-0">Compare two or more fiscal years side by side, as annual totals or month-by-month.</p>
+        </div>
+      </div>
+    </a>
+  </div>
+
+  <div class="col-md-4">
+    <a href="{{ url_for('report_fiscal', category=category.id) }}{{ '#grp-' + info.fiscal_anchor if info.fiscal_anchor else '' }}" class="text-decoration-none">
+      <div class="card h-100">
+        <div class="card-body">
+          <div class="d-flex align-items-start mb-2">
+            <i class="bi bi-building fs-3 me-3 text-warning"></i>
+            <h2 class="h6 fw-bold mb-0 mt-1">Branch Summary</h2>
+          </div>
+          <p class="text-body-secondary small mb-0">Every branch's totals for one fiscal year, in a table.</p>
+        </div>
+      </div>
+    </a>
+  </div>
+
+</div>
+{% endif %}
+
+<a href="{{ url_for('reports_index') }}" class="text-muted small">
+  <i class="bi bi-arrow-left me-1"></i>View all reports
+</a>
+{% endblock %}

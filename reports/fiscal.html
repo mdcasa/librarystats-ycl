@@ -83,7 +83,7 @@
           {% for group in table %}
             {% set grp_id = loop.index %}
             {% if group.name %}
-            <tr class="group-header" data-grp-toggle="{{ grp_id }}">
+            <tr class="group-header" id="grp-{{ group.name|lower|replace(' ', '-')|replace('&', 'and')|replace('/', '-') }}" data-grp-toggle="{{ grp_id }}">
               <td colspan="{{ (branches|length if branches else 1) + (2 if branches|length > 1 else 1) }}">
                 {{ group.name }}<i class="bi bi-chevron-down grp-chevron"></i>
               </td>

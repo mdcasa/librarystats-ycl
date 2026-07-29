@@ -2,6 +2,7 @@
 .env2
 *.db
 instance/
+.venv/
 __pycache__/
 *.pyc
 .DS_Store

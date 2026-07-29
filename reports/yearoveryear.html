@@ -47,12 +47,16 @@
         <select name="metric" id="metric-select" class="form-select form-select-sm">
           <option value="">— select metric —</option>
           {% if sel_cat and metrics_json[sel_cat] %}
-            {% for m in metrics_json[sel_cat] %}
+            {% for m in metrics_json[sel_cat] if not sel_groups or m.group in sel_groups %}
             <option value="{{ m.id }}" {% if sel_metric == m.id %}selected{% endif %}>{{ m.name }}</option>
             {% endfor %}
           {% endif %}
         </select>
       </div>
+
+      {% for g in sel_groups %}
+      <input type="hidden" name="group" value="{{ g }}">
+      {% endfor %}
 
       <div class="col-12">
         <label class="sidebar-label mb-1">Fiscal years to compare (select 2 or more — FY runs Jul–Jun)</label>

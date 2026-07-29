@@ -359,7 +359,11 @@ def generate_export(output=None):
     wb = openpyxl.Workbook()
     wb.remove(wb.active)   # remove default empty sheet
 
-    with app.app_context():
+    from flask import has_app_context
+    ctx = None if has_app_context() else app.app_context()
+    if ctx:
+        ctx.push()
+    try:
         totals = {}
 
         cat = Category.query.filter_by(name='Branch Stats').first()
@@ -373,6 +377,9 @@ def generate_export(output=None):
         cat = Category.query.filter_by(name='Quarterly Reference Stats').first()
         if cat:
             totals['Quarterly Ref Stats'] = write_quarterly_ref(wb, cat)
+    finally:
+        if ctx:
+            ctx.pop()
 
     for sheet, count in totals.items():
         print(f"  {sheet}: {count} rows exported")

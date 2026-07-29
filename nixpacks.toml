@@ -1,0 +1,15 @@
+# WeasyPrint needs Pango/Cairo/GLib shared libraries at runtime.
+# aptPkgs installs into standard /usr/lib paths so CFFI can find them;
+# nixPkgs go into /nix/store and are NOT on the default ld path.
+[phases.setup]
+aptPkgs = [
+  "libpango-1.0-0",
+  "libpangocairo-1.0-0",
+  "libcairo2",
+  "libgdk-pixbuf-2.0-0",
+  "libglib2.0-0",
+  "libffi8",
+  "fontconfig",
+  "fonts-liberation",
+  "fonts-dejavu-core",
+]

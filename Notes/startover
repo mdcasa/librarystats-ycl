@@ -1,0 +1,10 @@
+1. Delete all data prior to 2024
+2. This means delete all Annual Survey Data the imported historical files
+3. Remove trend over time report for anything that is not 24-26
+4. Please go ahead and delete all that data
+5. All the data that needs to be re-imported exists in the StartOverStats folder
+6. Import all the data in the Circulation folder first
+7. The import the data in Regisration the folder
+8. The import any data that is not already in the database from statsonly423.xlsx. Do no allow duplicates
+9. The import QRS data
+10. let me know if you encouter any issues

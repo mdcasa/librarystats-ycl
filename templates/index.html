@@ -24,22 +24,21 @@
 
 {# ── System summary ── #}
 <div class="row g-3 mb-4">
-  <div class="col-4">
+  <div class="col-6">
     <div class="card text-center py-3">
       <div class="display-6 fw-bold text-primary">{{ total_entries | commas }}</div>
       <div class="text-muted small mt-1">Total Entries</div>
     </div>
   </div>
-  <div class="col-4">
-    <div class="card text-center py-3">
-      <div class="display-6 fw-bold text-success">{{ total_categories }}</div>
-      <div class="text-muted small mt-1">Categories</div>
-    </div>
-  </div>
-  <div class="col-4">
+  <div class="col-6">
     <div class="card text-center py-3">
       <div class="display-6 fw-bold text-info">{{ total_branches }}</div>
       <div class="text-muted small mt-1">Branches</div>
+      {% if real_branches %}
+      <div class="text-muted small mt-2">
+        {% for b in real_branches %}{{ b.name }}{% if not loop.last %} &middot; {% endif %}{% endfor %}
+      </div>
+      {% endif %}
     </div>
   </div>
 </div>
@@ -132,19 +131,56 @@
       <div class="card-header-custom fw-semibold">
         <i class="bi bi-clipboard2-check me-1 text-primary"></i>Data Status
       </div>
-      <div class="card-body p-0" style="max-height:260px;overflow-y:auto">
+      <div class="card-body p-0" style="max-height:320px;overflow-y:auto">
         <ul class="list-group list-group-flush">
           {% for item in coverage %}
-          <li class="list-group-item d-flex justify-content-between align-items-center py-2 px-3">
-            <span class="small fw-semibold text-truncate me-2">{{ item.category.name }}</span>
-            {% if item.last_entry %}
-              <span class="badge rounded-pill text-bg-success flex-shrink-0" style="font-size:.7rem">
-                {{ item.last_entry.period_label }}
+          <li class="list-group-item p-0">
+            <div class="d-flex justify-content-between align-items-center py-2 px-3
+                        {% if item.branch_detail %}coverage-toggle{% endif %}"
+                 {% if item.branch_detail %}
+                 data-bs-toggle="collapse"
+                 data-bs-target="#branch-detail-{{ item.category.id }}"
+                 style="cursor:pointer"
+                 {% endif %}>
+              <span class="small fw-semibold text-truncate me-2">
+                {{ item.category.name }}
+                {% if item.branch_detail %}
+                <i class="bi bi-chevron-down ms-1 text-muted" style="font-size:.7rem"></i>
+                {% endif %}
               </span>
-            {% else %}
-              <span class="badge rounded-pill text-bg-secondary flex-shrink-0" style="font-size:.7rem">
-                No data
-              </span>
+              {% if item.last_entry %}
+                <span class="badge rounded-pill text-bg-success flex-shrink-0" style="font-size:.7rem">
+                  {{ item.last_entry.period_label }}
+                </span>
+              {% else %}
+                <span class="badge rounded-pill text-bg-secondary flex-shrink-0" style="font-size:.7rem">
+                  No data
+                </span>
+              {% endif %}
+            </div>
+            {% if item.branch_detail %}
+            <div class="collapse" id="branch-detail-{{ item.category.id }}">
+              <ul class="list-group list-group-flush border-top"
+                  style="background:#f8f9fa">
+                {% for bd in item.branch_detail %}
+                <li class="list-group-item d-flex justify-content-between align-items-center
+                            py-1 px-4" style="background:#f8f9fa">
+                  <span class="small text-muted text-truncate me-2">{{ bd.branch.name }}</span>
+                  {% if bd.last_entry %}
+                    <span class="badge rounded-pill text-bg-success flex-shrink-0"
+                          style="font-size:.65rem">
+                      {{ bd.last_entry.period_label }}
+                    </span>
+                  {% else %}
+                    <span class="badge rounded-pill text-bg-warning flex-shrink-0"
+                          style="font-size:.65rem">
+                      Missing
+                    </span>
+                  {% endif %}
+                </li>
+                {% endfor %}
+              </ul>
+            </div>
             {% endif %}
           </li>
           {% endfor %}

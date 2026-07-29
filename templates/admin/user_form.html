@@ -1,0 +1,106 @@
+{% extends 'base.html' %}
+{% block title %}{{ 'Edit User' if editing else 'Add User' }} – YCL Statistics{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h1 class="h4 fw-bold mb-0">
+    <i class="bi bi-person{{ '-gear' if editing else '-plus' }} me-2 text-primary"></i>
+    {{ 'Edit User' if editing else 'Add User' }}
+  </h1>
+  <a href="{{ url_for('admin_users') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left me-1"></i>Back to Users
+  </a>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-6">
+
+    {# ── Account details form ── #}
+    <div class="card mb-4">
+      <div class="card-header-custom fw-semibold">Account Details</div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('admin_user_edit', user_id=user.id) if editing else url_for('admin_user_new') }}">
+          <input type="hidden" name="action" value="save">
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Username <span class="text-danger">*</span></label>
+            <input type="text" name="username" class="form-control"
+                   value="{{ user.username if editing else '' }}" required
+                   {% if editing and user.id == current_user.id %}readonly{% endif %}>
+            {% if editing and user.id == current_user.id %}
+            <div class="form-text">You cannot change your own username.</div>
+            {% endif %}
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Email <span class="text-muted fw-normal">(optional)</span></label>
+            <input type="email" name="email" class="form-control"
+                   value="{{ user.email if editing and user.email else '' }}">
+          </div>
+
+          <div class="mb-3">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="is_admin" id="isAdmin"
+                     {% if editing and user.is_admin %}checked{% endif %}
+                     {% if editing and user.id == current_user.id %}disabled{% endif %}>
+              <label class="form-check-label fw-semibold" for="isAdmin">Admin</label>
+              <div class="form-text">Admins can manage users, categories, branches, and use import/export.</div>
+            </div>
+            {% if editing and user.id == current_user.id %}
+            <input type="hidden" name="is_admin" value="on">
+            {% endif %}
+          </div>
+
+          {% if editing %}
+          <div class="mb-4">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="is_active" id="isActive"
+                     {% if user.is_active %}checked{% endif %}
+                     {% if user.id == current_user.id %}disabled{% endif %}>
+              <label class="form-check-label fw-semibold" for="isActive">Active</label>
+              <div class="form-text">Inactive users cannot log in.</div>
+            </div>
+            {% if user.id == current_user.id %}
+            <input type="hidden" name="is_active" value="on">
+            <div class="form-text text-warning"><i class="bi bi-lock me-1"></i>You cannot deactivate your own account.</div>
+            {% endif %}
+          </div>
+          {% endif %}
+
+          {% if not editing %}
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Password <span class="text-danger">*</span></label>
+            <input type="password" name="password" class="form-control" required autocomplete="new-password">
+          </div>
+          {% endif %}
+
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check-lg me-1"></i>{{ 'Save Changes' if editing else 'Create User' }}
+          </button>
+        </form>
+      </div>
+    </div>
+
+    {# ── Password reset (edit only) ── #}
+    {% if editing %}
+    <div class="card">
+      <div class="card-header-custom fw-semibold" style="background:#fff8e1;border-left:4px solid #ffc107;">
+        <i class="bi bi-key me-1 text-warning"></i>Reset Password</div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('admin_user_edit', user_id=user.id) }}">
+          <input type="hidden" name="action" value="reset_password">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">New Password <span class="text-danger">*</span></label>
+            <input type="password" name="new_password" class="form-control" required autocomplete="new-password">
+          </div>
+          <button type="submit" class="btn btn-warning">
+            Reset Password
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}

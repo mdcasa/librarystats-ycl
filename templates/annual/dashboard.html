@@ -1,0 +1,484 @@
+{% extends 'base.html' %}
+{% block title %}Annual Survey Dashboard – Library Stats{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <div>
+    <h1 class="h4 fw-bold mb-0"><i class="bi bi-bar-chart-steps me-2 text-primary"></i>Annual Survey Dashboard</h1>
+    <p class="small mb-0">
+      <span class="badge text-bg-warning me-1">Annual Report Data Only</span>
+      Monthly statistics are stored separately in Branch Stats.
+      The <strong>Calculate</strong> button auto-fills: Gate Count, Total Collection Use, WiFi Sessions, Website Visits, Programming Sessions &amp; Attendance, Staff Training, and Take &amp; Makes — drawn from the monthly data for the selected fiscal year.
+    </p>
+  </div>
+  <div class="d-flex gap-2 align-items-center flex-wrap">
+    {% if years %}
+    <select id="fyYearPicker" class="form-select form-select-sm" style="width:auto">
+      <option value="">— Select a fiscal year —</option>
+      {% for y in years | reverse %}
+      <option value="{{ y }}">FY{{ y }}</option>
+      {% endfor %}
+    </select>
+    <form id="calcForm" method="post" action="#">
+      <input type="hidden" name="next" value="dashboard">
+      <button type="submit" class="btn btn-warning btn-sm" id="btnCalc" disabled>
+        <i class="bi bi-lightning-fill me-1"></i>Calculate <span id="btnCalcLabel">…</span>
+      </button>
+    </form>
+    <button type="button" class="btn btn-outline-warning btn-sm" data-bs-toggle="modal" data-bs-target="#bulkCalcModal">
+      <i class="bi bi-lightning me-1"></i>Calculate Multiple…
+    </button>
+    {% endif %}
+  </div>
+</div>
+
+{# ── KPI Cards ── #}
+<p class="text-muted small mb-2" id="kpiSubtitle"></p>
+<div class="row g-3 mb-4" id="kpiCards">
+  <div class="col-12 text-center text-muted py-4" id="kpiPlaceholder">
+    <i class="bi bi-calendar2-check fs-2 d-block mb-2 opacity-25"></i>
+    Select a fiscal year above to view KPI summary cards
+  </div>
+</div>
+
+{# ── Interactive Chart Builder ── #}
+<div class="card mb-4">
+  <div class="card-header-custom fw-semibold d-flex align-items-center gap-3 flex-wrap">
+    <span><i class="bi bi-graph-up me-1 text-primary"></i>Trend Explorer</span>
+    <div class="d-flex gap-2 flex-wrap flex-grow-1">
+      <select id="metricPicker" class="form-select form-select-sm" style="max-width:480px">
+        <option value="">— Select a metric to plot —</option>
+        {% set auto_metrics = all_metrics | selectattr('is_auto_calculated') | selectattr('data_type', 'in', ['integer', 'decimal']) | list %}
+        {% if auto_metrics %}
+        <optgroup label="⚡ Auto-Calculated">
+          {% for m in auto_metrics %}
+          <option value="{{ m.name }}">{{ m.name }}</option>
+          {% endfor %}
+        </optgroup>
+        {% endif %}
+        {% for sec in section_order %}
+          {% set mlist = sections.get(sec, []) | selectattr('data_type', 'in', ['integer', 'decimal']) | list %}
+          {% if mlist %}
+          <optgroup label="{{ section_labels[sec] }}">
+            {% for m in mlist %}
+            <option value="{{ m.name }}">{{ m.name }}</option>
+            {% endfor %}
+          </optgroup>
+          {% endif %}
+        {% endfor %}
+      </select>
+    </div>
+    <div class="ms-auto d-flex gap-2">
+      <div class="form-check form-check-inline mb-0">
+        <input class="form-check-input" type="radio" name="chartTypeRadio" id="radioLine" value="line" checked>
+        <label class="form-check-label small" for="radioLine">Line</label>
+      </div>
+      <div class="form-check form-check-inline mb-0">
+        <input class="form-check-input" type="radio" name="chartTypeRadio" id="radioBar" value="bar">
+        <label class="form-check-label small" for="radioBar">Bar</label>
+      </div>
+    </div>
+  </div>
+  <div class="card-body">
+    <div id="explorerPlaceholder" class="text-center text-muted py-5">
+      <i class="bi bi-bar-chart-line fs-1 d-block mb-2 opacity-25"></i>
+      Select a metric above to plot its trend over time
+    </div>
+    <canvas id="chartExplorer" style="display:none"></canvas>
+  </div>
+</div>
+
+{# ── Trend Charts ── #}
+<div class="row g-4 mb-4">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header-custom fw-semibold">Gate Count — Annual Library Visits</div>
+      <div class="card-body"><canvas id="chartGate" height="220"></canvas></div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header-custom fw-semibold">Total Collection Use</div>
+      <div class="card-body"><canvas id="chartCirc" height="220"></canvas></div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header-custom fw-semibold">Total Programming Sessions</div>
+      <div class="card-body"><canvas id="chartPgmSess" height="220"></canvas></div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header-custom fw-semibold">Total Programming Attendance</div>
+      <div class="card-body"><canvas id="chartPgmAtt" height="220"></canvas></div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header-custom fw-semibold">Total Operating Revenue vs Expenses</div>
+      <div class="card-body"><canvas id="chartFinance" height="220"></canvas></div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header-custom fw-semibold">Grand Total All Circulation (Physical + Electronic)</div>
+      <div class="card-body"><canvas id="chartTotalCirc" height="220"></canvas></div>
+    </div>
+  </div>
+</div>
+
+{# ── Year-over-Year Table (key metrics only) ── #}
+<div class="card mb-4">
+  <div class="card-header-custom fw-semibold d-flex justify-content-between align-items-center">
+    Key Metrics — All Years
+    <span class="text-muted fw-normal small">
+      <i class="bi bi-exclamation-triangle-fill text-warning me-1"></i>= adjusted value
+    </span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0 align-middle" style="font-size:.85rem">
+      <thead class="table-light">
+        <tr>
+          <th style="min-width:280px">Metric</th>
+          {% for y in years | reverse %}
+          <th class="text-end">FY{{ y }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% set key_metrics = [
+          'Annual Library Visits (gate count)',
+          'Total registered users',
+          'TOTAL COLLECTION USE',
+          'GRAND TOTAL ALL CIRC',
+          'Total of all programs',
+          'Total Attendance all programs and all ages',
+          'Number of staff trained',
+          'Number of wireless sessions',
+          'Number of website visits',
+          'Interlibrary loans provided to another library',
+          'Interlibrary loans received from another library',
+          'Expenditures: GRAND TOTAL Operating + Capital',
+          'Grand total operating + capital revenue',
+        ] %}
+        {% for mname in key_metrics %}
+          {% set ns = namespace(found=false) %}
+          {% for m in all_metrics %}
+            {% if m.name == mname and not ns.found %}
+              {% set ns.found = true %}
+              <tr>
+                <td>
+                  {{ m.name }}
+                  {% if m.is_auto_calculated %}
+                  <span class="badge bg-light text-secondary border ms-1" style="font-size:.65rem">auto</span>
+                  {% endif %}
+                </td>
+                {% for y in years | reverse %}
+                  {% set sv = by_year.get(y, {}).get(m.name) %}
+                  <td class="text-end">
+                    {% if sv %}
+                      {% if sv.is_adjusted %}
+                        <span class="text-warning fw-semibold" title="{{ sv.adjustment_note }}">
+                          <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ sv.display_value }}
+                        </span>
+                      {% else %}
+                        {{ sv.display_value }}
+                      {% endif %}
+                    {% else %}
+                      <span class="text-muted">—</span>
+                    {% endif %}
+                  </td>
+                {% endfor %}
+              </tr>
+            {% endif %}
+          {% endfor %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ── Full Data by Section ── #}
+<h5 class="fw-semibold mb-3">Full Data by Section</h5>
+<div class="accordion mb-4" id="sectionAccordion">
+  {% for section_name in section_order %}
+  {% set sec_metrics = sections.get(section_name, []) %}
+  {% if sec_metrics %}
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button"
+              data-bs-toggle="collapse" data-bs-target="#sec-{{ loop.index }}">
+        {{ section_name }}
+        <span class="badge bg-secondary ms-2 fw-normal">{{ sec_metrics | length }} metrics</span>
+      </button>
+    </h2>
+    <div id="sec-{{ loop.index }}" class="accordion-collapse collapse" data-bs-parent="#sectionAccordion">
+      <div class="accordion-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm mb-0 align-middle" style="font-size:.82rem">
+            <thead class="table-light">
+              <tr>
+                <th style="min-width:280px">Metric</th>
+                {% for y in years | reverse %}<th class="text-end">FY{{ y }}</th>{% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for m in sec_metrics %}
+              <tr>
+                <td>
+                  {{ m.name }}
+                  {% if m.is_auto_calculated %}
+                  <span class="badge bg-light text-secondary border ms-1" style="font-size:.65rem">auto</span>
+                  {% endif %}
+                </td>
+                {% for y in years | reverse %}
+                  {% set sv = by_year.get(y, {}).get(m.name) %}
+                  <td class="text-end">
+                    {% if sv %}
+                      {% if sv.is_adjusted %}
+                        <span class="text-warning fw-semibold" title="{{ sv.adjustment_note }}">
+                          <i class="bi bi-exclamation-triangle-fill"></i> {{ sv.display_value }}
+                        </span>
+                      {% else %}
+                        {{ sv.display_value }}
+                      {% endif %}
+                    {% else %}
+                      <span class="text-muted">—</span>
+                    {% endif %}
+                  </td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>
+
+{# ── Bulk Calculate Modal ── #}
+{% if years %}
+<div class="modal fade" id="bulkCalcModal" tabindex="-1" aria-labelledby="bulkCalcModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('annual_survey_calculate_bulk') }}">
+        <div class="modal-header">
+          <h5 class="modal-title" id="bulkCalcModalLabel">
+            <i class="bi bi-lightning-fill text-warning me-2"></i>Calculate Multiple Fiscal Years
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted mb-3">
+            Select the fiscal years to auto-calculate. This fills in Gate Count, Total Collection Use,
+            WiFi Sessions, Website Visits, Programming Sessions &amp; Attendance, Staff Training, and Take &amp; Makes
+            from monthly Branch Stats data. Existing values are overwritten.
+          </p>
+          <div class="mb-2 d-flex gap-3">
+            <a href="#" id="checkAll" class="small">Select all</a>
+            <a href="#" id="checkNone" class="small">Clear</a>
+          </div>
+          <div class="row g-2">
+            {% for y in years | reverse %}
+            <div class="col-6 col-sm-4">
+              <div class="form-check">
+                <input class="form-check-input year-cb" type="checkbox" name="years" value="{{ y }}" id="ycb{{ y }}">
+                <label class="form-check-label" for="ycb{{ y }}">FY{{ y }}</label>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-warning btn-sm">
+            <i class="bi bi-lightning-fill me-1"></i>Calculate Selected
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+const chartData = {{ chart_data | tojson }};
+const years = {{ years | tojson }};
+const kpisByYear = {{ kpis_by_year | tojson }};
+
+const kpiPlaceholderHtml = `<div class="col-12 text-center text-muted py-4" id="kpiPlaceholder">
+  <i class="bi bi-calendar2-check fs-2 d-block mb-2 opacity-25"></i>
+  Select a fiscal year above to view KPI summary cards
+</div>`;
+
+function renderKpis(year) {
+  const subtitle = document.getElementById('kpiSubtitle');
+  const container = document.getElementById('kpiCards');
+  const calcForm = document.getElementById('calcForm');
+  const btnCalc = document.getElementById('btnCalc');
+  const btnLabel = document.getElementById('btnCalcLabel');
+
+  if (!year) {
+    if (subtitle) subtitle.innerHTML = '';
+    container.innerHTML = kpiPlaceholderHtml;
+    if (btnCalc) { btnCalc.disabled = true; btnLabel.textContent = '…'; }
+    if (calcForm) calcForm.action = '#';
+    return;
+  }
+
+  const kpis = kpisByYear[year] || [];
+  const prevYear = year - 1;
+  if (subtitle) subtitle.innerHTML = `FY<strong>${year}</strong> &mdash; Jul ${year - 1} &ndash; Jun ${year}`;
+  if (calcForm) calcForm.action = `/annual-survey/${year}/calculate`;
+  if (btnCalc) { btnCalc.disabled = false; btnLabel.textContent = `FY${year}`; }
+
+  container.innerHTML = kpis.map(k => {
+    let changeHtml = '';
+    if (k.value !== null && k.prev !== null && k.prev !== 0) {
+      const diff = k.value - k.prev;
+      const pct = ((diff / k.prev) * 100).toFixed(1);
+      const cls = diff >= 0 ? 'text-success' : 'text-danger';
+      const arrow = diff >= 0 ? 'up' : 'down';
+      changeHtml = `<div class="small mt-1 ${cls}"><i class="bi bi-arrow-${arrow}"></i> ${pct}% vs FY${prevYear}</div>`;
+    }
+    const valHtml = k.value !== null
+      ? `<span>${k.value.toLocaleString()}</span>`
+      : `<span class="text-muted">&mdash;</span>`;
+    return `<div class="col-6 col-md-3">
+      <div class="card h-100"><div class="card-body py-3">
+        <div class="text-muted small mb-1">${k.label}</div>
+        <div class="fw-bold fs-5">${valHtml}</div>
+        ${changeHtml}
+      </div></div>
+    </div>`;
+  }).join('');
+}
+
+const picker = document.getElementById('fyYearPicker');
+if (picker) {
+  picker.addEventListener('change', () => {
+    renderKpis(picker.value ? parseInt(picker.value) : null);
+  });
+  // No auto-render on load — user must select a year
+}
+
+function makeChart(id, label, metricKey, color) {
+  const d = chartData[metricKey] || {labels: [], values: []};
+  new Chart(document.getElementById(id), {
+    type: 'line',
+    data: {
+      labels: d.labels.map(y => 'FY' + y),
+      datasets: [{
+        label: label,
+        data: d.values,
+        borderColor: color,
+        backgroundColor: color + '22',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 4,
+        spanGaps: true,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: false, ticks: { callback: v => v ? v.toLocaleString() : v } }
+      }
+    }
+  });
+}
+
+makeChart('chartGate',     'Gate Count',             'Annual Library Visits (gate count)', '#1a5276');
+makeChart('chartCirc',     'Total Collection Use',   'TOTAL COLLECTION USE',            '#117a65');
+makeChart('chartPgmSess',  'Program Sessions',       'Total of all programs',              '#6c3483');
+makeChart('chartPgmAtt',   'Program Attendance',     'Total Attendance all programs and all ages', '#b7950b');
+makeChart('chartTotalCirc','Grand Total Circ',       'GRAND TOTAL ALL CIRC',               '#1a5276');
+
+// Finance chart — two datasets
+(function() {
+  const rev = chartData['Total operating revenue'] || {labels:[], values:[]};
+  const exp = chartData['Expenditures: Total operating'] || {labels:[], values:[]};
+  new Chart(document.getElementById('chartFinance'), {
+    type: 'bar',
+    data: {
+      labels: rev.labels.map(y => 'FY' + y),
+      datasets: [
+        { label: 'Revenue', data: rev.values, backgroundColor: '#117a6588' },
+        { label: 'Expenses', data: exp.values, backgroundColor: '#c0392b88' },
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'top' } },
+      scales: { y: { beginAtZero: false, ticks: { callback: v => v ? '$' + v.toLocaleString() : v } } }
+    }
+  });
+})();
+
+// ── Trend Explorer ──────────────────────────────────────────────────────────
+document.getElementById('metricPicker').addEventListener('change', drawExplorer);
+document.querySelectorAll('input[name="chartTypeRadio"]').forEach(r => r.addEventListener('change', drawExplorer));
+
+let explorerChart = null;
+function drawExplorer() {
+  const metric = document.getElementById('metricPicker').value;
+  const placeholder = document.getElementById('explorerPlaceholder');
+  const canvas = document.getElementById('chartExplorer');
+  if (!metric || !chartData[metric]) {
+    placeholder.style.display = '';
+    canvas.style.display = 'none';
+    if (explorerChart) { explorerChart.destroy(); explorerChart = null; }
+    return;
+  }
+  placeholder.style.display = 'none';
+  canvas.style.display = '';
+  const d = chartData[metric];
+  const chartType = document.querySelector('input[name="chartTypeRadio"]:checked').value;
+  const color = '#1a5276';
+  if (explorerChart) { explorerChart.destroy(); }
+  explorerChart = new Chart(canvas, {
+    type: chartType,
+    data: {
+      labels: d.labels.map(y => 'FY' + y),
+      datasets: [{
+        label: metric,
+        data: d.values,
+        borderColor: color,
+        backgroundColor: chartType === 'bar' ? color + '88' : color + '22',
+        fill: chartType === 'line',
+        tension: 0.3,
+        pointRadius: 4,
+        spanGaps: true,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false },
+                 tooltip: { callbacks: { label: ctx => ctx.parsed.y !== null ? ctx.parsed.y.toLocaleString() : 'no data' } } },
+      scales: {
+        y: { beginAtZero: false, ticks: { callback: v => v != null ? v.toLocaleString() : v } }
+      }
+    }
+  });
+}
+
+// Bulk calc modal — select all / clear
+document.getElementById('checkAll')?.addEventListener('click', e => {
+  e.preventDefault();
+  document.querySelectorAll('.year-cb').forEach(cb => cb.checked = true);
+});
+document.getElementById('checkNone')?.addEventListener('click', e => {
+  e.preventDefault();
+  document.querySelectorAll('.year-cb').forEach(cb => cb.checked = false);
+});
+</script>
+{% endblock %}

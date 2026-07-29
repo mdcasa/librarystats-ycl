@@ -1,0 +1,176 @@
+{% extends 'base.html' %}
+{% block title %}Monthly Board Report – Reports{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4 fw-bold mb-0"><i class="bi bi-bar-chart-fill me-2 text-primary"></i>Monthly Board Report</h1>
+  {% if sections %}
+  <button class="btn btn-outline-secondary btn-sm d-print-none" onclick="window.print()">
+    <i class="bi bi-printer me-1"></i>Print / Save as PDF
+  </button>
+  {% endif %}
+</div>
+
+<div class="card mb-4 d-print-none">
+  <div class="card-body py-3">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-sm-3">
+        <label class="sidebar-label mb-1">Month</label>
+        <select name="month" class="form-select form-select-sm" required>
+          <option value="">— select —</option>
+          {% for m in months %}
+          <option value="{{ loop.index }}" {% if sel_month == loop.index %}selected{% endif %}>{{ m }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-2">
+        <label class="sidebar-label mb-1">Year</label>
+        <select name="year" class="form-select form-select-sm" required>
+          <option value="">— select —</option>
+          {% for y in available_years %}
+          <option value="{{ y }}" {% if sel_year == y %}selected{% endif %}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-3">
+        <button class="btn btn-primary btn-sm">Run Report</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if sections %}
+<div id="report-header" class="text-center mb-4">
+  <h2 class="h3 fw-bold">Monthly Statistics</h2>
+  <p class="text-muted mb-0">{{ months[sel_month-1] }} {{ prev_year }} and {{ sel_year }} Comparisons</p>
+</div>
+
+<div class="row g-3" id="dashboard">
+  {% for sec in sections %}
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-body">
+        <h6 class="fw-bold mb-3 text-center" style="color:{{ sec.color }}">{{ sec.title }}</h6>
+        <canvas id="chart{{ loop.index }}" height="160"></canvas>
+      </div>
+    </div>
+  </div>
+  {% if loop.index == sections|length and loop.index is odd %}
+  <div class="col-md-6 d-none d-md-block"></div>
+  {% endif %}
+  {% endfor %}
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const KEY  = 'filters_monthly';
+  const form = document.querySelector('form[method="get"]');
+  if (!form) return;
+
+  if (!window.location.search) {
+    const saved = JSON.parse(sessionStorage.getItem(KEY) || '{}');
+    Object.entries(saved).forEach(([name, val]) => {
+      const el = form.querySelector(`[name="${name}"]`);
+      if (el) el.value = val;
+    });
+  }
+
+  form.addEventListener('submit', () => {
+    const data = {};
+    new FormData(form).forEach((val, key) => { data[key] = val; });
+    sessionStorage.setItem(KEY, JSON.stringify(data));
+  });
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<script>
+Chart.register(ChartDataLabels);
+
+const sections = {{ sections | tojson if sections else '[]' }};
+
+function fmtVal(v) {
+  if (v == null) return '';
+  return v >= 1000 ? v.toLocaleString() : String(Math.round(v));
+}
+
+sections.forEach((sec, i) => {
+  const ctx = document.getElementById('chart' + (i + 1));
+  if (!ctx) return;
+
+  const labels   = sec.items.map(it => it.label);
+  const currData = sec.items.map(it => it.curr ?? 0);
+  const prevData = sec.items.map(it => it.prev ?? 0);
+
+  const prevYear = {{ prev_year or 'null' }};
+  const selYear  = {{ sel_year  or 'null' }};
+
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: String(prevYear),
+          data: prevData,
+          backgroundColor: sec.color + '55',
+          borderColor:     sec.color + 'aa',
+          borderWidth: 1,
+        },
+        {
+          label: String(selYear),
+          data: currData,
+          backgroundColor: sec.color,
+          borderColor:     sec.color,
+          borderWidth: 1,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+        datalabels: {
+          anchor: 'end',
+          align: 'end',
+          offset: 2,
+          font: { size: 10, weight: 'bold' },
+          color: '#333',
+          formatter: (v) => v > 0 ? v.toLocaleString() : '',
+        },
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { font: { size: 10 } },
+        },
+        x: {
+          ticks: {
+            font: { size: 10 },
+            maxRotation: 30,
+          },
+        },
+      },
+      layout: { padding: { top: 20 } },
+    },
+  });
+});
+</script>
+
+<style>
+@media print {
+  .d-print-none { display: none !important; }
+  body { background: white !important; }
+  .card { box-shadow: none !important; border: 1px solid #dee2e6 !important; }
+  #dashboard { display: grid !important; grid-template-columns: 1fr 1fr; gap: 12px; }
+  #dashboard .col-md-6 { width: 100% !important; max-width: 100% !important; break-inside: avoid; }
+  #report-header { margin-bottom: 16px !important; }
+  nav, footer { display: none !important; }
+  .container-lg { padding: 0 !important; }
+}
+</style>
+{% endblock %}

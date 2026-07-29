@@ -1,6 +1,0 @@
-CIRCULATION_STATS = Checkouts by Branch and Shelving Location
-REGISTRATION_STATS = Number of New Library Users by Branch and Patron Type
-PC_Printing_stats = princh-export
-QUARTER_REF_STATS = QRSver2.xlsx
-DOORCOUNT_WIFI_PCRESERVATIONS = doorcount-wifi-pcrezz423.xlsx
-NON-SIRSI-STATS = statsonly-nonSIRSI.xlsx

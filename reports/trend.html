@@ -1,0 +1,164 @@
+{% extends 'base.html' %}
+{% block title %}Trend Over Time – Reports{% endblock %}
+{% block content %}
+<h1 class="h4 fw-bold mb-4"><i class="bi bi-graph-up me-2 text-info"></i>Trend Over Time</h1>
+
+<div class="card mb-4">
+  <div class="card-body py-3">
+    <form method="get" class="row g-2 align-items-end" id="trend-form">
+      <div class="col-sm-3">
+        <label class="sidebar-label mb-1">Category</label>
+        <select name="category" id="cat-select" class="form-select form-select-sm" required>
+          <option value="">— select —</option>
+          {% for cat in categories %}
+          <option value="{{ cat.id }}" {% if sel_cat == cat.id %}selected{% endif %}>{{ cat.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-5">
+        <label class="sidebar-label mb-1">Metric</label>
+        <select name="metric" id="metric-select" class="form-select form-select-sm" required>
+          <option value="">— select category first —</option>
+          {% if sel_cat and metrics_json[sel_cat] %}
+            {% for m in metrics_json[sel_cat] %}
+            <option value="{{ m.id }}" {% if sel_metric == m.id %}selected{% endif %}>{{ m.name }}</option>
+            {% endfor %}
+          {% endif %}
+        </select>
+      </div>
+      <div class="col-sm-4 d-flex align-items-end">
+        <button class="btn btn-primary btn-sm w-100">Run Report</button>
+      </div>
+      <div class="col-12">
+        <label class="sidebar-label mb-1">Fiscal Year(s)</label>
+        <div class="d-flex flex-wrap gap-2">
+          {% for y in available_years %}
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" name="year"
+                   value="{{ y }}" id="fy{{ y }}"
+                   {% if y in sel_years %}checked{% endif %}>
+            <label class="form-check-label small" for="fy{{ y }}">FY{{ y }}</label>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% if category and category.has_branch %}
+      <div class="col-12">
+        <label class="sidebar-label mb-1">Branches (leave blank for all)</label>
+        <div class="d-flex flex-wrap gap-2">
+          {% for b in all_branches %}
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" name="branches"
+                   value="{{ b.id }}" id="b{{ b.id }}"
+                   {% if b.id in sel_branches %}checked{% endif %}>
+            <label class="form-check-label small" for="b{{ b.id }}">{{ b.name }}</label>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </form>
+  </div>
+</div>
+
+{% if chart_data %}
+<div class="card">
+  <div class="card-header-custom fw-semibold">
+    {% set min_fy = sel_years|min %}
+    {% set max_fy = sel_years|max %}
+    {% if min_fy == max_fy %}
+    {{ metric.name }} — FY{{ min_fy }} (Jul {{ min_fy - 1 }}–Jun {{ min_fy }})
+    {% else %}
+    {{ metric.name }} — FY{{ min_fy }}–FY{{ max_fy }}
+    {% endif %}
+  </div>
+  <div class="card-body">
+    <canvas id="trendChart" style="max-height:420px"></canvas>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<link href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.bootstrap5.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<script>
+document.getElementById('trend-form').addEventListener('submit', function(e) {
+  if (!this.querySelector('input[name="year"]:checked')) {
+    e.preventDefault();
+    alert('Please select at least one fiscal year.');
+  }
+});
+
+Chart.register(ChartDataLabels);
+const metricsByCat = {{ metrics_json | tojson }};
+const selMetric    = {{ sel_metric or 'null' }};
+
+let tomMetric = null;
+
+function initTomMetric() {
+  if (tomMetric) { tomMetric.destroy(); tomMetric = null; }
+  tomMetric = new TomSelect('#metric-select', { maxOptions: null, placeholder: '— select metric —' });
+}
+
+document.getElementById('cat-select').addEventListener('change', function () {
+  const catId = parseInt(this.value);
+  if (tomMetric) { tomMetric.destroy(); tomMetric = null; }
+  const sel = document.getElementById('metric-select');
+  sel.innerHTML = '<option value="">— select metric —</option>';
+  (metricsByCat[catId] || []).forEach(m => {
+    const opt = document.createElement('option');
+    opt.value       = m.id;
+    opt.textContent = m.name;
+    if (m.id === selMetric) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  initTomMetric();
+});
+
+initTomMetric();
+
+{% if chart_data %}
+const chartData = {{ chart_data | tojson }};
+new Chart(document.getElementById('trendChart'), {
+  type: 'line',
+  data: chartData,
+  options: {
+    responsive: true,
+    interaction: { mode: 'index', intersect: false },
+    layout: { padding: { right: 16 } },
+    plugins: {
+      legend: { position: 'bottom' },
+      tooltip: { callbacks: {
+        label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y !== null ? ctx.parsed.y.toLocaleString() : '—'}`
+      }},
+      datalabels: {
+        display: ctx => {
+          const data = ctx.dataset.data;
+          const first = data.findIndex(v => v !== null && v !== undefined);
+          return ctx.dataIndex === first;
+        },
+        formatter: (_, ctx) => ctx.dataset.label,
+        anchor: 'center',
+        align: 'top',
+        offset: 4,
+        font: { size: 10, weight: 'bold' },
+        color: ctx => ctx.dataset.borderColor,
+        backgroundColor: 'rgba(255,255,255,0.8)',
+        borderRadius: 3,
+        padding: { left: 4, right: 4, top: 2, bottom: 2 },
+      }
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        ticks: { callback: v => v.toLocaleString() }
+      }
+    }
+  }
+});
+{% endif %}
+</script>
+{% endblock %}

@@ -55,18 +55,36 @@
               <td>Gate Count per branch</td>
             </tr>
             <tr>
-              <td><span class="badge bg-warning text-dark">QRS</span> Quarterly Ref Stats</td>
-              <td>Quarterly Reference Stats entries</td>
+              <td><span class="badge bg-secondary text-white">PC Reservations</span> PC Reservation usage report</td>
+              <td>PC Reservations per branch</td>
             </tr>
             <tr>
-              <td><span class="badge bg-secondary text-white">Princh</span> princh-export (date range)</td>
-              <td>Total Prints per Month per branch</td>
+              <td><span class="badge bg-warning text-dark">WiFi</span> wifi_sessions <span class="badge bg-light text-muted border ms-1">coming soon</span></td>
+              <td>WiFi Sessions per branch</td>
+            </tr>
+            <tr>
+              <td><span class="badge bg-primary text-white">Prints</span> YCL_Print_Summary <span class="text-muted">(LPTOne / Princh)</span></td>
+              <td>Printed Jobs, Printed Pages &amp; Printed Cost per branch</td>
+            </tr>
+            <tr>
+              <td><span class="badge bg-danger text-white">Programming</span> Communico events-only-export</td>
+              <td>Individual programs (<a href="{{ url_for('report_programs') }}">Programs by Topic</a>), plus ONSITE/OFFSITE/VIRTUAL Sessions &amp; Attendance by age group and Study Room Use per branch</td>
             </tr>
           </tbody>
         </table>
         <p class="text-muted mt-2 mb-0">
           <i class="bi bi-info-circle me-1"></i>
           Uploading the same file twice is safe — existing records are updated, not duplicated.
+        </p>
+        <p class="text-muted mt-1 mb-0">
+          <i class="bi bi-calendar-event me-1"></i>
+          The print summary has no date inside it — keep the month in the file name
+          (e.g. <code>YCL_Print_Summary_June2026.xlsx</code>) or set the Year field.
+        </p>
+        <p class="text-muted mt-1 mb-0">
+          <i class="bi bi-calendar-event me-1"></i>
+          For Programming, export the month's events list from Communico as <code>.xlsx</code>
+          and upload it — study room bookings are tracked separately and excluded automatically.
         </p>
       </div>
     </div>
@@ -88,7 +106,7 @@
           </thead>
           <tbody>
             {% for r in results %}
-            <tr>
+            <tr class="{{ 'warning-row' if r.warnings }}">
               <td class="fw-semibold">{{ r.sheet }}</td>
               <td class="text-center">
                 {% if r.created > 0 %}
@@ -109,9 +127,126 @@
                 <div class="text-muted small">{{ r.note }}</div>
                 {% endif %}
                 {% for w in r.warnings %}
-                <div class="text-warning small"><i class="bi bi-exclamation-triangle me-1"></i>{{ w }}</div>
+                <div class="small" style="color:#856404"><i class="bi bi-exclamation-triangle me-1"></i>{{ w }}</div>
                 {% endfor %}
               </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if comparison %}
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header-custom fw-semibold d-flex align-items-center justify-content-between">
+        <span><i class="bi bi-arrow-left-right me-2 text-info"></i>Prior-Year Comparison</span>
+        {% set total_flags = comparison | sum(attribute='flagged') %}
+        {% if total_flags > 0 %}
+        <span class="badge bg-warning text-dark">{{ total_flags }} value{% if total_flags != 1 %}s{% endif %} to review</span>
+        {% else %}
+        <span class="badge bg-success">All values look normal</span>
+        {% endif %}
+      </div>
+      {% for period in comparison %}
+      <div class="px-3 pt-3 pb-1">
+        <div class="fw-semibold small text-muted mb-2">{{ period.label }}</div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-3" style="font-size:.82rem">
+            <thead class="table-light">
+              <tr>
+                <th>Metric</th>
+                <th>Branch</th>
+                <th class="text-end">Prior Year</th>
+                <th class="text-end">This Import</th>
+                <th class="text-end">Change</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in period.rows %}
+              <tr {% if row.flag == 'danger' %}class="table-danger"{% elif row.flag == 'warning' %}class="table-warning"{% endif %}>
+                <td>{{ row.metric }}</td>
+                <td>{{ row.branch }}</td>
+                <td class="text-end">{{ row.prior | commas if row.prior is not none else '—' }}</td>
+                <td class="text-end">{{ row.current | commas if row.current is not none else '—' }}</td>
+                <td class="text-end">
+                  {% if row.pct is not none %}
+                    {% if row.pct > 0 %}<span class="text-success">+{{ row.pct | round(1) }}%</span>
+                    {% elif row.pct < 0 %}<span class="text-danger">{{ row.pct | round(1) }}%</span>
+                    {% else %}<span class="text-muted">0%</span>{% endif %}
+                  {% elif row.current is not none and row.prior is none %}
+                    <span class="text-muted">new</span>
+                  {% else %}
+                    <span class="text-danger fw-semibold">missing</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if recent_logs %}
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header-custom fw-semibold d-flex align-items-center justify-content-between">
+        <span><i class="bi bi-clock-history me-2 text-secondary"></i>Recent Imports</span>
+        <span class="text-muted small fw-normal">Last 20 uploads — admins can undo</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>When</th>
+              <th>File</th>
+              <th>Type</th>
+              <th class="text-center">Period</th>
+              <th class="text-center">Rows</th>
+              <th class="text-center">Status</th>
+              {% if current_user.is_admin %}<th></th>{% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for log in recent_logs %}
+            <tr class="{{ 'table-secondary text-muted' if log.undone_at }}">
+              <td class="text-nowrap small">{{ log.created_at.strftime('%b %d %Y %H:%M') }}</td>
+              <td class="small text-truncate" style="max-width:200px" title="{{ log.file_name }}">{{ log.file_name }}</td>
+              <td class="small">{{ log.import_type }}</td>
+              <td class="text-center small">
+                {% if log.year and log.month %}
+                  {{ ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][log.month-1] }} {{ log.year }}
+                {% elif log.year %}
+                  {{ log.year }}
+                {% else %}—{% endif %}
+              </td>
+              <td class="text-center">{{ log.rows_affected }}</td>
+              <td class="text-center">
+                {% if log.undone_at %}
+                  <span class="badge bg-secondary">Undone {{ log.undone_at.strftime('%b %d %H:%M') }}</span>
+                {% else %}
+                  <span class="badge bg-success">Active</span>
+                {% endif %}
+              </td>
+              {% if current_user.is_admin %}
+              <td>
+                {% if log.can_undo %}
+                <form method="post" action="{{ url_for('upload_undo', log_id=log.id) }}"
+                      onsubmit="return confirm('Undo the import of ' + {{ log.file_name | tojson }} + '? This will restore all previous values.')">
+                  <button type="submit" class="btn btn-sm btn-outline-danger">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>Undo
+                  </button>
+                </form>
+                {% endif %}
+              </td>
+              {% endif %}
             </tr>
             {% endfor %}
           </tbody>

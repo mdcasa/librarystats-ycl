@@ -17,6 +17,7 @@
           {% for cat in all_categories %}
           <option value="{{ cat.id }}" {% if sel_cat == cat.id %}selected{% endif %}>{{ cat.name }}</option>
           {% endfor %}
+          <option value="{{ ILL_ICL_PSEUDO }}" {% if sel_cat == ILL_ICL_PSEUDO %}selected{% endif %}>ILL / ICL (Main only)</option>
         </select>
       </div>
       <div class="col-sm-3">
@@ -56,8 +57,7 @@
           <th>Category</th>
           <th>Branch / Location</th>
           <th>Period</th>
-          <th>Submitted by</th>
-          <th>Date Submitted</th>
+          <th>Submitted</th>
           <th class="text-end">Actions</th>
         </tr>
       </thead>
@@ -68,8 +68,7 @@
           <td>{{ entry.category.name }}</td>
           <td class="text-muted">{{ entry.branch_label }}</td>
           <td><span class="badge bg-light text-dark border">{{ entry.period_label }}</span></td>
-          <td class="text-muted small">{{ entry.submitted_by or '—' }}</td>
-          <td class="text-muted small">{{ entry.submitted_at.strftime('%d %b %Y %H:%M') }}</td>
+          <td class="text-muted small">{{ entry.submitted_at.strftime('%d %b %Y') if entry.submitted_at else '—' }}{% if entry.submitted_by %} · {{ entry.submitted_by }}{% endif %}</td>
           <td class="text-end">
             <a href="{{ url_for('entry_view', entry_id=entry.id) }}"
                class="btn btn-sm btn-outline-primary btn-xs me-1">View</a>
@@ -91,4 +90,33 @@
   </div>
   {% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const KEY  = 'filters_browse';
+  const form = document.querySelector('form[method="get"]');
+  if (!form) return;
+
+  if (!window.location.search) {
+    const saved = JSON.parse(sessionStorage.getItem(KEY) || '{}');
+    Object.entries(saved).forEach(([name, val]) => {
+      const el = form.querySelector(`[name="${name}"]`);
+      if (el) el.value = val;
+    });
+  }
+
+  form.addEventListener('submit', () => {
+    const data = {};
+    new FormData(form).forEach((val, key) => { data[key] = val; });
+    sessionStorage.setItem(KEY, JSON.stringify(data));
+  });
+
+  const clearBtn = document.querySelector('a.btn-outline-secondary[href]');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => sessionStorage.removeItem(KEY));
+  }
+})();
+</script>
 {% endblock %}

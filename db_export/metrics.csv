@@ -1,0 +1,83 @@
+id,category_id,name,description,group_name,data_type,is_required,is_active,sort_order
+1,1,"New Library Card Registrations, Adult",,Registrations,integer,False,True,1
+2,1,"New Library Card Registrations, Juvenile",,Registrations,integer,False,True,2
+4,1,Gate Count,,Access & Usage,integer,False,True,4
+5,1,PC Reservations,,Access & Usage,integer,False,True,5
+6,1,WiFi - Unique Sessions,,Access & Usage,integer,False,True,6
+7,1,External Party Library Room Use,,Access & Usage,integer,False,True,7
+8,1,Total Prints per Month,,Access & Usage,integer,False,True,8
+9,1,Total Branch Circulation,,Circulation,integer,False,True,9
+10,1,Hotspots Circulation,,Circulation,integer,False,True,10
+11,1,Curbside,,Circulation,integer,False,True,11
+12,1,Locker Circulation,,Circulation,integer,False,True,12
+13,1,ILL - Sent (Main ONLY),,ILL / ICL,integer,False,True,13
+14,1,ILL - Received (Main ONLY),,ILL / ICL,integer,False,True,14
+15,1,ICLs - Sent (Main ONLY),,ILL / ICL,integer,False,True,15
+16,1,ICLs - Received (Main ONLY),,ILL / ICL,integer,False,True,16
+17,1,ONSITE Sessions 0-5,,ONSITE Programming,integer,False,True,17
+18,1,ONSITE Sessions 6-11,,ONSITE Programming,integer,False,True,18
+19,1,ONSITE Sessions 12-18,,ONSITE Programming,integer,False,True,19
+20,1,ONSITE Sessions 19+,,ONSITE Programming,integer,False,True,20
+21,1,ONSITE Sessions General Interest,,ONSITE Programming,integer,False,True,21
+22,1,ONSITE Attendance 0-5,,ONSITE Programming,integer,False,True,22
+23,1,ONSITE Attendance 6-11,,ONSITE Programming,integer,False,True,23
+24,1,ONSITE Attendance 12-18,,ONSITE Programming,integer,False,True,24
+25,1,ONSITE Attendance 19+,,ONSITE Programming,integer,False,True,25
+26,1,ONSITE Attendance General Interest,,ONSITE Programming,integer,False,True,26
+27,1,OFFSITE Sessions 0-5,,OFFSITE Programming,integer,False,True,27
+28,1,OFFSITE Sessions 6-11,,OFFSITE Programming,integer,False,True,28
+29,1,OFFSITE Sessions 12-18,,OFFSITE Programming,integer,False,True,29
+30,1,OFFSITE Sessions 19+,,OFFSITE Programming,integer,False,True,30
+31,1,OFFSITE Sessions General Interest,,OFFSITE Programming,integer,False,True,31
+32,1,OFFSITE Attendance 0-5,,OFFSITE Programming,integer,False,True,32
+33,1,OFFSITE Attendance 6-11,,OFFSITE Programming,integer,False,True,33
+34,1,OFFSITE Attendance 12-18,,OFFSITE Programming,integer,False,True,34
+35,1,OFFSITE Attendance 19+,,OFFSITE Programming,integer,False,True,35
+36,1,OFFSITE Attendance General Interest,,OFFSITE Programming,integer,False,True,36
+37,1,VIRTUAL Sessions 0-5,,VIRTUAL Programming,integer,False,True,37
+38,1,VIRTUAL Sessions 6-11,,VIRTUAL Programming,integer,False,True,38
+39,1,VIRTUAL Sessions 12-18,,VIRTUAL Programming,integer,False,True,39
+40,1,VIRTUAL Sessions 19+,,VIRTUAL Programming,integer,False,True,40
+41,1,VIRTUAL Sessions General Interest,,VIRTUAL Programming,integer,False,True,41
+42,1,VIRTUAL Attendance 0-5,,VIRTUAL Programming,integer,False,True,42
+43,1,VIRTUAL Attendance 6-11,,VIRTUAL Programming,integer,False,True,43
+44,1,VIRTUAL Attendance 12-18,,VIRTUAL Programming,integer,False,True,44
+45,1,VIRTUAL Attendance 19+,,VIRTUAL Programming,integer,False,True,45
+46,1,VIRTUAL Attendance General Interest,,VIRTUAL Programming,integer,False,True,46
+47,1,Number of Outreach Activities Conducted,,Outreach,integer,False,True,47
+48,1,Outreach Attendance,,Outreach,integer,False,True,48
+49,1,Take & Makes / Other Passive Program Participants,,Outreach,integer,False,True,49
+50,1,Number of Staff Taking Training,,Staff Training,integer,False,True,50
+51,1,Number of Hours Staff Attended Training,,Staff Training,decimal,False,True,51
+52,1,1-on-1 Total for Month,,Other,integer,False,True,52
+53,2,E-Book Circulation,,Circulation,integer,False,True,1
+54,2,E-Audio Circulation,,Circulation,integer,False,True,2
+55,2,E-Video Circulation,,Circulation,integer,False,True,3
+56,2,E-Serials Circulation,,Circulation,integer,False,True,4
+57,3,yclibrary.org - Web Sessions,,Website,integer,False,True,1
+58,3,ychistory.org - Views,,Website,integer,False,True,2
+59,3,patchworktales.org - Views,,Website,integer,False,True,3
+60,3,Dial A Story - Calls,,Dial A Story,integer,False,True,4
+61,3,Dial A Story - Views,,Dial A Story,integer,False,True,5
+62,3,Dial A Story Uploads,,Dial A Story,integer,False,True,6
+63,3,DSpace - Views,,Other Platforms,integer,False,True,7
+64,3,Beanstack - Sessions,,Other Platforms,integer,False,True,8
+65,3,LibraryCalendar - Sessions,,Other Platforms,integer,False,True,9
+66,3,LibGuides - Sessions,,Other Platforms,integer,False,True,10
+67,3,DigitalLearn.org - Sessions,,DigitalLearn,integer,False,True,11
+68,3,DigitalLearn.org - Completed Courses,,DigitalLearn,integer,False,True,12
+69,3,LOTE4Kids - Stories Watched,,LOTE4Kids,integer,False,True,13
+70,3,LOTE4Kids - Activities,,LOTE4Kids,integer,False,True,14
+71,3,LOTE4Kids - Logins,,LOTE4Kids,integer,False,True,15
+72,3,YouTube - Subscribers,,Social Media,integer,False,True,16
+73,3,YouTube - Views,,Social Media,integer,False,True,17
+74,3,YouTube - Hours Watched,,Social Media,decimal,False,True,18
+75,3,YouTube Uploads,,Social Media,integer,False,True,19
+76,3,Facebook Followers,,Social Media,integer,False,True,20
+77,3,Instagram - Subscribers,,Social Media,integer,False,True,21
+78,3,YCL News - Subscribers,,Newsletters & Apps,integer,False,True,22
+79,3,Website Messages,,Newsletters & Apps,integer,False,True,23
+80,3,YCL App - Users,,Newsletters & Apps,integer,False,True,24
+81,3,YCL App - Sessions,,Newsletters & Apps,integer,False,True,25
+82,4,Total Transactions for the Week,,,integer,False,True,1
+88,1,"New Library Card Registrations, Total",,Registrations,integer,,True,3

@@ -1,0 +1,6 @@
+id,name,description,frequency,has_branch,is_active,sort_order,created_at
+1,Branch Stats,Monthly statistics collected per branch location,monthly,True,True,1,2026-04-27 17:58:48.829939
+2,eResources,Monthly electronic resource circulation statistics (system-wide),monthly,False,True,2,2026-04-27 17:58:48.836126
+3,Online Stats,Monthly website and digital platform statistics (system-wide),monthly,False,True,3,2026-04-27 17:58:48.851051
+4,Quarterly Reference Stats,Quarterly reference transaction counts per branch,quarterly,True,True,4,2026-04-27 17:58:48.860548
+5,Circulation,Monthly checkout and renewal totals sourced from SIRSI ILS reports.,monthly,True,True,10,

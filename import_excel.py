@@ -13,15 +13,16 @@ Can also be called from the web admin via do_import(workbook).
 """
 
 import os
+import re
 import sys
-from datetime import datetime
+from datetime import datetime, date
 
 from dotenv import load_dotenv
 load_dotenv()
 
 import openpyxl
 from app import app, db
-from models import Category, Metric, Branch, Entry, EntryValue, SirsiCheckout
+from models import Category, Metric, Branch, Entry, EntryValue, SirsiCheckout, ProgramEvent
 
 DEFAULT_EXCEL_PATH = os.path.join('Data files', 'statsonly423.xlsx')
 
@@ -82,6 +83,18 @@ BRANCH_STATS_MAP = {
     'Locker Circulation':                                  'Locker Circulation',
 }
 
+def _norm(s):
+    """Collapse runs of whitespace and strip edges — used to match Excel headers robustly."""
+    return re.sub(r'\s+', ' ', s.strip()) if s else ''
+
+# Normalised lookup built once at import time so import_branch_stats can do
+# fuzzy-whitespace matching without mutating the canonical map.
+_BRANCH_STATS_MAP_NORM = {_norm(k): v for k, v in BRANCH_STATS_MAP.items()}
+
+# Headers containing these tokens are programming columns we want to warn about
+# if they appear in the Excel but aren't matched by the map.
+_PROG_TOKENS = {'ONSITE', 'OFFSITE', 'VIRTUAL', 'Sessions', 'Attendance'}
+
 ONLINE_STATS_MAP = {
     'yclibrary.org - web sessions':        'yclibrary.org - Web Sessions',
     'ychistory.org - views':               'ychistory.org - Views',
@@ -112,6 +125,56 @@ ONLINE_STATS_MAP = {
 
 QRTLY_MAP = {
     'Total # of Transactions for the Week': 'Total Transactions for the Week',
+}
+
+# Metrics that must only be recorded under Rock Hill (Main branch).
+# Importers skip these for any other branch.
+_MAIN_ONLY_METRIC_NAMES = {
+    'ILL - Sent (Main ONLY)',
+    'ILL - Received (Main ONLY)',
+    'ICLs - Sent (Main ONLY)',
+    'ICLs - Received (Main ONLY)',
+}
+
+# Google Forms response export ("Form Responses 1" sheet).
+# OFFSITE/VIRTUAL totals stored in the 6-11 and General Interest buckets by convention
+# (matching existing patch scripts — the form has no per-age breakdown for those).
+GOOGLE_FORMS_STATS_MAP = {
+    # ONSITE programming
+    'Number of Synchronous Program Sessions Targeted at Children Ages 0-5':       'ONSITE Sessions 0-5',
+    'Number of Synchronous Program Sessions Targeted at Children Ages 6-11':      'ONSITE Sessions 6-11',
+    'Number of Synchronous Program Sessions Targeted at Young Adults Ages 12-18': 'ONSITE Sessions 12-18',
+    'Number of Synchronous Program Sessions Targeted at Adults Ages 19+':         'ONSITE Sessions 19+',
+    'Number of Synchronous General Interest Program Sessions':                     'ONSITE Sessions General Interest',
+    'Attendance at Synchronous Programs Targeted at Children Ages 0-5':           'ONSITE Attendance 0-5',
+    'Attendance at Synchronous Programs Targeted at Children Ages 6-11':          'ONSITE Attendance 6-11',
+    'Attendance at Synchronous Programs Targeted at Young Adults Ages 12-18':     'ONSITE Attendance 12-18',
+    'Attendance at Synchronous Programs Targeted at Adults Ages 19+':             'ONSITE Attendance 19+',
+    'Attendance at Synchronous General Interest Programs':                         'ONSITE Attendance General Interest',
+    # OFFSITE / VIRTUAL totals (no age breakdown in form)
+    'Number of Synchronous In-Person Offsite Program Sessions':                    'OFFSITE Sessions 6-11',
+    'Number of Synchronous Virtual Program Sessions':                              'VIRTUAL Sessions General Interest',
+    'Synchronous In-Person Offsite Program Attendance':                            'OFFSITE Attendance 6-11',
+    'Synchronous Virtual Program Attendance':                                      'VIRTUAL Attendance General Interest',
+    # Other branch stats
+    'Outreach Activities':                                                         'Number of Outreach Activities Conducted',
+    'Outreach Attendance':                                                         'Outreach Attendance',
+    'Take & Make Kits':                                                            'Take & Makes / Other Passive Program Participants',
+    'Door Count':                                                                  'Gate Count',
+    'PC Reservation Sessions':                                                     'PC Reservations',
+    'WiFi - Unique Clients':                                                       'WiFi - Unique Sessions',
+    'InterLibrary Loans  - Received':                                              'ILL - Received (Main ONLY)',
+    'InterLibrary Loans - Sent':                                                   'ILL - Sent (Main ONLY)',
+    'Number of times library facilities were used by external parties or groups for non library functions (Scheduled use only)':
+                                                                                   'External Party Library Room Use',
+    # Two spellings found in the wild (advice vs advise typo)
+    'Number of scheduled one-on-one sessions between staff and library patrons (Do not include reference transactions and directional advice)':
+                                                                                   '1-on-1 Total for Month',
+    'Number of scheduled one-on-one sessions between staff and library patrons (Do not include reference transactions and directional advise)':
+                                                                                   '1-on-1 Total for Month',
+    'Number of Staff Trained at Each Session':                                     'Number of Staff Taking Training',
+    'Monthly Total Hours of Staff Training':                                       'Number of Hours Staff Attended Training',
+    'Curbside':                                                                    'Curbside',
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -193,14 +256,18 @@ def build_branch_lookup():
 
     aliases = {
         # Outreach/Bookmobile variants
-        'OUTREACH / BOOKMOBILE':  'Outreach/Bookmobile',
-        'Outreach / Bookmobile':  'Outreach/Bookmobile',
-        'outreach / bookmobile':  'Outreach/Bookmobile',
-        'OUTREACH/BOOKMOBILE':    'Outreach/Bookmobile',
-        'outreach/bookmobile':    'Outreach/Bookmobile',
-        'BOOKMOBILE/OUTREACH':    'Outreach/Bookmobile',
-        'OUTREACH / BKM':         'Outreach/Bookmobile',
-        'Outreach / BKM':         'Outreach/Bookmobile',
+        'OUTREACH / BOOKMOBILE':      'Bookmobile/Outreach',
+        'Outreach / Bookmobile':      'Bookmobile/Outreach',
+        'outreach / bookmobile':      'Bookmobile/Outreach',
+        'OUTREACH/BOOKMOBILE':        'Bookmobile/Outreach',
+        'Outreach/Bookmobile':        'Bookmobile/Outreach',
+        'outreach/bookmobile':        'Bookmobile/Outreach',
+        'BOOKMOBILE/OUTREACH':        'Bookmobile/Outreach',
+        'OUTREACH / BKM':             'Bookmobile/Outreach',
+        'Outreach / BKM':             'Bookmobile/Outreach',
+        'Bookmobile and Outreach':    'Bookmobile/Outreach',
+        'BOOKMOBILE AND OUTREACH':    'Bookmobile/Outreach',
+        'bookmobile and outreach':    'Bookmobile/Outreach',
         # System-wide variants
         'YCL SYSTEM WIDE':        'YCL (System Wide)',
         'YCL (SYSTEM WIDE)':      'YCL (System Wide)',
@@ -217,6 +284,8 @@ def build_branch_lookup():
         'ROCK HILL YA':               'Rock Hill - YA',
         'RH - YA':                    'Rock Hill - YA',
         'RH YA':                      'Rock Hill - YA',
+        'Rock Hill - Childrens':      "Rock Hill - Children's",
+        'ROCK HILL - CHILDRENS':      "Rock Hill - Children's",
         # Locker locations (ILS codes)
         'YCL-CL-LOC':                 'Clover - Lockers',
         'YCL-FM-LOC':                 'Fort Mill - Lockers',
@@ -263,12 +332,32 @@ def import_branch_stats(ws, cat, metric_lookup, branch_lookup, year_override=Non
     month_idx  = col_index(headers, 'Month Num') or col_index(headers, 'Month')
     branch_idx = col_index(headers, 'BRANCH')
 
+    # Never overwrite metrics that come from SIRSI reports — those importers are authoritative.
+    _SIRSI_METRIC_NAMES = {
+        'New Library Card Registrations, Adult',
+        'New Library Card Registrations, Juvenile',
+        'New Library Card Registrations, Total',
+        'Total Branch Circulation',
+        'Hotspots Circulation',
+        'Locker Circulation',
+    }
+    sirsi_metric_ids = {m.id for name, m in metric_lookup.items() if name in _SIRSI_METRIC_NAMES}
+
     col_metric = {}
+    unmatched_prog_cols = []
     for i, h in enumerate(headers):
-        if h and h in BRANCH_STATS_MAP:
-            m = metric_lookup.get(BRANCH_STATS_MAP[h])
-            if m:
+        if not h:
+            continue
+        h_str = str(h)
+        metric_name = _BRANCH_STATS_MAP_NORM.get(_norm(h_str))
+        if metric_name:
+            m = metric_lookup.get(metric_name)
+            if m and m.id not in sirsi_metric_ids:
                 col_metric[i] = m
+        else:
+            tokens = set(h_str.split())
+            if tokens & _PROG_TOKENS:
+                unmatched_prog_cols.append(h_str)
 
     buckets = {}
     skipped_branches = set()
@@ -296,14 +385,23 @@ def import_branch_stats(ws, cat, metric_lookup, branch_lookup, year_override=Non
         if getattr(branch, 'is_desk', False):
             continue
 
+        is_rock_hill = 'rock hill' in branch.name.lower()
         key = (int(year), month, branch.id)
         if key not in buckets:
             buckets[key] = {}
         for i, val in enumerate(row):
             if i in col_metric and val is not None:
-                buckets[key][col_metric[i].id] = float(val)
+                m = col_metric[i]
+                if m.name in _MAIN_ONLY_METRIC_NAMES and not is_rock_hill:
+                    continue
+                buckets[key][m.id] = float(val)
 
     warnings = [f'Unrecognised branch skipped: {b}' for b in sorted(skipped_branches)]
+    if unmatched_prog_cols:
+        warnings.append(
+            'Programming columns in file not matched to any metric (data NOT imported): '
+            + '; '.join(unmatched_prog_cols)
+        )
     created = updated = 0
     for (year, month, branch_id), values in buckets.items():
         if not values:
@@ -312,13 +410,13 @@ def import_branch_stats(ws, cat, metric_lookup, branch_lookup, year_override=Non
             category_id=cat.id, branch_id=branch_id, year=year, month=month
         ).first()
         if entry is None:
-            entry = Entry(category_id=cat.id, branch_id=branch_id,
-                          year=year, month=month, submitted_by='Excel Import')
+            entry = Entry(category_id=cat.id, branch_id=branch_id, year=year, month=month)
             db.session.add(entry)
             db.session.flush()
             created += 1
         else:
             updated += 1
+        entry.add_source('Excel Import')
         ev_map = {ev.metric_id: ev for ev in entry.values}
         for metric_id, val in values.items():
             ev = ev_map.get(metric_id)
@@ -328,7 +426,134 @@ def import_branch_stats(ws, cat, metric_lookup, branch_lookup, year_override=Non
                 db.session.add(EntryValue(entry_id=entry.id, metric_id=metric_id, value_number=val))
 
     db.session.commit()
-    return created, updated, warnings
+    period_set = {(y, m) for y, m, _ in buckets.keys()}
+    return created, updated, period_set, warnings
+
+
+def import_google_forms_stats(ws, cat, metric_lookup, branch_lookup):
+    """Import monthly branch stats from a Google Forms response export.
+
+    Expects sheet 'Form Responses 1' with columns: Timestamp, Email Address,
+    Select Month, Select Branch, then metric columns.  Year is inferred from
+    the submission timestamp (if the reported month is later than the
+    submission month, the year rolls back by one).
+
+    OFFSITE/VIRTUAL session and attendance totals are stored in the 6-11 and
+    General Interest buckets by convention (the form has no per-age breakdown).
+    Registration metrics (SIRSI-sourced) are never overwritten.
+    """
+    # Metrics sourced from SIRSI — never overwrite with form data
+    SIRSI_METRIC_NAMES = {
+        'New Library Card Registrations, Adult',
+        'New Library Card Registrations, Juvenile',
+        'Total Branch Circulation',
+        'Hotspots Circulation',
+        'Locker Circulation',
+    }
+    sirsi_metric_ids = {m.id for name, m in metric_lookup.items() if name in SIRSI_METRIC_NAMES}
+
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return 0, 0, set(), ['Empty sheet']
+
+    headers = rows[0]
+
+    timestamp_idx = col_index(headers, 'Timestamp')
+    month_idx     = col_index(headers, 'Select Month')
+    branch_idx    = col_index(headers, 'Select Branch')
+    if None in (timestamp_idx, month_idx, branch_idx):
+        return 0, 0, set(), ['Missing required columns (Timestamp / Select Month / Select Branch)']
+
+    col_metric = {}
+    for i, h in enumerate(headers):
+        if h is None:
+            continue
+        h_str = str(h).strip()
+        metric_name = GOOGLE_FORMS_STATS_MAP.get(h_str)
+        if metric_name:
+            m = metric_lookup.get(metric_name)
+            if m and m.id not in sirsi_metric_ids:
+                col_metric[i] = m
+
+    # Rows are in ascending timestamp order; later rows overwrite earlier ones
+    # for the same branch+month (picks up the most recent correction).
+    buckets = {}
+    skipped_branches = set()
+    bad_rows = 0
+
+    for row in rows[1:]:
+        if all(v is None for v in row):
+            continue
+
+        timestamp   = row[timestamp_idx]
+        month_name  = row[month_idx]
+        branch_name = row[branch_idx]
+
+        if not isinstance(timestamp, datetime):
+            bad_rows += 1
+            continue
+
+        month = parse_month(month_name)
+        if not month or not branch_name:
+            bad_rows += 1
+            continue
+
+        branch_name = str(branch_name).strip()
+        if 'system wide' in branch_name.lower():
+            continue
+
+        branch = branch_lookup.get(branch_name) or branch_lookup.get(branch_name.lower())
+        if branch is None:
+            skipped_branches.add(branch_name)
+            continue
+
+        sub_year = timestamp.year
+        year = sub_year - 1 if month > timestamp.month else sub_year
+
+        is_rock_hill = 'rock hill' in branch.name.lower()
+        key = (year, month, branch.id)
+        if key not in buckets:
+            buckets[key] = {}
+        for i, val in enumerate(row):
+            if i in col_metric and val is not None:
+                m = col_metric[i]
+                if m.name in _MAIN_ONLY_METRIC_NAMES and not is_rock_hill:
+                    continue
+                try:
+                    buckets[key][m.id] = float(val)
+                except (ValueError, TypeError):
+                    pass
+
+    warnings = [f'Unrecognised branch skipped: {b}' for b in sorted(skipped_branches)]
+    if bad_rows:
+        warnings.append(f'{bad_rows} rows skipped (unparseable timestamp or missing month/branch)')
+
+    created = updated = 0
+    for (year, month, branch_id), values in buckets.items():
+        if not values:
+            continue
+        entry = Entry.query.filter_by(
+            category_id=cat.id, branch_id=branch_id, year=year, month=month
+        ).first()
+        if entry is None:
+            entry = Entry(category_id=cat.id, branch_id=branch_id, year=year, month=month)
+            db.session.add(entry)
+            db.session.flush()
+            created += 1
+        else:
+            updated += 1
+        entry.add_source('Excel Import')
+        ev_map = {ev.metric_id: ev for ev in entry.values}
+        for metric_id, val in values.items():
+            ev = ev_map.get(metric_id)
+            if ev:
+                ev.value_number = val
+            else:
+                db.session.add(EntryValue(entry_id=entry.id, metric_id=metric_id, value_number=val))
+
+    db.session.commit()
+    period_set = {(y, m) for y, m, _ in buckets.keys()}
+    return created, updated, period_set, warnings
 
 
 def import_online_stats(ws, cat, metric_lookup, year_override=None):
@@ -369,13 +594,13 @@ def import_online_stats(ws, cat, metric_lookup, year_override=None):
             category_id=cat.id, branch_id=None, year=year, month=month
         ).first()
         if entry is None:
-            entry = Entry(category_id=cat.id, year=year, month=month,
-                          submitted_by='Excel Import')
+            entry = Entry(category_id=cat.id, year=year, month=month)
             db.session.add(entry)
             db.session.flush()
             created += 1
         else:
             updated += 1
+        entry.add_source('Excel Import')
         ev_map = {ev.metric_id: ev for ev in entry.values}
         for metric_id, val in values.items():
             ev = ev_map.get(metric_id)
@@ -458,7 +683,7 @@ def import_quarterly_ref(ws, cat, metric_lookup, branch_lookup):
 
 # ILS station-code → Branch.name
 ILS_BRANCH_MAP = {
-    'YCL-BK':     'Outreach/Bookmobile',
+    'YCL-BK':     'Bookmobile/Outreach',
     'YCL-CL':     'Clover',
     'YCL-CL-LOC': 'Clover - Lockers',
     'YCL-FM':     'Fort Mill',
@@ -476,8 +701,11 @@ INTERNAL_PROFILES = {'DAMAGED', 'DISCARD', 'MISSING', 'REPAIR', 'PRGMNG',
                      'STAFF-PERS', 'YCLCIRC', 'ILL', 'LOSTCARD'}
 
 # New Library Users — patron type classification
-_ADULT_PROFILES   = {'ADULT', 'A-NONRES', 'INST-TEACH', 'TEEN', 'COLLEGE', 'HOMEBOUND'}
-_JUVENILE_PROFILES = {'JUVENILE', 'J-INTERNET', 'J-RESTRICT', 'JR-NONRES'}
+_ADULT_PROFILES   = {'ADULT', 'A-NONRES', 'INST-TEACH', 'TEEN', 'COLLEGE', 'HOMEBOUND',
+                     'J-ADULT'}       # juvenile patron aged up to adult status
+_JUVENILE_PROFILES = {'JUVENILE', 'J-INTERNET', 'J-RESTRICT', 'JR-NONRES',
+                      'TEMP-INET',    # temporary internet-only juvenile card
+                      'JR-RECIP'}     # junior reciprocal borrower
 
 # Door count location name → Branch.name
 DOOR_COUNT_BRANCH_MAP = {
@@ -489,26 +717,26 @@ DOOR_COUNT_BRANCH_MAP = {
 }
 
 
-# Princh location string → Branch.name (substring match, lowercased)
-PRINCH_BRANCH_MAP = {
+# Printing location string → Branch.name (substring match, lowercased)
+PRINTING_BRANCH_MAP = {
     'lake wylie': 'Lake Wylie',
     'clover':     'Clover',
-    'york':       'York',
     'fort mill':  'Fort Mill',
     'rock hill':  'Rock Hill',
+    'york':       'York',
 }
 
-# Page-count columns in the Princh export
-PRINCH_PAGE_COLS = [
+# Page-count columns in the printing export
+PRINTING_PAGE_COLS = [
     'Letter color pages', 'Letter monochrome pages',
     'Legal color pages',  'Legal monochrome pages',
     'Ledger color pages', 'Ledger monochrome pages',
 ]
 
 
-def import_princh(ws, branch_lookup):
+def import_printing(ws, branch_lookup):
     """
-    Parse a Princh print-management export.
+    Parse a printing export.
     Sums all page-type columns per branch per month → Total Prints per Month.
     """
     rows = list(ws.iter_rows(values_only=True))
@@ -524,10 +752,10 @@ def import_princh(ws, branch_lookup):
     loc_idx   = ci('Location')
     from_idx  = ci('From')
     docs_idx  = ci('Documents')
-    page_idxs = [ci(c) for c in PRINCH_PAGE_COLS if ci(c) is not None]
+    page_idxs = [ci(c) for c in PRINTING_PAGE_COLS if ci(c) is not None]
 
     if loc_idx is None or from_idx is None or (not page_idxs and docs_idx is None):
-        return 0, 0, ['Unrecognised Princh format — expected Location, From, and page or Documents columns']
+        return 0, 0, ['Unrecognised printing format — expected Location, From, and page or Documents columns']
 
     metric_lookup, cat = build_metric_lookup('Branch Stats')
     prints_metric = metric_lookup.get('Total Prints per Month')
@@ -560,7 +788,7 @@ def import_princh(ws, branch_lookup):
         # Match location to branch
         loc_lower = str(loc).strip().lower()
         branch_name = next(
-            (name for key, name in PRINCH_BRANCH_MAP.items() if key in loc_lower),
+            (name for key, name in PRINTING_BRANCH_MAP.items() if key in loc_lower),
             None
         )
         if not branch_name:
@@ -585,9 +813,308 @@ def import_princh(ws, branch_lookup):
         r = _upsert_branch_stat(cat.id, branch_id, year, month, prints_metric.id, total)
         if r == 'created': created += 1
         else: updated += 1
-
+    period_set = {(y, m) for y, m, _ in totals.keys()}
     db.session.commit()
-    return created, updated, warnings
+    return created, updated, period_set, warnings
+
+
+# ── LPTOne / Princh "Branch Print Summary" export ─────────────────────────────
+#
+# Some libraries release prints through LPTOne at the desk (mobile "Princh" jobs
+# are rolled into the same totals). Their export is one row per branch with no
+# date column — the period comes from the file name (e.g. YCL_Print_Summary_June2026).
+#
+# Each spreadsheet column is tracked as its own Branch Stats metric, per branch,
+# per month. "Printed Pages" continues the existing "Total Prints per Month"
+# series so the historical Princh data and new data combine into one line.
+PRINT_SUMMARY_COL_MAP = {
+    'Printed Pages': 'Total Prints per Month',   # existing metric — combines old + new
+    'Printed Jobs':  'Printed Jobs',
+    'Printed Cost':  'Printed Cost',
+}
+
+# New metrics this importer may need to create (name → (group, data_type)).
+PRINT_SUMMARY_NEW_METRICS = {
+    'Printed Jobs': ('Access & Usage', 'integer'),
+    'Printed Cost': ('Access & Usage', 'decimal'),
+}
+
+_MONTH_NAMES = {
+    'january': 1, 'february': 2, 'march': 3, 'april': 4, 'may': 5, 'june': 6,
+    'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11,
+    'december': 12,
+}
+
+
+def parse_period_from_filename(filename):
+    """
+    Pull (year, month) out of a file name for exports that carry no date column.
+    Handles 'June2026', 'June_2026', 'June 2026', '2026-06', '2026_06'.
+    Returns (year, month) or (None, None).
+    """
+    if not filename:
+        return None, None
+    name = str(filename)
+
+    # Month name followed (optionally) by a 4-digit year, e.g. 'June2026'
+    m = re.search(
+        r'(january|february|march|april|may|june|july|august|september|'
+        r'october|november|december)[ _-]*((?:19|20)\d{2})',
+        name, re.IGNORECASE)
+    if m:
+        return int(m.group(2)), _MONTH_NAMES[m.group(1).lower()]
+
+    # Numeric YYYY-MM / YYYY_MM
+    m = re.search(r'((?:19|20)\d{2})[ _-](0[1-9]|1[0-2])', name)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+
+    return None, None
+
+
+def parse_period_from_sheet(rows):
+    """
+    Pull (year, month) from a title row placed above the data, e.g. a row that
+    holds a month name and a 4-digit year ('June', 2026) or a single 'June 2026'
+    string. Scans the first few rows. Returns (year, month) or (None, None).
+    """
+    for r in rows[:5]:
+        if not r:
+            continue
+        month = year = None
+        for v in r:
+            if v is None:
+                continue
+            if isinstance(v, str):
+                key = v.strip().lower()
+                if key in _MONTH_NAMES:
+                    month = _MONTH_NAMES[key]
+                else:
+                    # A combined 'June 2026' style cell
+                    y, mo = parse_period_from_filename(key)
+                    if y and mo:
+                        return y, mo
+            elif isinstance(v, (int, float)) and float(v).is_integer():
+                iv = int(v)
+                if 2000 <= iv <= 2099:
+                    year = iv
+                elif month is None and 1 <= iv <= 12:
+                    month = iv
+        if year and month:
+            return year, month
+    return None, None
+
+
+def _ensure_metric(cat_id, name, group_name, data_type):
+    """
+    Find-or-create a Metric row (production DBs have no migration tool, so new
+    metrics are added idempotently on first use). Returns the Metric.
+    """
+    m = Metric.query.filter_by(category_id=cat_id, name=name).first()
+    if m:
+        return m
+    max_sort = db.session.query(db.func.max(Metric.sort_order)).filter_by(
+        category_id=cat_id).scalar() or 0
+    m = Metric(category_id=cat_id, name=name, group_name=group_name,
+               data_type=data_type, sort_order=max_sort + 1)
+    db.session.add(m)
+    db.session.flush()
+    return m
+
+
+def import_print_summary(ws, branch_lookup, year, month):
+    """
+    Parse an LPTOne / Princh 'Branch Print Summary' export: one row per branch
+    with Printed Jobs / Printed Pages / Printed Cost columns. Period comes from
+    the caller (parsed from the file name).
+
+    Each recognised column is upserted as its own Branch Stats metric per branch.
+    Returns (created, updated, period_set, warnings).
+    """
+    if not (year and month):
+        return 0, 0, set(), ['Could not determine month/year — expected it in the '
+                             'file name (e.g. YCL_Print_Summary_June2026.xlsx)']
+
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return 0, 0, set(), ['Empty sheet']
+
+    # The header row may not be the first row (some exports have title rows above).
+    header = header_idx = None
+    for i, r in enumerate(rows[:6]):
+        vals = [str(v).strip() if v is not None else '' for v in r]
+        if 'Branch' in vals and 'Printed Pages' in vals:
+            header, header_idx = vals, i
+            break
+    if header is None:
+        return 0, 0, set(), ['Unrecognised print summary format — expected a '
+                             '"Branch" + "Printed Pages" header row']
+
+    branch_col = header.index('Branch')
+    # Map each recognised column index → metric name
+    col_to_metric = {header.index(col): metric
+                     for col, metric in PRINT_SUMMARY_COL_MAP.items()
+                     if col in header}
+
+    cat = Category.query.filter_by(name='Branch Stats').first()
+    if not cat:
+        return 0, 0, set(), ['Branch Stats category not found']
+
+    # Resolve (creating if needed) the metric object for each mapped column.
+    metric_ids = {}
+    for col_idx, metric_name in col_to_metric.items():
+        spec = PRINT_SUMMARY_NEW_METRICS.get(metric_name)
+        if spec:
+            metric = _ensure_metric(cat.id, metric_name, spec[0], spec[1])
+        else:
+            metric = Metric.query.filter_by(category_id=cat.id, name=metric_name).first()
+        if metric:
+            metric_ids[col_idx] = metric.id
+
+    created = updated = 0
+    unrecognised = set()
+    period_set = set()
+
+    for r in rows[header_idx + 1:]:
+        if r is None or all(v is None for v in r):
+            continue
+        raw = r[branch_col]
+        if raw is None:
+            continue
+        # 'Rock Hill*' / 'Rock Hill (RH)' → strip footnote marks/suffixes for matching
+        loc_lower = str(raw).strip().rstrip('*').strip().lower()
+        if not loc_lower or loc_lower in ('total', 'totals'):
+            continue
+
+        branch_name = next(
+            (name for key, name in PRINTING_BRANCH_MAP.items() if key in loc_lower),
+            None)
+        branch = branch_lookup.get(branch_name) if branch_name else None
+        if not branch:
+            unrecognised.add(str(raw).strip())
+            continue
+
+        for col_idx, metric_id in metric_ids.items():
+            val = r[col_idx] if col_idx < len(r) else None
+            if not isinstance(val, (int, float)):
+                continue
+            res = _upsert_branch_stat(cat.id, branch.id, year, month, metric_id, val)
+            if res == 'created': created += 1
+            else: updated += 1
+        period_set.add((year, month))
+
+    warnings = ([f'Unrecognised branches skipped: {sorted(unrecognised)}']
+                if unrecognised else [])
+    db.session.commit()
+    return created, updated, period_set, warnings
+
+
+# PC Reservation (EnvisionWare) branch-name variants → canonical branch name.
+PCRES_BRANCH_MAP = {
+    'clover':     'Clover',
+    'fort mill':  'Fort Mill',
+    'lake wylie': 'Lake Wylie',
+    'rock hill':  'Rock Hill',
+    'york':       'York',
+}
+
+
+def import_pc_reservations(ws, branch_lookup, year_override=None):
+    """
+    Parse a PC Reservation usage sheet → the 'PC Reservations' metric in Branch Stats.
+
+    Expects one row per branch per month with columns (header row, any order):
+        Branch | Year | Month | Total Uses
+    A leading title/metadata block above the header is tolerated. Extra columns
+    (Total Time, Average Session, etc.) and any 'TOTALS' rows are ignored.
+
+    Sums 'Total Uses' per (branch, year, month) and upserts into PC Reservations.
+    Upsert semantics: existing months/branches are overwritten in place, other
+    data is never touched, and re-running the same file is a no-op. Returns
+    (created, updated, period_set, warnings).
+    """
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return 0, 0, set(), ['Empty sheet']
+
+    # Locate the header row (first row containing a 'Branch' cell) so a title
+    # block above the table doesn't break parsing.
+    header_i = next((i for i, r in enumerate(rows)
+                     if any(v is not None and str(v).strip().lower() == 'branch' for v in r)), None)
+    if header_i is None:
+        return 0, 0, set(), ['Unrecognised PC Reservations format — no "Branch" header found']
+
+    headers = [str(v).strip().lower() if v is not None else '' for v in rows[header_i]]
+
+    def ci(*names):
+        for n in names:
+            if n in headers:
+                return headers.index(n)
+        return None
+
+    branch_idx = ci('branch')
+    year_idx   = ci('year')
+    month_idx  = ci('month')
+    uses_idx   = ci('total uses', 'pc reservations', 'uses')
+    if branch_idx is None or uses_idx is None:
+        return 0, 0, set(), ['Unrecognised PC Reservations format — expected Branch and Total Uses columns']
+
+    metric_lookup, cat = build_metric_lookup('Branch Stats')
+    pc_metric = metric_lookup.get('PC Reservations')
+    if not cat or not pc_metric:
+        return 0, 0, set(), ['Branch Stats or "PC Reservations" metric not found']
+
+    from collections import defaultdict
+    totals = defaultdict(int)      # (year, month, branch_id) → total uses
+    unrecognised = set()
+    warnings = []
+
+    for r in rows[header_i + 1:]:
+        if all(v is None for v in r):
+            continue
+        branch_val = r[branch_idx] if branch_idx < len(r) else None
+        uses_val   = r[uses_idx]   if uses_idx   < len(r) else None
+        if not branch_val or not isinstance(uses_val, (int, float)):
+            continue
+        # Skip any TOTALS / summary rows that slip in.
+        if str(branch_val).strip().lower().startswith('total'):
+            continue
+
+        # Year / month: prefer explicit columns, fall back to upload year override.
+        year = None
+        if year_idx is not None and year_idx < len(r) and isinstance(r[year_idx], (int, float)):
+            year = int(r[year_idx])
+        elif year_override:
+            year = year_override
+        month = None
+        if month_idx is not None and month_idx < len(r) and isinstance(r[month_idx], (int, float)):
+            month = int(r[month_idx])
+        if not year or not month or not (1 <= month <= 12):
+            warnings.append(f'Skipped row with missing/invalid year or month: {branch_val}')
+            continue
+
+        # Match branch name (case-insensitive, tolerant of extra words).
+        bl = str(branch_val).strip().lower()
+        branch_name = PCRES_BRANCH_MAP.get(bl) or next(
+            (name for key, name in PCRES_BRANCH_MAP.items() if key in bl), None)
+        branch = branch_lookup.get(branch_name) if branch_name else branch_lookup.get(bl)
+        if not branch:
+            unrecognised.add(str(branch_val).strip())
+            continue
+
+        totals[(year, month, branch.id)] += int(uses_val)
+
+    if unrecognised:
+        warnings.append(f'Unrecognised branches skipped: {sorted(unrecognised)}')
+
+    created = updated = 0
+    for (year, month, branch_id), total in totals.items():
+        res = _upsert_branch_stat(cat.id, branch_id, year, month, pc_metric.id, total)
+        if res == 'created': created += 1
+        else: updated += 1
+    period_set = {(y, m) for y, m, _ in totals.keys()}
+    db.session.commit()
+    return created, updated, period_set, warnings
 
 
 def _detect_sirsi_report_type(rows):
@@ -665,9 +1192,13 @@ def import_sirsi_checkouts(ws, year, month, branch_lookup):
 
         if not isinstance(count, (int, float)):
             continue
-        if location in (None, 'Total', 'Number of Checkouts'):
+        if location in ('Total', 'Number of Checkouts'):
             continue
         if profile == 'Total' or profile == 'Trans Stat User Profile Name':
+            continue
+        if profile is None and location is None:
+            continue  # grand-total summary rows (e.g. "Total  231280") — not transaction data
+        if profile and str(profile).strip() in INTERNAL_PROFILES:
             continue
         if current_ils is None:
             continue
@@ -716,16 +1247,15 @@ def import_sirsi_checkouts(ws, year, month, branch_lookup):
             if shelving_location == 'A-HOTSPOT':
                 branch_totals[branch_id][1] += chk
 
-        system_circ = system_hot = 0
         for branch_id, (total_circ, hot) in branch_totals.items():
             entry = (Entry.query
                      .filter_by(category_id=bs_cat.id, branch_id=branch_id, year=year, month=month)
                      .first())
             if not entry:
-                entry = Entry(category_id=bs_cat.id, branch_id=branch_id,
-                              year=year, month=month, submitted_by='SIRSI Import')
+                entry = Entry(category_id=bs_cat.id, branch_id=branch_id, year=year, month=month)
                 db.session.add(entry)
                 db.session.flush()
+            entry.add_source('SIRSI Import')
 
             ev = EntryValue.query.filter_by(entry_id=entry.id, metric_id=total_circ_metric.id).first()
             if ev:
@@ -742,8 +1272,273 @@ def import_sirsi_checkouts(ws, year, month, branch_lookup):
 
             circ_entries += 1
 
+    # Write Locker Circulation (checkouts + renewals) to parent branch entries.
+    locker_metric = bs_metrics.get('Locker Circulation')
+    if bs_cat and locker_metric and branch_totals:
+        locker_to_parent = {}
+        for code, name in ILS_BRANCH_MAP.items():
+            if not code.endswith('-LOC'):
+                continue
+            parent_name = name.replace(' - Lockers', '')
+            locker_b = branch_lookup.get(name) or branch_lookup.get(name.lower())
+            parent_b = branch_lookup.get(parent_name) or branch_lookup.get(parent_name.lower())
+            if locker_b and parent_b:
+                locker_to_parent[locker_b.id] = parent_b.id
+
+        for branch_id, (locker_circ, _) in branch_totals.items():
+            parent_id = locker_to_parent.get(branch_id)
+            if parent_id is None or not locker_circ:
+                continue
+            entry = (Entry.query
+                     .filter_by(category_id=bs_cat.id, branch_id=parent_id, year=year, month=month)
+                     .first())
+            if not entry:
+                entry = Entry(category_id=bs_cat.id, branch_id=parent_id, year=year, month=month)
+                db.session.add(entry)
+                db.session.flush()
+            entry.add_source('SIRSI Import')
+            ev_l = EntryValue.query.filter_by(entry_id=entry.id, metric_id=locker_metric.id).first()
+            if ev_l:
+                ev_l.value_number = locker_circ
+            else:
+                db.session.add(EntryValue(entry_id=entry.id, metric_id=locker_metric.id, value_number=locker_circ))
+
     db.session.commit()
     return len(detail), circ_entries, warnings
+
+
+# Communico "events-only-export" — Library Branch text → DB branch name.
+PROGRAMMING_BRANCH_MAP = {
+    'Main Library (Rock Hill)': 'Rock Hill',
+    'Clover Library':           'Clover',
+    'Fort Mill Library':        'Fort Mill',
+    'Lake Wylie Library':       'Lake Wylie',
+    'York Library':             'York',
+    'Bookmobile':                'Bookmobile/Outreach',
+    'Outreach Sprinter Van':     'Bookmobile/Outreach',
+    'Online':                    'YCL (System Wide)',
+}
+_OFFSITE_LIBRARY_BRANCH_VALUES = {'Bookmobile', 'Outreach Sprinter Van'}
+
+_AGE_BUCKET_PATTERNS = [
+    ('0-5',    ('0–2', '0-2', 'babies', 'toddler', '3–5', '3-5', 'preschooler')),
+    ('6-11',   ('6–11', '6-11', 'elementary')),
+    ('12-18',  ('12–18', '12-18', 'teen')),
+    ('19+',    ('18 years & up', '18 years and up', 'adult', '19+')),
+]
+
+
+def _parse_event_date(value):
+    """Extract a date from an Event Start Date cell — either a real datetime/date
+    object (openpyxl reads formatted date cells this way) or a string like
+    '07/01/2026 @ 10:30am'."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    m = re.search(r'(\d{1,2})/(\d{1,2})/(\d{4})', str(value))
+    if not m:
+        return None
+    mo, d, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    try:
+        return date(y, mo, d)
+    except ValueError:
+        return None
+
+
+def _classify_age_bucket(age_group_raw, warnings, unrecognized_seen):
+    """Map a Communico Age Group string to one of the app's five age buckets.
+    A row listing multiple age groups (comma-separated) is classified by the
+    first/broadest one listed. Blank or unrecognised text → General Interest."""
+    if not age_group_raw:
+        return 'General Interest'
+    first = age_group_raw.split(',')[0].strip()
+    low = first.lower()
+    for bucket, keys in _AGE_BUCKET_PATTERNS:
+        if any(k in low for k in keys):
+            return bucket
+    if 'all ages' in low or 'family' in low:
+        return 'General Interest'
+    if first not in unrecognized_seen:
+        unrecognized_seen.add(first)
+        warnings.append(f'Unrecognised Age Group "{first}" — counted as General Interest')
+    return 'General Interest'
+
+
+def import_programming_stats(ws, branch_lookup):
+    """
+    Parse a Communico 'events-only-export' sheet (one row per individual program
+    occurrence) into the ProgramEvent detail table, then recompute the Branch
+    Stats ONSITE/OFFSITE/VIRTUAL Sessions & Attendance (by age group) metrics
+    from all ProgramEvent rows on record for each period touched — so a
+    corrected re-upload always reflects the full current state.
+
+    Rows booked in a study room aren't programs — they're stored with
+    location_mode='STUDY_ROOM' (excluded from the Programs report and from
+    ONSITE/OFFSITE/VIRTUAL Sessions/Attendance) and counted instead into a
+    separate 'Study Room Use' Branch Stats metric, per branch per month.
+
+    Upserts by Event URL — safe to re-upload the same or a corrected file.
+    Returns (created, updated, skipped, periods, warnings) — 'skipped' counts
+    rows dropped for lacking a usable date, not study room bookings.
+    """
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return 0, 0, 0, set(), ['Sheet is empty']
+    header = [str(v).strip() if v is not None else '' for v in rows[0]]
+
+    col = {
+        'title':        col_index(header, 'Title'),
+        'age_group':    col_index(header, 'Age Group'),
+        'prog_type':    col_index(header, 'Program Type'),
+        'categories':   col_index(header, 'Internal Categories'),
+        'branch':       col_index(header, 'Library Branch'),
+        'room':         col_index(header, 'Room'),
+        'online_url':   col_index(header, 'Online URL'),
+        'offsite_addr': col_index(header, 'Offsite/Contact Address'),
+        'start_date':   col_index(header, 'Event Start Date'),
+        'expected':     col_index(header, 'Expected Attendance'),
+        'actual':       col_index(header, 'People in Attendance'),
+        'event_url':    col_index(header, 'Event URL'),
+    }
+    missing = [k for k in ('title', 'start_date', 'event_url') if col[k] is None]
+    if missing:
+        return 0, 0, 0, set(), [f'Missing required column(s): {missing}']
+
+    def cell(r, key):
+        i = col[key]
+        return r[i] if i is not None and i < len(r) else None
+
+    def text(v):
+        return str(v).strip() if v is not None and str(v).strip() else None
+
+    created = updated = skipped = 0
+    periods = set()
+    warnings = []
+    unmapped_branches = set()
+    unrecognized_ages = set()
+
+    for r in rows[1:]:
+        if r is None or all(v is None for v in r):
+            continue
+        event_url = text(cell(r, 'event_url'))
+        if not event_url:
+            continue  # not a real data row
+
+        room_raw = text(cell(r, 'room'))
+        is_study_room = bool(room_raw and 'study room' in room_raw.lower())
+
+        event_date = _parse_event_date(cell(r, 'start_date'))
+        if not event_date:
+            warnings.append(f'Could not determine date for event URL {event_url} — skipped')
+            skipped += 1
+            continue
+        year, month = event_date.year, event_date.month
+        periods.add((year, month))
+
+        branch_raw   = text(cell(r, 'branch'))
+        online_url   = text(cell(r, 'online_url'))
+        offsite_addr = text(cell(r, 'offsite_addr'))
+
+        if is_study_room:
+            # Study room bookings aren't programs — tracked as a separate
+            # Study Room Use count instead of ONSITE/OFFSITE/VIRTUAL Sessions.
+            location_mode = 'STUDY_ROOM'
+        elif online_url or branch_raw == 'Online':
+            location_mode = 'VIRTUAL'
+        elif branch_raw in _OFFSITE_LIBRARY_BRANCH_VALUES or offsite_addr:
+            location_mode = 'OFFSITE'
+        else:
+            location_mode = 'ONSITE'
+
+        branch_obj = None
+        if branch_raw:
+            db_name = PROGRAMMING_BRANCH_MAP.get(branch_raw)
+            branch_obj = branch_lookup.get(db_name) if db_name else branch_lookup.get(branch_raw)
+            if branch_obj is None:
+                unmapped_branches.add(branch_raw)
+
+        actual_att   = cell(r, 'actual')
+        expected_att = cell(r, 'expected')
+        if isinstance(actual_att, (int, float)):
+            attendance, is_estimate = int(actual_att), False
+        elif isinstance(expected_att, (int, float)):
+            attendance, is_estimate = int(expected_att), True
+        else:
+            attendance, is_estimate = 0, False
+
+        age_group_raw = text(cell(r, 'age_group'))
+        age_bucket = None if is_study_room else _classify_age_bucket(
+            age_group_raw, warnings, unrecognized_ages)
+
+        pe = ProgramEvent.query.filter_by(event_url=event_url).first()
+        is_new = pe is None
+        if is_new:
+            pe = ProgramEvent(event_url=event_url)
+            db.session.add(pe)
+
+        pe.year = year
+        pe.month = month
+        pe.event_date = event_date
+        pe.title = text(cell(r, 'title'))
+        pe.age_group_raw = age_group_raw
+        pe.program_type = text(cell(r, 'prog_type'))
+        pe.internal_categories = text(cell(r, 'categories'))
+        pe.branch_id = branch_obj.id if branch_obj else None
+        pe.room = room_raw
+        pe.attendance = attendance
+        pe.attendance_is_estimate = is_estimate
+        pe.location_mode = location_mode
+        pe.age_bucket = age_bucket
+
+        if is_new:
+            created += 1
+        else:
+            updated += 1
+
+    if unmapped_branches:
+        warnings.append(f'Unrecognised Library Branch value(s), stored without a branch: {sorted(unmapped_branches)}')
+
+    db.session.flush()
+
+    # Recompute Branch Stats Sessions/Attendance metrics for every period touched,
+    # from ALL ProgramEvent rows currently on record (not just this file's rows).
+    metric_lookup, cat = build_metric_lookup('Branch Stats')
+    if cat:
+        study_metric = _ensure_metric(cat.id, 'Study Room Use', 'Access & Usage', 'integer')
+
+        for (year, month) in periods:
+            agg = {}          # (branch_id, location_mode, age_bucket) -> [sessions, attendance]
+            study_counts = {}  # branch_id -> count
+            for row in ProgramEvent.query.filter_by(year=year, month=month).all():
+                if row.branch_id is None:
+                    continue
+                if row.location_mode == 'STUDY_ROOM':
+                    study_counts[row.branch_id] = study_counts.get(row.branch_id, 0) + 1
+                    continue
+                key = (row.branch_id, row.location_mode, row.age_bucket)
+                if key not in agg:
+                    agg[key] = [0, 0]
+                agg[key][0] += 1
+                agg[key][1] += row.attendance or 0
+
+            for (branch_id, location_mode, age_bucket), (sessions, attendance) in agg.items():
+                sess_metric = metric_lookup.get(f'{location_mode} Sessions {age_bucket}')
+                att_metric  = metric_lookup.get(f'{location_mode} Attendance {age_bucket}')
+                if sess_metric:
+                    _upsert_branch_stat(cat.id, branch_id, year, month, sess_metric.id, sessions)
+                if att_metric:
+                    _upsert_branch_stat(cat.id, branch_id, year, month, att_metric.id, attendance)
+
+            for branch_id, count in study_counts.items():
+                _upsert_branch_stat(cat.id, branch_id, year, month, study_metric.id, count)
+    else:
+        warnings.append('Branch Stats category not found — Sessions/Attendance metrics were not updated')
+
+    db.session.commit()
+    return created, updated, skipped, periods, warnings
 
 
 def import_sirsi_user_profile(ws, branch_lookup):
@@ -832,10 +1627,10 @@ def _upsert_branch_stat(cat_id, branch_id, year, month, metric_id, value):
     entry = Entry.query.filter_by(category_id=cat_id, branch_id=branch_id,
                                   year=year, month=month).first()
     if not entry:
-        entry = Entry(category_id=cat_id, branch_id=branch_id,
-                      year=year, month=month, submitted_by='File Import')
+        entry = Entry(category_id=cat_id, branch_id=branch_id, year=year, month=month)
         db.session.add(entry)
         db.session.flush()
+    entry.add_source('File Import')
     ev = EntryValue.query.filter_by(entry_id=entry.id, metric_id=metric_id).first()
     if ev:
         ev.value_number = value
@@ -917,57 +1712,232 @@ def import_new_library_users(ws, year, month, branch_lookup):
 def import_door_count(ws, branch_lookup):
     """
     Parse a daily door count sheet (hourly ins/outs per branch).
-    Sums 'Ins' per branch per month and updates Gate Count in Branch Stats.
+    Sums 'Outs' per branch per month and updates Gate Count in Branch Stats.
     """
     rows = list(ws.iter_rows(values_only=True))
 
     metric_lookup, cat = build_metric_lookup('Branch Stats')
     gate_metric = metric_lookup.get('Gate Count')
     if not cat or not gate_metric:
-        return 0, ['Branch Stats or Gate Count metric not found']
+        return 0, 0, set(), ['Branch Stats or Gate Count metric not found']
+
+    # Locate columns by header name so the parser works regardless of column
+    # order or a leading index column being present.
+    header_idx = next((i for i, r in enumerate(rows)
+                       if any(v is not None and 'Location Name' in str(v) for v in r)), None)
+    if header_idx is None:
+        return 0, 0, set(), ['Header row with "Location Name" not found']
+
+    header = [str(v).strip() if v is not None else '' for v in rows[header_idx]]
+    loc_col  = next((i for i, h in enumerate(header) if h == 'Location Name'), None)
+    date_col = next((i for i, h in enumerate(header) if h in ('Record Date', 'Date')), None)
+    outs_col = next((i for i, h in enumerate(header) if h == 'Outs'), None)
+    if loc_col is None or date_col is None or outs_col is None:
+        return 0, 0, set(), ['Could not find Location Name / Record Date / Outs columns']
 
     from collections import defaultdict
-    monthly_ins = defaultdict(lambda: defaultdict(int))  # (year,month) → branch_id → total
+    monthly_outs = defaultdict(lambda: defaultdict(int))  # (year,month) → branch_id → total
 
-    for r in rows:
-        loc_name = r[1]
-        date     = r[2]
-        ins      = r[3]
-        if not isinstance(ins, (int, float)) or ins == 0:
-            continue
+    # Common text-date formats seen in hand-built/converted reports, tried in
+    # order after real Excel date values.
+    DATE_FORMATS = ['%Y-%m-%d', '%m/%d/%Y', '%m/%d/%y', '%Y/%m/%d']
+
+    bad_dates     = set()  # raw date values that couldn't be parsed
+    bad_locations = set()  # location names with no entry in DOOR_COUNT_BRANCH_MAP
+    bad_branches  = set()  # mapped branch names missing from the database
+    bad_outs      = 0      # rows with a non-numeric, non-blank Outs value
+
+    for r in rows[header_idx + 1:]:
+        loc_name = r[loc_col]  if loc_col  < len(r) else None
+        date     = r[date_col] if date_col < len(r) else None
+        outs     = r[outs_col] if outs_col < len(r) else None
+
         if not loc_name or loc_name == 'Location Name':
-            continue
+            continue  # blank row or a repeated header row
+
+        if not isinstance(outs, (int, float)):
+            if outs not in (None, ''):
+                try:
+                    outs = float(str(outs).replace(',', '').strip())
+                except ValueError:
+                    bad_outs += 1
+                    continue
+            else:
+                continue
+        if outs == 0:
+            continue  # a real, if unremarkable, day/branch total
+
         if not hasattr(date, 'year'):
-            continue
+            # Some exports store the date as text (e.g. '2026-06-01') rather
+            # than a real Excel date value.
+            parsed = None
+            for fmt in DATE_FORMATS:
+                try:
+                    parsed = datetime.strptime(str(date).strip(), fmt)
+                    break
+                except ValueError:
+                    continue
+            if parsed is None:
+                bad_dates.add(str(date))
+                continue
+            date = parsed
 
         branch_name = DOOR_COUNT_BRANCH_MAP.get(str(loc_name).strip())
         if not branch_name:
+            bad_locations.add(str(loc_name).strip())
             continue
         branch = branch_lookup.get(branch_name)
         if not branch:
+            bad_branches.add(branch_name)
             continue
 
-        monthly_ins[(date.year, date.month)][branch.id] += int(ins)
+        monthly_outs[(date.year, date.month)][branch.id] += int(outs)
+
+    warnings = []
+    if bad_dates:
+        sample = ', '.join(sorted(bad_dates)[:5])
+        warnings.append(f"Could not parse {len(bad_dates)} date value(s), rows skipped: {sample}"
+                         + (', ...' if len(bad_dates) > 5 else ''))
+    if bad_locations:
+        warnings.append('Unrecognized location name(s) — no branch mapping, rows skipped: '
+                         + ', '.join(sorted(bad_locations)))
+    if bad_branches:
+        warnings.append('Mapped branch name(s) not found in the database, rows skipped: '
+                         + ', '.join(sorted(bad_branches)))
+    if bad_outs:
+        warnings.append(f"{bad_outs} row(s) had a non-numeric 'Outs' value and were skipped")
+    if not monthly_outs and not warnings:
+        warnings.append('No usable data rows were found in the sheet')
 
     created = updated = 0
-    for (year, month), branch_totals in monthly_ins.items():
+    for (year, month), branch_totals in monthly_outs.items():
         for branch_id, total in branch_totals.items():
             r = _upsert_branch_stat(cat.id, branch_id, year, month, gate_metric.id, total)
             if r == 'created': created += 1
             else: updated += 1
 
     db.session.commit()
-    return created, updated, []
+    period_set = set(monthly_outs.keys())
+    return created, updated, period_set, warnings
 
 
-def detect_and_import(wb, year_override=None):
+# ── Cisco Meraki WiFi "Summary Report" export ─────────────────────────────────
+#
+# The Meraki dashboard exports one workbook per branch per period. Neither the
+# branch nor the month appears inside the sheets — both come from the file name
+# (e.g. "Rock Hill - Summary Report 2026-06-01 - 2026-07-01.xlsx"). The single
+# figure we track is "Total Unique Clients" (the "Client stats" sheet): the
+# monthly count of distinct devices seen on the WiFi. This is the automated
+# replacement for the previously hand-entered "WiFi - Unique Sessions" metric
+# (the Google Forms field was literally "WiFi - Unique Clients").
+
+# Presence of these sheets identifies a Meraki summary workbook.
+MERAKI_SIGNATURE_SHEETS = {'Client stats', 'Usage stats'}
+
+# File-name branch token → canonical Branch.name (substring match, lowercased).
+MERAKI_BRANCH_MAP = {
+    'rock hill':  'Rock Hill',
+    'fort mill':  'Fort Mill',
+    'lake wylie': 'Lake Wylie',
+    'clover':     'Clover',
+    'york':       'York',
+}
+
+
+def import_meraki_wifi(wb, branch_lookup, filename, year_override=None):
+    """
+    Parse a Cisco Meraki 'Summary Report' workbook (one branch per file) and
+    upsert 'Total Unique Clients' into the Branch Stats 'WiFi - Unique Sessions'
+    metric. Both the branch and the period come from the file name.
+
+    Upsert semantics: an existing branch/month value is overwritten in place,
+    other data is untouched, and re-running the same file is a no-op.
+    Returns (created, updated, period_set, warnings).
+    """
+    name_lower = (filename or '').lower()
+    branch_name = next((n for key, n in MERAKI_BRANCH_MAP.items() if key in name_lower), None)
+    branch = branch_lookup.get(branch_name) if branch_name else None
+    if not branch:
+        return 0, 0, set(), ['Could not determine branch from file name — expected the branch '
+                             'name in it (e.g. "Rock Hill - Summary Report 2026-06-01 ...")']
+
+    # Period from the file name, e.g. 2026-06-01 → June 2026.
+    f_year, f_month = parse_period_from_filename(filename)
+    year, month = (f_year or year_override), f_month
+    if not (year and month):
+        return 0, 0, set(), ['Could not determine month/year from file name — expected a date '
+                             'like 2026-06-01 in it']
+
+    if 'Client stats' not in wb.sheetnames:
+        return 0, 0, set(), ['No "Client stats" sheet found in workbook']
+
+    rows = list(wb['Client stats'].iter_rows(values_only=True))
+    header = [str(v).strip() if v is not None else '' for v in (rows[0] if rows else [])]
+    try:
+        clients_col = header.index('Total Unique Clients')
+    except ValueError:
+        return 0, 0, set(), ['"Total Unique Clients" column not found in "Client stats" sheet']
+
+    value = next((r[clients_col] for r in rows[1:]
+                  if r and clients_col < len(r) and isinstance(r[clients_col], (int, float))), None)
+    if value is None:
+        return 0, 0, set(), ['No numeric "Total Unique Clients" value found']
+
+    metric_lookup, cat = build_metric_lookup('Branch Stats')
+    wifi_metric = metric_lookup.get('WiFi - Unique Sessions')
+    if not cat or not wifi_metric:
+        return 0, 0, set(), ['Branch Stats or "WiFi - Unique Sessions" metric not found']
+
+    res = _upsert_branch_stat(cat.id, branch.id, year, month, wifi_metric.id, int(value))
+    db.session.commit()
+    return (1 if res == 'created' else 0), (1 if res == 'updated' else 0), {(year, month)}, []
+
+
+def detect_and_import(wb, year_override=None, filename=None):
     """
     Auto-detect the report type from a workbook and route to the correct importer.
     Returns a list of result dicts for display.
     Must be called within an active Flask app context.
+
+    filename is used by date-less exports (e.g. the print summary) to recover the
+    period, and by the Year field on the upload form as a fallback/override.
     """
     branch_lookup = build_branch_lookup()
     results = []
+
+    # Detect Annual Comparables format: 'OPERATIONS' sheet with 'REPORT YEAR' header
+    if 'OPERATIONS' in wb.sheetnames:
+        first_row = next(wb['OPERATIONS'].iter_rows(min_row=1, max_row=1, values_only=True), ())
+        if first_row and str(first_row[0]).strip() == 'REPORT YEAR':
+            from import_annual import import_annual_comparables
+            import tempfile, os
+            with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
+                tmp_path = tmp.name
+            try:
+                wb.save(tmp_path)
+                created, updated = import_annual_comparables(tmp_path)
+            finally:
+                os.unlink(tmp_path)
+            results.append({
+                'sheet': 'Annual Comparables',
+                'created': created, 'updated': updated, 'skipped': 0,
+                'note': f'{created} values created, {updated} updated across all sections',
+                'year': None, 'month': None,
+            })
+            return results
+
+    # Cisco Meraki WiFi "Summary Report" — one branch per workbook; branch and
+    # period both come from the file name. Detected at workbook level (its 13
+    # sheets carry no branch/date, so there is nothing to route per-sheet).
+    if MERAKI_SIGNATURE_SHEETS <= set(wb.sheetnames):
+        created, updated, periods, w = import_meraki_wifi(wb, branch_lookup, filename, year_override)
+        y, m = (sorted(periods)[0] if periods else (None, None))
+        results.append({'sheet': 'WiFi - Unique Sessions (Meraki)',
+                        'created': created, 'updated': updated, 'skipped': 0, 'warnings': w,
+                        'periods': sorted(periods),
+                        'note': (f'Total Unique Clients stored for {m}/{y}' if y and m else ''),
+                        'year': y, 'month': m})
+        return results
 
     for sheet_name in wb.sheetnames:
         ws = wb[sheet_name]
@@ -981,7 +1951,8 @@ def detect_and_import(wb, year_override=None):
             det, year, month, w = import_sirsi_user_profile(ws, branch_lookup)
             results.append({'sheet': 'SIRSI Checkouts (by User Profile)',
                              'created': det, 'updated': 0, 'skipped': 0, 'warnings': w,
-                             'note': f'{det} adult/juvenile rows stored for {month}/{year}' if year else ''})
+                             'note': f'{det} adult/juvenile rows stored for {month}/{year}' if year else '',
+                             'year': year, 'month': month})
 
         elif 'Checkouts by Branch and Shelving Location' in title:
             report_type, year, month = _detect_sirsi_report_type(rows)
@@ -989,10 +1960,20 @@ def detect_and_import(wb, year_override=None):
                 det, circ, w = import_sirsi_checkouts(ws, year, month, branch_lookup)
                 results.append({'sheet': 'SIRSI Checkouts (by Shelving Location)',
                                  'created': det, 'skipped': 0, 'warnings': w,
-                                 'note': f'{circ} Circulation total entries written'})
+                                 'note': f'{circ} Circulation total entries written',
+                                 'year': year, 'month': month})
             else:
                 results.append({'sheet': sheet_name, 'created': 0, 'skipped': 0,
                                  'warnings': ['Could not determine year/month from report']})
+
+        elif {'Title', 'Library Branch', 'People in Attendance',
+              'Expected Attendance', 'Event URL'} <= set(header_row):
+            created, updated, skipped, periods, w = import_programming_stats(ws, branch_lookup)
+            results.append({'sheet': 'Programming (Communico Events)',
+                             'created': created, 'updated': updated, 'skipped': skipped, 'warnings': w,
+                             'periods': sorted(periods),
+                             'year':  (sorted(periods)[0][0] if periods else None),
+                             'month': (sorted(periods)[0][1] if periods else None)})
 
         elif 'Number of New Library Users' in title:
             year = month = None
@@ -1015,22 +1996,62 @@ def detect_and_import(wb, year_override=None):
             if year and month:
                 created, updated, w = import_new_library_users(ws, year, month, branch_lookup)
                 results.append({'sheet': 'New Library Card Registrations',
-                                 'created': created, 'updated': updated, 'skipped': 0, 'warnings': w})
+                                 'created': created, 'updated': updated, 'skipped': 0, 'warnings': w,
+                                 'year': year, 'month': month})
             else:
                 results.append({'sheet': sheet_name, 'created': 0, 'updated': 0, 'skipped': 0,
                                  'warnings': ['Could not determine year/month from report']})
 
+        elif any(
+                {'Branch', 'Printed Pages'} <= {str(v).strip() for v in (r or []) if v is not None}
+                for r in rows[:6]):
+            # Period precedence: date inside the sheet → file name → Year field.
+            s_year, s_month = parse_period_from_sheet(rows)
+            f_year, f_month = parse_period_from_filename(filename)
+            year  = s_year or f_year or year_override
+            month = s_month or f_month
+            created, updated, periods, w = import_print_summary(ws, branch_lookup, year, month)
+            results.append({'sheet': 'Branch Print Summary (Prints)',
+                             'created': created, 'updated': updated, 'skipped': 0, 'warnings': w,
+                             'periods': sorted(periods),
+                             'note': (f'Printed Jobs, Pages & Cost stored for {month}/{year}'
+                                      if year and month else ''),
+                             'year':  (sorted(periods)[0][0] if periods else year),
+                             'month': (sorted(periods)[0][1] if periods else month)})
+
+        elif sheet_name == 'PC Reservations' or \
+             ('Branch' in header_row and any(h in header_row for h in ('Total Uses', 'PC Reservations'))):
+            created, updated, periods, w = import_pc_reservations(ws, branch_lookup, year_override)
+            results.append({'sheet': 'PC Reservations',
+                             'created': created, 'updated': updated, 'skipped': 0, 'warnings': w,
+                             'periods': sorted(periods),
+                             'year':  (sorted(periods)[0][0] if periods else None),
+                             'month': (sorted(periods)[0][1] if periods else None)})
+
         elif (any(v is not None and 'Letter color pages' in str(v) for r in rows[:3] for v in r) or
               ('Location' in header_row and 'Documents' in header_row and 'From' in header_row)):
-            created, updated, w = import_princh(ws, branch_lookup)
-            results.append({'sheet': 'Total Prints per Month (Princh)',
-                             'created': created, 'updated': updated, 'skipped': 0, 'warnings': w})
+            created, updated, periods, w = import_printing(ws, branch_lookup)
+            results.append({'sheet': 'Total Prints per Month (Printing)',
+                             'created': created, 'updated': updated, 'skipped': 0, 'warnings': w,
+                             'periods': sorted(periods)})
 
         elif any(v is not None and 'Location Name' in str(v)
                  for r in rows[:3] for v in r):
-            created, updated, w = import_door_count(ws, branch_lookup)
+            created, updated, periods, w = import_door_count(ws, branch_lookup)
             results.append({'sheet': 'Gate Count (Door Counter)',
-                             'created': created, 'updated': updated, 'skipped': 0, 'warnings': w})
+                             'created': created, 'updated': updated, 'skipped': 0, 'warnings': w,
+                             'periods': sorted(periods)})
+
+        elif sheet_name == 'Form Responses 1' and 'Timestamp' in header_row and 'Select Month' in header_row:
+            bs_metrics, bs_cat = build_metric_lookup('Branch Stats')
+            if bs_cat:
+                c, u, periods, w = import_google_forms_stats(ws, bs_cat, bs_metrics, branch_lookup)
+                results.append({'sheet': 'Google Forms Branch Stats',
+                                 'created': c, 'updated': u, 'skipped': 0, 'warnings': w,
+                                 'periods': sorted(periods)})
+            else:
+                results.append({'sheet': sheet_name, 'created': 0, 'skipped': 0,
+                                 'warnings': ['Branch Stats category not found in DB']})
 
         elif sheet_name in ('Branch Stats', 'Online Stats', 'Qrtly Ref Stats') or \
              any(sheet_name in wb.sheetnames for sheet_name in ('Branch Stats', 'Online Stats')):
@@ -1103,8 +2124,9 @@ def do_import(wb, year_override=None):
     # Branch Stats
     metric_lookup, cat = build_metric_lookup('Branch Stats')
     if cat and 'Branch Stats' in wb.sheetnames:
-        c, s, w = import_branch_stats(wb['Branch Stats'], cat, metric_lookup, branch_lookup, year_override)
-        results.append({'sheet': 'Branch Stats', 'created': c, 'skipped': s, 'warnings': w})
+        c, s, periods, w = import_branch_stats(wb['Branch Stats'], cat, metric_lookup, branch_lookup, year_override)
+        results.append({'sheet': 'Branch Stats', 'created': c, 'skipped': s, 'warnings': w,
+                        'periods': sorted(periods)})
     elif 'Branch Stats' not in wb.sheetnames:
         results.append({'sheet': 'Branch Stats', 'created': 0, 'skipped': 0,
                         'warnings': ['Sheet "Branch Stats" not found in workbook']})

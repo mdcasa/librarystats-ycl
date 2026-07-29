@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>YCL Community Impact Report FY{{ fy2 }}</title>
+  <style>
+    @page { size: letter portrait; margin: 0.35in 0.45in; background: #cde3f5; }
+    body { font-family: Arial, sans-serif; font-size: 10pt; color: #222; margin: 0; background: transparent; }
+
+    /* ── PAGE 1: INFOGRAPHIC ── */
+
+    /* Header */
+    .header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 12px; }
+    .header-left h1 { font-size: 28pt; font-weight: 900; color: #0d2b5e; margin: 0; line-height: 0.95; text-transform: uppercase; }
+    .header-left h2 { font-size: 17pt; font-weight: 900; color: #0d2b5e; margin: 0; text-transform: uppercase; }
+    .header-left .subtitle { font-size: 12pt; color: #0d2b5e; margin: 3px 0 0; }
+    .header-right img { width: 130px; }
+
+    /* Locations bar */
+    .loc-bar { background: #0d2b5e; color: #fff; border-radius: 6px; padding: 7px 14px; margin-bottom: 12px;
+               display: flex; align-items: center; }
+    .loc-bar .loc-title { font-size: 9pt; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;
+                          white-space: nowrap; margin-right: 14px; }
+    .loc-bar .loc-list { display: flex; font-size: 9pt; }
+    .loc-bar .loc-list span { padding: 0 10px; border-right: 1px solid rgba(255,255,255,0.3); }
+    .loc-bar .loc-list span:last-child { border-right: none; }
+
+    /* Stat grid rows */
+    .stat-row { display: grid; gap: 10px; margin-bottom: 10px; }
+    .stat-row-4 { grid-template-columns: repeat(4, 1fr); }
+    .stat-row-3 { grid-template-columns: repeat(3, 1fr); }
+
+    /* Stat box colors */
+    .s-navy   { background: #0d2b5e; color: #fff; }
+    .s-orange { background: #d45e0f; color: #fff; }
+    .s-green  { background: #3d7a2f; color: #fff; }
+    .s-white  { background: #fff;    color: #0d2b5e; }
+    .s-mid    { background: #1a5296; color: #fff; }
+    .s-teal   { background: #1a7070; color: #fff; }
+
+    .stat-box { border-radius: 7px; padding: 12px 8px 10px; text-align: center; }
+    .stat-num    { font-size: 22pt; font-weight: 900; line-height: 1.0; display: block; }
+    .stat-num-sm { font-size: 17pt; font-weight: 900; line-height: 1.0; display: block; }
+    .stat-lbl    { font-size: 7.5pt; font-weight: bold; text-transform: uppercase; letter-spacing: 0.3px;
+                   margin-top: 5px; line-height: 1.3; display: block; }
+
+    /* Program breakdown boxes */
+    .prog-box { border-radius: 6px; padding: 9px 8px; text-align: center; border-top: 5px solid #0d2b5e; background: #fff; }
+    .prog-box.p-orange { border-top-color: #d45e0f; }
+    .prog-box.p-green  { border-top-color: #3d7a2f; }
+    .prog-num { font-size: 17pt; font-weight: 900; color: #0d2b5e; line-height: 1.0; }
+    .prog-lbl { font-size: 7.5pt; font-weight: bold; text-transform: uppercase; color: #555; margin-top: 4px; line-height: 1.3; }
+
+    /* Census context box */
+    .context-box { background: #fff; color: #0d2b5e; border-radius: 7px; padding: 12px 8px; text-align: center; }
+    .context-box .big-pct { font-size: 22pt; font-weight: 900; color: #d45e0f; line-height: 1.0; }
+    .context-box .ctx-lbl { font-size: 7.5pt; font-weight: bold; text-transform: uppercase; margin-top: 5px; line-height: 1.3; }
+
+    /* Survey banner */
+    .survey-bar { background: #0d2b5e; color: #fff; border-radius: 6px; padding: 7px 14px;
+                  font-size: 8.5pt; margin-bottom: 10px; }
+    .survey-bar strong { color: #f5c842; }
+
+    /* Footnote */
+    .footnote { font-size: 7pt; color: #446; margin-top: 10px; border-top: 1px solid #a0bcd8; padding-top: 6px; }
+
+    /* ── PAGE 2: PATRON VOICE ── */
+    .page-break { page-break-before: always; }
+
+    .page2-header { background: #0d2b5e; color: #fff; border-radius: 7px; padding: 10px 16px;
+                    margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; }
+    .page2-header h2 { font-size: 14pt; font-weight: 900; margin: 0; text-transform: uppercase; }
+    .page2-header .fy-label { font-size: 9pt; opacity: 0.8; }
+
+    .section { margin-bottom: 11px; page-break-inside: avoid; }
+    .section-title { font-size: 10.5pt; font-weight: bold; color: #0d2b5e;
+                     border-left: 5px solid #d45e0f; padding-left: 8px; margin: 0 0 5px; }
+    .two-col { display: grid; grid-template-columns: 3fr 2fr; gap: 14px; }
+    p { margin: 0 0 5px; line-height: 1.5; font-size: 9pt; }
+    ul { margin: 0 0 5px; padding-left: 16px; }
+    li { margin-bottom: 3px; font-size: 9pt; }
+
+    .quote { background: #fff; border-left: 4px solid #0d2b5e; padding: 7px 9px;
+             font-style: italic; font-size: 8.5pt; color: #333; border-radius: 3px; margin-bottom: 6px; }
+    .quote-src { font-style: normal; font-size: 7.5pt; color: #888; margin-top: 3px; }
+
+    .equity-note { background: #fff8e1; border-left: 3px solid #f0a500; padding: 5px 9px;
+                   font-size: 8.5pt; border-radius: 2px; margin-top: 6px; }
+
+    .circ-note { background: #fff8e1; border-left: 3px solid #d45e0f; padding: 5px 9px;
+                 font-size: 8pt; border-radius: 2px; margin-top: 5px; }
+
+    .priority-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 7px 0; }
+    .priority-item { background: #fff; border-top: 4px solid #d45e0f; padding: 5px 7px; border-radius: 3px; font-size: 8.5pt; }
+    .priority-item strong { display: block; color: #0d2b5e; }
+    .priority-item span { color: #666; font-size: 7.5pt; }
+  </style>
+</head>
+<body>
+
+{% macro fmt(v) %}{{ '{:,}'.format(v|int) if v is not none else '—' }}{% endmacro %}
+
+{# ══════════════════════════════════════
+   PAGE 1 — INFOGRAPHIC
+   ══════════════════════════════════════ #}
+
+<div class="header">
+  <div class="header-left">
+    <h1>York County</h1>
+    <h2>Library System</h2>
+    <div class="subtitle">FY 2023–24 &nbsp;·&nbsp; Community Impact at a Glance</div>
+  </div>
+  <div class="header-right">
+    <img src="{{ url_for('static', filename='ycl-logo.png') }}" alt="YCL Logo">
+  </div>
+</div>
+
+<div class="loc-bar">
+  <span class="loc-title">6 Locations</span>
+  <div class="loc-list">
+    <span>Rock Hill</span>
+    <span>Fort Mill</span>
+    <span>Lake Wylie</span>
+    <span>Clover</span>
+    <span>York</span>
+    <span>Outreach / Bookmobile</span>
+  </div>
+</div>
+
+{# Row 1 — four headline stats #}
+<div class="stat-row stat-row-4">
+  <div class="stat-box s-orange">
+    <span class="stat-num">{{ fmt(data.gate.v2) }}</span>
+    <span class="stat-lbl">Library Visits</span>
+  </div>
+  <div class="stat-box s-navy">
+    <span class="stat-num">{{ fmt(data.circulation.v2) }}</span>
+    <span class="stat-lbl">Physical Checkouts</span>
+  </div>
+  <div class="stat-box s-green">
+    <span class="stat-num">{{ fmt(data.attendance.v2) }}</span>
+    <span class="stat-lbl">Program Attendance</span>
+  </div>
+  <div class="stat-box s-white">
+    <span class="stat-num">{{ fmt(data.cards.v2) }}</span>
+    <span class="stat-lbl">New Library Cards</span>
+  </div>
+</div>
+
+{# Row 2 — supporting stats #}
+<div class="stat-row stat-row-4">
+  <div class="stat-box s-white">
+    <span class="stat-num-sm">{{ fmt(data.sessions.v2) }}</span>
+    <span class="stat-lbl">Program Sessions</span>
+  </div>
+  <div class="stat-box s-mid">
+    <span class="stat-num-sm">{{ fmt(data.digital.v2) }}</span>
+    <span class="stat-lbl">Digital Checkouts</span>
+  </div>
+  <div class="stat-box s-teal">
+    <span class="stat-num-sm">{{ fmt(data.pc_reservations.v2) }}</span>
+    <span class="stat-lbl">PC Reservations</span>
+  </div>
+  <div class="stat-box s-orange">
+    <span class="stat-num-sm">{{ fmt(data.hotspots.v2) }}</span>
+    <span class="stat-lbl">Hotspot Checkouts</span>
+  </div>
+</div>
+
+{# Row 3 — programs breakdown + census context #}
+<div class="stat-row" style="grid-template-columns: 1fr 1fr 1fr 0.8fr;">
+  <div class="prog-box">
+    <div class="prog-num">{{ fmt(data.sessions.v2) }}</div>
+    <div class="prog-lbl">Total Program Sessions</div>
+  </div>
+  <div class="prog-box p-orange">
+    <div class="prog-num">{{ fmt(data.children_sess.v2) }}</div>
+    <div class="prog-lbl">Children's Programs<br>(Ages 0–11)</div>
+  </div>
+  <div class="prog-box p-green">
+    <div class="prog-num">{{ fmt(data.ya_sess.v2) }}</div>
+    <div class="prog-lbl">Young Adult Programs<br>(Ages 12–18)</div>
+  </div>
+  <div class="context-box">
+    <div class="big-pct">5.4%</div>
+    <div class="ctx-lbl">of households in<br>service area lack<br>internet access</div>
+  </div>
+</div>
+
+<div class="survey-bar">
+  <strong>Community Voice:</strong> 544 patrons responded to our 2026 community survey — 92.3% active library users.
+  Patron quotes on the following page are verbatim from open-ended survey responses.
+</div>
+
+<p class="footnote">
+  York County Library Statistics System &nbsp;·&nbsp;
+  Statistical data: YCL monthly branch reporting, FY 2023–24 (Jul 2023–Jun 2024) &nbsp;·&nbsp;
+  Survey data: 2026 YCL Community Survey (n=544) &nbsp;·&nbsp;
+  5.4% internet figure: U.S. Census ACS 5-Year Estimates, Table B28011 (2023)
+</p>
+
+{# ══════════════════════════════════════
+   PAGE 2 — PATRON VOICE & PRIORITIES
+   ══════════════════════════════════════ #}
+<div class="page-break">
+
+  <div class="page2-header">
+    <h2>What the Numbers Mean — Community Voice</h2>
+    <span class="fy-label">York County Library System &nbsp;|&nbsp; FY 2023–24</span>
+  </div>
+
+  <div class="section">
+    <div class="section-title">You Keep Coming Back</div>
+    <div class="two-col">
+      <div>
+        <p>The library recorded <strong>{{ fmt(data.gate.v2) }} visits</strong> in FY24. Our survey confirms the
+        pattern: <strong>92.3% of respondents visited in the past year</strong>, with teens leading —
+        <strong>57.1% visit every week</strong>.</p>
+        <p><strong>{{ fmt(data.pc_reservations.v2) }} PC reservation sessions</strong> show the library remains
+        a critical technology access point. Website use runs <strong>86–93%</strong> across all age groups;
+        <strong>50–64% use the YCL app</strong>, including 59% of seniors.</p>
+      </div>
+      <div>
+        <div class="quote">
+          Western York County needs another library. It doesn't have to have all the programs… but a
+          location with computers, books, and a hold shelf so people in Hickory Grove don't have to
+          plan their trips based on when they're running to York.
+          <div class="quote-src">— Survey respondent</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Connecting You to Stories &amp; Ideas</div>
+    <div class="two-col">
+      <div>
+        <p><strong>Borrowing books</strong> is the single highest-rated service across every age group
+        (average <strong>3.79–4.00 / 5</strong>). The numbers reflect that demand:</p>
+        <ul>
+          <li>Physical checkouts: <strong>{{ fmt(data.circulation.v2) }}</strong></li>
+          <li>Digital checkouts: <strong>{{ fmt(data.digital.v2) }}</strong></li>
+          {% if data.total_checkout.v2 is not none %}
+          <li>Combined total: <strong>{{ fmt(data.total_checkout.v2) }}</strong></li>
+          {% endif %}
+        </ul>
+        <p>Patron feedback highlights growth areas: more physical copies at smaller branches,
+        complete series in digital collections, and shorter Libby/Hoopla hold times.</p>
+      </div>
+      <div>
+        <div class="quote">
+          It is hard to browse books as the selection is small in person. I do appreciate being able
+          to get them online, but I love spontaneously getting books.
+          <div class="quote-src">— Survey respondent</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Learning Together</div>
+    <div class="two-col">
+      <div>
+        <p>YCL offered <strong>{{ fmt(data.sessions.v2) }} program sessions</strong>, drawing
+        <strong>{{ fmt(data.attendance.v2) }} participants</strong>.
+        <strong>61.2% of survey respondents attended a signature event</strong> — teens and young adults
+        at 71.4%. Summer Learning Challenge (272 selections) and Winter Reading Challenge (218) led attendance.</p>
+        <p><strong>Lifelong learning programs</strong> were the top strategic priority (53% of respondents),
+        but a clear barrier remains: employed adults need programming after 5 p.m. and on Saturdays.</p>
+        <div class="equity-note">
+          <strong>Equity note:</strong> Fort Mill event attendance (51.6%) trails Rock Hill (71.5%) by
+          nearly 20 points — a measurable consequence of space constraints at the Fort Mill branch.
+        </div>
+      </div>
+      <div>
+        <div class="quote">
+          The majority of the programs I'm interested in are held during working hours. I'm only in my
+          40s and work full time but would love to connect with other people — and it's just not
+          possible during the week. Why are there no weekend clubs?
+          <div class="quote-src">— Survey respondent</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Growing Our Community</div>
+    <div class="two-col">
+      <div>
+        <p>YCL issued <strong>{{ fmt(data.cards.v2) }} new library cards</strong> in FY24,
+        each representing a new connection to community resources.
+        Among non-users in the survey, <strong>17 of 42 cited being too busy</strong> — pointing to
+        scheduling and convenience as the primary barriers to broader engagement.</p>
+        <p>Young adults (19–24) show the most untapped potential: only 15.4% visit weekly, suggesting
+        the transition out of school-age programming leaves a gap we can fill.</p>
+      </div>
+      <div>
+        <div class="quote">
+          Events for 20–30 somethings looking to make friends. More programs for the 18–22
+          college age range.
+          <div class="quote-src">— Survey respondents</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">What You're Asking For Next</div>
+    <p style="font-size:8.5pt;">430 patrons wrote detailed open-ended responses about what to add or improve. Top strategic priorities:</p>
+    <div class="priority-grid">
+      <div class="priority-item"><strong>Lifelong Learning Programs</strong><span>288 selections — 53% of respondents</span></div>
+      <div class="priority-item"><strong>Library of Things</strong><span>273 selections — 50% of respondents</span></div>
+      <div class="priority-item"><strong>Makerspace</strong><span>230 selections — 42% of respondents</span></div>
+      <div class="priority-item"><strong>Meeting Spaces</strong><span>183 selections — 34% of respondents</span></div>
+      <div class="priority-item"><strong>Career &amp; Workforce Development</strong><span>176 selections — 32% of respondents</span></div>
+      <div class="priority-item"><strong>Dedicated Teen Areas</strong><span>169 selections — 31% of respondents</span></div>
+    </div>
+    <div class="quote" style="margin-top:7px; font-size:8.5pt;">
+      Heavy emphasis on Library of Things and Makerspaces. These spaces will encourage creativity
+      and provide community support by making it more accessible.
+      <div class="quote-src">— Survey respondent</div>
+    </div>
+  </div>
+
+  <p class="footnote" style="border-top:1px solid #a0bcd8; padding-top:6px; font-size:7pt; color:#446;">
+    York County Library Statistics System &nbsp;·&nbsp;
+    Statistical data: YCL monthly branch reporting, FY 2023–24 &nbsp;·&nbsp;
+    Survey data: 2026 YCL Community Survey (n=544, as of April 27, 2026) &nbsp;·&nbsp;
+    Fiscal year runs July–June.
+  </p>
+
+</div>{# end page2 #}
+
+</body>
+</html>

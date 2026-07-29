@@ -1,3 +1,10 @@
 IMPORTING DATA 
 -train on the excel sheets first to make sure AI can read and understand them- then work on importing them
 make sure that when importing that the data shows in the system when browsing the data
+Use Design.md to spin up a new version of this system
+make sure data you upload goes the correct place 
+make sure to also ensure that it correctly understands the manual data you are entering
+Don't forget to customize the color to the library logo
+REPORTS - lump lockers and related branches together
+CREATE - Road Maps
+How is data and data imports mapped?

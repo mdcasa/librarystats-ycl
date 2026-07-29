@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block title %}Branch Weekly Hours – Library Stats{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <h1 class="h4 fw-bold mb-0">
+    <i class="bi bi-clock me-2 text-primary"></i>Branch Weekly Hours
+  </h1>
+  <a href="#" onclick="history.back()" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left me-1"></i>Back
+  </a>
+</div>
+
+<p class="text-muted small">
+  Each branch's normal weekly service hours. Used to compute a default Scheduled Hours figure for
+  Section J, and to work out how many hours a full-day holiday closure actually costs each branch
+  (branches with different Friday/Saturday hours lose different amounts of time on the same date).
+</p>
+
+<form method="post" action="{{ url_for('annual_survey_branch_hours') }}">
+  <div class="card mb-4">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Branch</th>
+            {% for d in days %}
+            <th class="text-center">{{ d[:3] | capitalize }}</th>
+            {% endfor %}
+            <th class="text-center">Weekly Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>{{ row.branch.name }}</td>
+            {% for d in days %}
+            <td class="text-center" style="max-width:90px">
+              <input type="number" name="{{ d }}_{{ row.branch.id }}" step="0.5" min="0" max="24"
+                     class="form-control form-control-sm text-center mx-auto"
+                     value="{{ row.values[d] or '' }}" placeholder="0">
+            </td>
+            {% endfor %}
+            <td class="text-center text-muted">
+              {{ row.weekly_total | int }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <button class="btn btn-primary btn-sm">
+    <i class="bi bi-floppy me-1"></i>Save
+  </button>
+</form>
+{% endblock %}

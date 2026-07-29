@@ -2,6 +2,12 @@
 {% block title %}Branches – Admin – Library Stats{% endblock %}
 
 {% block content %}
+<nav aria-label="breadcrumb" class="mb-2">
+  <ol class="breadcrumb small">
+    <li class="breadcrumb-item"><a href="{{ url_for('admin_categories') }}">Admin</a></li>
+    <li class="breadcrumb-item active">Branches</li>
+  </ol>
+</nav>
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h1 class="h4 fw-bold mb-0">
     <i class="bi bi-building me-2 text-primary"></i>Branches / Locations

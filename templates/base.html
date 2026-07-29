@@ -3,62 +3,148 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}Library Stats{% endblock %}</title>
+  <title>{% block title %}YCL Statistics{% endblock %}</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='ycl-logo.png') }}">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
   <style>
-    body { background: #f4f6f9; }
-    .navbar { background: #1a5276 !important; }
+    :root {
+      --ycl-blue:       #1a4f9e;
+      --ycl-blue-dark:  #153f80;
+      --ycl-blue-light: #2563b8;
+      --ycl-blue-pale:  #e8f0fb;
+    }
+    body { background: #f0f4f9; }
+
+    /* ── Navbar ── */
+    .navbar { background: var(--ycl-blue) !important; }
     .navbar-brand { font-weight: 700; letter-spacing: -.3px; }
-    .card { border: none; border-radius: 10px; box-shadow: 0 1px 6px rgba(0,0,0,.08); }
+    .navbar-brand .logo-wrap { background: #fff; border-radius: 6px; padding: 2px 6px; display:inline-flex; align-items:center; }
+    .navbar-brand img { height: 34px; width: auto; display:block; }
+    .navbar-brand .brand-text { font-size: .95rem; line-height: 1.1; }
+    .navbar .nav-link { font-size: .88rem; }
+    .navbar .dropdown-menu { font-size: .88rem; }
+    .navbar .nav-link.active { background: rgba(255,255,255,.15); border-radius: 6px; }
+    .navbar .nav-link.active-parent { background: rgba(255,255,255,.12); border-radius: 6px; }
+
+    /* ── Cards ── */
+    .card { border: none; border-radius: 10px; box-shadow: 0 1px 6px rgba(0,0,0,.08);
+            transition: box-shadow .15s ease; }
+    .card:hover { box-shadow: 0 4px 14px rgba(0,0,0,.12); }
     .card-header-custom { background: #fff; border-bottom: 1px solid #e9ecef; padding: 1rem 1.25rem; }
-    .group-header td { background: #eaf2f8; color: #1a5276; font-size: .78rem; font-weight: 700;
-                       text-transform: uppercase; letter-spacing: .6px; padding: .45rem .75rem; }
+
+    /* ── Tables ── */
+    .group-header td { background: #d0e3f5; color: var(--ycl-blue); font-size: .82rem;
+                       font-weight: 700; letter-spacing: .3px; padding: .45rem .75rem;
+                       cursor: pointer; user-select: none;
+                       border-left: 4px solid var(--ycl-blue); }
+    .group-header td .grp-chevron { float: right; transition: transform .2s; }
+    .group-header.grp-collapsed td .grp-chevron { transform: rotate(-90deg); }
+    .table-hover tbody tr:hover { background-color: #eef4fd; }
+    .table thead th { white-space: normal; }
+
+    /* ── Misc ── */
     .badge-freq { font-size: .7rem; font-weight: 500; }
-    .table-hover tbody tr:hover { background-color: #f0f7fb; }
     .btn-xs { padding: .15rem .5rem; font-size: .78rem; }
     .metric-input { max-width: 180px; }
-    .sidebar-label { font-size: .7rem; font-weight: 600; text-transform: uppercase;
+    .sidebar-label { font-size: .8rem; font-weight: 600; text-transform: uppercase;
                      letter-spacing: .5px; color: #6c757d; }
-    .table thead th { white-space: normal; }
+    .warning-row { border-left: 4px solid #ffc107; }
+
+    /* ── YCL blue overrides ── */
+    .btn-primary { background: var(--ycl-blue); border-color: var(--ycl-blue); }
+    .btn-primary:hover { background: var(--ycl-blue-dark); border-color: var(--ycl-blue-dark); }
+    .btn-outline-primary { color: var(--ycl-blue); border-color: var(--ycl-blue); }
+    .btn-outline-primary:hover { background: var(--ycl-blue); border-color: var(--ycl-blue); }
+    .text-primary { color: var(--ycl-blue) !important; }
+    .bg-primary { background: var(--ycl-blue) !important; }
+    a { color: var(--ycl-blue); }
+    a:hover { color: var(--ycl-blue-dark); }
+    .accordion-button:not(.collapsed) { color: var(--ycl-blue) !important;
+                                        background: var(--ycl-blue-pale) !important; }
+    .page-link { color: var(--ycl-blue); }
+    .page-item.active .page-link { background: var(--ycl-blue); border-color: var(--ycl-blue); }
+
+    /* ── Empty state ── */
+    .empty-state { text-align: center; padding: 3rem 1rem; color: #6c757d; }
+    .empty-state .empty-icon { font-size: 3rem; opacity: .25; display: block; margin-bottom: .75rem; }
+    .empty-state p { margin-bottom: 1rem; }
+
+    /* ── Back to top ── */
+    #backToTop { position: fixed; bottom: 1.75rem; right: 1.75rem; z-index: 1050;
+                 width: 2.5rem; height: 2.5rem; border-radius: 50%; padding: 0;
+                 display: none; background: var(--ycl-blue); border-color: var(--ycl-blue);
+                 box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+    #backToTop:hover { background: var(--ycl-blue-dark); }
+
+    /* ── Print ── */
+    @media print {
+      .navbar, footer, #backToTop, .btn, .alert,
+      .accordion-button::after, form.d-flex { display: none !important; }
+      .container-lg { max-width: 100% !important; padding: 0 !important; }
+      body { background: #fff !important; font-size: .85rem; }
+      .card { box-shadow: none !important; border: 1px solid #dee2e6 !important;
+              break-inside: avoid; }
+      .card-header-custom { border-bottom: 2px solid #1a4f9e !important; }
+      a { color: inherit !important; text-decoration: none !important; }
+      .table { font-size: .78rem; }
+      .badge { border: 1px solid #999; }
+      h1, h2, h3, h4, h5 { color: #1a4f9e !important; }
+    }
   </style>
 </head>
+
+{# ── Active nav helpers ── #}
+{% set ep = request.endpoint or '' %}
+{% set _enter   = ['ill_entry','icl_entry','entry_create','entry_edit','entry_delete'] %}
+{% set _data    = ['upload_data','entries_list','entry_view'] %}
+{% set _dash    = ['director_dashboard','annual_survey_dashboard','annual_survey_enter','annual_survey_calculate'] %}
+{% set _reports = ['report_monthly_stats','report_monthly','report_fiscal','report_trend',
+                   'report_yoy','report_quarterly_ref','report_online','report_overview','report_impact',
+                   'report_branch_summary'] %}
+{% set _admin   = ['admin_categories','admin_category_edit','admin_branches',
+                   'admin_import','admin_export','admin_metric_edit',
+                   'admin_users','admin_user_new','admin_user_edit',
+                   'annual_survey_section_j','annual_survey_holidays','annual_survey_branch_hours'] %}
+
 <body>
 
-<nav class="navbar navbar-expand-lg navbar-dark">
+<nav class="navbar navbar-expand-lg navbar-dark sticky-top">
   <div class="container-lg">
-    <a class="navbar-brand" href="{{ url_for('index') }}">
-      <i class="bi bi-book-half me-2"></i>Library Stats
+    <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('index') }}">
+      <span class="logo-wrap"><img src="{{ url_for('static', filename='ycl-logo.png') }}" alt="YCL logo"></span>
+      <span class="brand-text">YCL<br>Statistics</span>
     </a>
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">
       <span class="navbar-toggler-icon"></span>
     </button>
     <div class="collapse navbar-collapse" id="mainNav">
       <ul class="navbar-nav me-auto gap-1">
+
         <li class="nav-item">
-          <a class="nav-link" href="{{ url_for('index') }}">
+          <a class="nav-link {% if ep == 'index' %}active{% endif %}" href="{{ url_for('index') }}">
             <i class="bi bi-speedometer2 me-1"></i>Dashboard
           </a>
         </li>
+
         <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+          <a class="nav-link dropdown-toggle {% if ep in _enter %}active-parent{% endif %}"
+             href="#" data-bs-toggle="dropdown">
             <i class="bi bi-pencil-square me-1"></i>Enter Data
           </a>
           <ul class="dropdown-menu shadow-sm">
             <li>
-              <a class="dropdown-item fw-semibold" href="{{ url_for('manual_entry') }}">
-                <i class="bi bi-pencil-square me-2 text-primary"></i>Manual Entry (Staff)
-              </a>
-            </li>
-            <li><hr class="dropdown-divider"></li>
-            <li>
-              <a class="dropdown-item" href="{{ url_for('ill_entry') }}">
-                <i class="bi bi-arrow-left-right me-2 text-primary"></i>ILL Entry <span class="text-muted small">(Main only)</span>
+              <a class="dropdown-item {% if ep == 'ill_entry' %}active{% endif %}"
+                 href="{{ url_for('ill_entry') }}">
+                <i class="bi bi-arrow-left-right me-2 text-primary"></i>ILL Entry
+                <span class="text-muted small">(Main only)</span>
               </a>
             </li>
             <li>
-              <a class="dropdown-item" href="{{ url_for('icl_entry') }}">
-                <i class="bi bi-arrow-left-right me-2 text-primary"></i>ICL Entry <span class="text-muted small">(Main only)</span>
+              <a class="dropdown-item {% if ep == 'icl_entry' %}active{% endif %}"
+                 href="{{ url_for('icl_entry') }}">
+                <i class="bi bi-arrow-left-right me-2 text-primary"></i>ICL Entry
+                <span class="text-muted small">(Main only)</span>
               </a>
             </li>
             <li><hr class="dropdown-divider"></li>
@@ -74,73 +160,113 @@
             {% endfor %}
           </ul>
         </li>
-        <li class="nav-item">
-          <a class="nav-link" href="{{ url_for('upload_data') }}">
-            <i class="bi bi-upload me-1"></i>Upload Data
-          </a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" href="{{ url_for('entries_list') }}">
-            <i class="bi bi-table me-1"></i>Browse Data
-          </a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" href="{{ url_for('director_dashboard') }}">
-            <i class="bi bi-speedometer me-1"></i>Director's Dashboard
-          </a>
-        </li>
+
         <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
-            <i class="bi bi-bar-chart-line me-1"></i>Reports
+          <a class="nav-link dropdown-toggle {% if ep in _data %}active-parent{% endif %}"
+             href="#" data-bs-toggle="dropdown">
+            <i class="bi bi-database me-1"></i>Data
           </a>
           <ul class="dropdown-menu shadow-sm">
-            <li><a class="dropdown-item" href="{{ url_for('report_monthly_stats') }}"><i class="bi bi-bar-chart-fill me-2 text-primary"></i>Monthly Board Report</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('report_monthly') }}"><i class="bi bi-calendar3 me-2 text-primary"></i>Monthly Summary</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('report_fiscal') }}"><i class="bi bi-calendar2-check me-2 text-warning"></i>Fiscal Year Totals</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('report_trend') }}"><i class="bi bi-graph-up me-2 text-primary"></i>Trend Over Time</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('report_yoy') }}"><i class="bi bi-arrow-left-right me-2 text-info"></i>Year-over-Year</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('report_quarterly_ref') }}"><i class="bi bi-clipboard2-data me-2 text-primary"></i>Quarterly Ref</a></li>
-            <li><hr class="dropdown-divider"></li>
-            <li><span class="dropdown-item text-muted sidebar-label ps-3" style="pointer-events:none">Cross-tab &amp; Analysis</span></li>
-            <li><a class="dropdown-item" href="{{ url_for('report_annual') }}"><i class="bi bi-trophy me-2 text-warning"></i>Branch Scorecard</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('report_crosstab') }}"><i class="bi bi-grid-3x3-gap me-2 text-primary"></i>Cross-tab Heat Map</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('report_programming_age') }}"><i class="bi bi-people-fill me-2" style="color:#6c3483"></i>Programming Cross-tab</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('report_programming') }}"><i class="bi bi-people me-2 text-danger"></i>Programming Summary</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('report_online') }}"><i class="bi bi-globe me-2" style="color:#117a65"></i>Online Stats</a></li>
+            <li><a class="dropdown-item {% if ep == 'upload_data' %}active{% endif %}"
+                   href="{{ url_for('upload_data') }}">
+              <i class="bi bi-upload me-2 text-primary"></i>Upload Data
+            </a></li>
+            <li><a class="dropdown-item {% if ep == 'entries_list' %}active{% endif %}"
+                   href="{{ url_for('entries_list') }}">
+              <i class="bi bi-table me-2 text-primary"></i>Browse Data
+            </a></li>
           </ul>
         </li>
+
         <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+          <a class="nav-link dropdown-toggle {% if ep in _dash %}active-parent{% endif %}"
+             href="#" data-bs-toggle="dropdown">
+            <i class="bi bi-speedometer me-1"></i>Dashboards
+          </a>
+          <ul class="dropdown-menu shadow-sm">
+            <li><a class="dropdown-item {% if ep == 'director_dashboard' %}active{% endif %}"
+                   href="{{ url_for('director_dashboard') }}">
+              <i class="bi bi-speedometer me-2 text-primary"></i>Director's Dashboard
+            </a></li>
+            <li><a class="dropdown-item {% if ep == 'annual_survey_dashboard' %}active{% endif %}"
+                   href="{{ url_for('annual_survey_dashboard') }}">
+              <i class="bi bi-bar-chart-steps me-2 text-primary"></i>Annual Survey
+            </a></li>
+          </ul>
+        </li>
+
+        <li class="nav-item">
+          <a class="nav-link {% if ep == 'reports_index' or ep in _reports %}active{% endif %}"
+             href="{{ url_for('reports_index') }}">
+            <i class="bi bi-bar-chart-line me-1"></i>Reports
+          </a>
+        </li>
+
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle {% if ep in _admin %}active-parent{% endif %}"
+             href="#" data-bs-toggle="dropdown">
             <i class="bi bi-gear me-1"></i>Admin
           </a>
           <ul class="dropdown-menu shadow-sm">
+            <li><a class="dropdown-item {% if ep == 'annual_survey_section_j' %}active{% endif %}"
+                   href="{{ url_for('annual_survey_section_j', year=now.year) }}">
+              <i class="bi bi-clock-history me-2 text-primary"></i>Section J — Outlet Hours
+            </a></li>
+            <li><a class="dropdown-item {% if ep == 'annual_survey_branch_hours' %}active{% endif %}"
+                   href="{{ url_for('annual_survey_branch_hours') }}">
+              <i class="bi bi-clock me-2 text-primary"></i>Branch Weekly Hours
+            </a></li>
+            <li><a class="dropdown-item {% if ep == 'annual_survey_holidays' %}active{% endif %}"
+                   href="{{ url_for('annual_survey_holidays') }}">
+              <i class="bi bi-calendar-x me-2 text-primary"></i>Holiday Schedule
+            </a></li>
+            {% if current_user.is_admin %}
+            <li><hr class="dropdown-divider"></li>
             <li>
-              <a class="dropdown-item" href="{{ url_for('admin_categories') }}">
+              <a class="dropdown-item {% if ep in ['admin_users','admin_user_new','admin_user_edit'] %}active{% endif %}"
+                 href="{{ url_for('admin_users') }}">
+                <i class="bi bi-people me-2 text-primary"></i>Users
+              </a>
+            </li>
+            <li><hr class="dropdown-divider"></li>
+            <li>
+              <a class="dropdown-item {% if ep in ['admin_categories','admin_category_edit'] %}active{% endif %}"
+                 href="{{ url_for('admin_categories') }}">
                 <i class="bi bi-tags me-2 text-primary"></i>Categories &amp; Metrics
               </a>
             </li>
             <li>
-              <a class="dropdown-item" href="{{ url_for('admin_branches') }}">
+              <a class="dropdown-item {% if ep == 'admin_branches' %}active{% endif %}"
+                 href="{{ url_for('admin_branches') }}">
                 <i class="bi bi-building me-2 text-primary"></i>Branches / Locations
               </a>
             </li>
             <li><hr class="dropdown-divider"></li>
             <li>
-              <a class="dropdown-item" href="{{ url_for('admin_import') }}">
+              <a class="dropdown-item {% if ep == 'admin_import' %}active{% endif %}"
+                 href="{{ url_for('admin_import') }}">
                 <i class="bi bi-upload me-2 text-primary"></i>Import from Excel
               </a>
             </li>
             <li>
-              <a class="dropdown-item" href="{{ url_for('admin_export') }}">
+              <a class="dropdown-item {% if ep == 'admin_export' %}active{% endif %}"
+                 href="{{ url_for('admin_export') }}">
                 <i class="bi bi-download me-2 text-success"></i>Export to Excel
               </a>
             </li>
+            {% endif %}
           </ul>
         </li>
+
       </ul>
-      <a href="{{ url_for('logout') }}" class="btn btn-outline-light btn-sm d-none d-lg-inline-flex align-items-center gap-1">
-        <i class="bi bi-box-arrow-right"></i> Sign Out
-      </a>
+      <div class="d-none d-lg-flex align-items-center gap-2">
+        <span class="text-white-50 small">
+          <i class="bi bi-person-circle me-1"></i>{{ current_user.username }}
+        </span>
+        <a href="{{ url_for('logout') }}" class="btn btn-outline-light btn-sm d-inline-flex align-items-center gap-1">
+          <i class="bi bi-box-arrow-right"></i> Sign Out
+        </a>
+      </div>
     </div>
   </div>
 </nav>
@@ -161,10 +287,20 @@
 </div>
 
 <footer class="text-center text-muted small py-4 mt-4 border-top bg-white">
-  Library Stats &mdash; {{ now.year }}
+  YCL Statistics &mdash; {{ now.year }}
 </footer>
 
+<button id="backToTop" class="btn btn-primary" title="Back to top">
+  <i class="bi bi-chevron-up"></i>
+</button>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  // Back to top
+  const btt = document.getElementById('backToTop');
+  window.addEventListener('scroll', () => { btt.style.display = window.scrollY > 400 ? 'block' : 'none'; });
+  btt.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

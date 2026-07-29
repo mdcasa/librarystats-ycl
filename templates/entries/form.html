@@ -66,9 +66,9 @@
           <label class="form-label fw-semibold">Quarter</label>
           <select name="quarter" class="form-select">
             <option value="">— select —</option>
-            {% for q in [1,2,3,4] %}
+            {% for q, month in [(1,'June'),(2,'October'),(3,'January'),(4,'April')] %}
             <option value="{{ q }}"
-              {% if editing and entry.quarter == q %}selected{% endif %}>Q{{ q }}</option>
+              {% if editing and entry.quarter == q %}selected{% endif %}>Q{{ q }} ({{ month }})</option>
             {% endfor %}
           </select>
         </div>
@@ -88,13 +88,6 @@
         </div>
         {% endif %}
 
-        {# Submitted by #}
-        <div class="col-sm-3">
-          <label class="form-label fw-semibold">Submitted by</label>
-          <input type="text" name="submitted_by" class="form-control"
-                 placeholder="Name or email"
-                 value="{{ entry.submitted_by if editing and entry.submitted_by else '' }}">
-        </div>
 
       </div>
     </div>
@@ -127,6 +120,9 @@
             <tr>
               <td>
                 {{ m.name }}
+                {% if m.name == 'Gate Count' %}
+                <span class="text-muted small fst-italic ms-1">— For Bookmobile / Outreach Use ONLY</span>
+                {% endif %}
                 {% if m.description %}
                 <i class="bi bi-info-circle text-muted ms-1" title="{{ m.description }}"
                    data-bs-toggle="tooltip"></i>
@@ -157,6 +153,62 @@
     </div>
   </div>
 
+  {# ── Non-holiday Closures (Branch Stats only) ── #}
+  {% if category.name == 'Branch Stats' %}
+  <div class="card mb-4">
+    <div class="card-header-custom fw-semibold">Non-holiday Closures</div>
+    <div class="table-responsive">
+      <table class="table mb-0 align-middle">
+        <colgroup>
+          <col style="width: 45%">
+          <col style="width: 45%">
+          <col style="width: 10%">
+        </colgroup>
+        <thead class="table-light">
+          <tr>
+            <th>Date</th>
+            <th>Hours Closed</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="closures-rows">
+          {% for c in closures %}
+          <tr class="closure-row">
+            <td><input type="date" name="closure_date" class="form-control form-control-sm"
+                       value="{{ c.closure_date.isoformat() }}"></td>
+            <td><input type="number" name="closure_hours" step="0.5" min="0" max="24"
+                       class="form-control form-control-sm" value="{{ c.display_hours }}"></td>
+            <td class="text-end">
+              <button type="button" class="btn btn-outline-danger btn-sm remove-closure-row">
+                <i class="bi bi-trash"></i>
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="card-body border-top">
+      <button type="button" id="add-closure-row" class="btn btn-outline-primary btn-sm">
+        <i class="bi bi-plus-lg me-1"></i>Add Closure
+      </button>
+    </div>
+  </div>
+
+  <template id="closure-row-template">
+    <tr class="closure-row">
+      <td><input type="date" name="closure_date" class="form-control form-control-sm"></td>
+      <td><input type="number" name="closure_hours" step="0.5" min="0" max="24"
+                 class="form-control form-control-sm"></td>
+      <td class="text-end">
+        <button type="button" class="btn btn-outline-danger btn-sm remove-closure-row">
+          <i class="bi bi-trash"></i>
+        </button>
+      </td>
+    </tr>
+  </template>
+  {% endif %}
+
   {# ── Notes ── #}
   <div class="card mb-4">
     <div class="card-header-custom fw-semibold">Notes <span class="text-muted fw-normal">(optional)</span></div>
@@ -185,6 +237,17 @@
   // Enable Bootstrap tooltips
   document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
     new bootstrap.Tooltip(el);
+  });
+
+  // Non-holiday Closures: add/remove rows client-side before submit
+  const closuresRows = document.getElementById('closures-rows');
+  const closureTemplate = document.getElementById('closure-row-template');
+  document.getElementById('add-closure-row')?.addEventListener('click', () => {
+    closuresRows.appendChild(closureTemplate.content.cloneNode(true));
+  });
+  closuresRows?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.remove-closure-row');
+    if (btn) btn.closest('tr').remove();
   });
 </script>
 {% endblock %}

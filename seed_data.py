@@ -5,11 +5,12 @@ def seed(db):
     branches = [
         'Rock Hill', 'Clover', 'Fort Mill', 'Lake Wylie', 'York',
         'Bookmobile/Outreach', 'YCL (System Wide)',
-        'Rock Hill - Circulation', 'Rock Hill - Reference', 'Rock Hill - YA',
+        "Rock Hill - Children's", 'Rock Hill - Circulation', 'Rock Hill - Reference', 'Rock Hill - YA',
         'Outreach / BKM',
     ]
     for i, name in enumerate(branches):
-        db.session.add(Branch(name=name, sort_order=i + 1))
+        if not Branch.query.filter_by(name=name).first():
+            db.session.add(Branch(name=name, sort_order=i + 1))
 
     # ── Category 1: Branch Stats ────────────────────────────────────────────
     c1 = Category(name='Branch Stats',
@@ -22,11 +23,14 @@ def seed(db):
         # (name, group_name, data_type)
         ('New Library Card Registrations, Adult',           'Registrations',       'integer'),
         ('New Library Card Registrations, Juvenile',        'Registrations',       'integer'),
+        ('New Library Card Registrations, Total',           'Registrations',       'integer'),
         ('Gate Count',                                       'Access & Usage',      'integer'),
         ('PC Reservations',                                  'Access & Usage',      'integer'),
         ('WiFi - Unique Sessions',                           'Access & Usage',      'integer'),
         ('External Party Library Room Use',                  'Access & Usage',      'integer'),
         ('Total Prints per Month',                           'Access & Usage',      'integer'),
+        ('Printed Jobs',                                     'Access & Usage',      'integer'),
+        ('Printed Cost',                                     'Access & Usage',      'decimal'),
         ('Total Branch Circulation',                         'Circulation',         'integer'),
         ('Hotspots Circulation',                             'Circulation',         'integer'),
         ('Curbside',                                         'Circulation',         'integer'),
@@ -106,8 +110,6 @@ def seed(db):
         ('Beanstack - Sessions',                  'Other Platforms',      'integer'),
         ('LibraryCalendar - Sessions',            'Other Platforms',      'integer'),
         ('LibGuides - Sessions',                  'Other Platforms',      'integer'),
-        ('DigitalLearn.org - Sessions',           'DigitalLearn',         'integer'),
-        ('DigitalLearn.org - Completed Courses',  'DigitalLearn',         'integer'),
         ('LOTE4Kids - Stories Watched',           'LOTE4Kids',            'integer'),
         ('LOTE4Kids - Activities',                'LOTE4Kids',            'integer'),
         ('LOTE4Kids - Logins',                    'LOTE4Kids',            'integer'),

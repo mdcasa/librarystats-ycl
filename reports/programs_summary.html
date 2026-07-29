@@ -1,0 +1,84 @@
+{% extends 'base.html' %}
+{% block title %}Programs Summary – Reports{% endblock %}
+{% block content %}
+<h1 class="h4 fw-bold mb-1"><i class="bi bi-calendar-range me-2 text-danger"></i>Programs Summary</h1>
+<p class="text-muted mb-4">Month-by-month program counts and attendance by age group, for a selected fiscal year (Jul–Jun). Study room bookings are excluded.</p>
+
+<div class="card mb-4">
+  <div class="card-body py-3">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-sm-4">
+        <label class="sidebar-label mb-1">Fiscal Year</label>
+        <select name="year" class="form-select form-select-sm" required>
+          <option value="">— select —</option>
+          {% for y in available_years %}
+          <option value="{{ y }}" {% if sel_year == y %}selected{% endif %}>FY{{ y }} (Jul {{ y - 1 }}–Jun {{ y }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-3">
+        <button class="btn btn-primary btn-sm">Run Report</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if monthly %}
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered mb-0 align-middle text-center" style="font-size:.85rem">
+      <thead class="table-light">
+        <tr>
+          <th rowspan="2" class="align-middle text-start">Month</th>
+          {% for b in age_buckets %}
+          <th colspan="2">{{ b }}</th>
+          {% endfor %}
+          <th colspan="2">Total</th>
+          <th rowspan="2"></th>
+        </tr>
+        <tr>
+          {% for b in age_buckets %}
+          <th class="fw-normal small text-muted">Programs</th>
+          <th class="fw-normal small text-muted">Attendance</th>
+          {% endfor %}
+          <th class="fw-normal small text-muted">Programs</th>
+          <th class="fw-normal small text-muted">Attendance</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in monthly %}
+        <tr>
+          <td class="text-start">{{ row.label }}</td>
+          {% for b in age_buckets %}
+          <td>{{ row.buckets[b].count if row.buckets[b].count else '—' }}</td>
+          <td>{{ row.buckets[b].attendance if row.buckets[b].attendance else '—' }}</td>
+          {% endfor %}
+          <td class="fw-semibold">{{ row.total_count if row.total_count else '—' }}</td>
+          <td class="fw-semibold">{{ row.total_attendance if row.total_attendance else '—' }}</td>
+          <td class="text-end">
+            {% if row.total_count %}
+            <a class="small" href="{{ url_for('report_programs', year=row.cal_year, month=row.month) }}">View</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="table-secondary">
+        <tr>
+          <td class="fw-bold text-start">Total</td>
+          {% for b in age_buckets %}
+          <td class="fw-bold">{{ year_total.buckets[b].count }}</td>
+          <td class="fw-bold">{{ year_total.buckets[b].attendance }}</td>
+          {% endfor %}
+          <td class="fw-bold">{{ year_total.count }}</td>
+          <td class="fw-bold">{{ year_total.attendance }}</td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+{% elif sel_year %}
+<div class="alert alert-info">No programs found for this fiscal year.</div>
+{% endif %}
+{% endblock %}

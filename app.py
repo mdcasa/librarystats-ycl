@@ -1,7 +1,13 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, session
-from models import db, Category, Metric, Branch, Entry, EntryValue
+from flask_login import LoginManager, login_user, logout_user, current_user
+from models import db, Category, Metric, Branch, Entry, EntryValue, User, QuarterlyRefClosureDays, ImportLog, BranchClosure
+from sqlalchemy.orm import joinedload
+from sqlalchemy import or_, and_
+from jinja2 import ChoiceLoader, FileSystemLoader
 from datetime import datetime
+from functools import wraps
 import hmac
+import io
 import os
 
 app = Flask(__name__)
@@ -17,6 +23,20 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
 
+# Allow report templates to live in /reports/ at the project root
+app.jinja_loader = ChoiceLoader([
+    app.jinja_loader,
+    FileSystemLoader(os.path.dirname(__file__)),
+])
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+@login_manager.user_loader
+def load_user(user_id):
+    return db.session.get(User, int(user_id))
+
 # Runs for both `python app.py` and gunicorn
 with app.app_context():
     db.create_all()
@@ -30,23 +50,118 @@ with app.app_context():
     except Exception:
         db.session.rollback()
 
-    # Mark Rock Hill desk branches (only Circ and YA report quarterly reference stats)
-    for _desk_name in ['Rock Hill - Circulation', 'Rock Hill - YA']:
+    # Mark Rock Hill desk branches used in Quarterly Reference Stats
+    for _desk_name in ['Rock Hill - Circulation', 'Rock Hill - Reference', 'Rock Hill - YA', "Rock Hill - Children's"]:
         _b = Branch.query.filter_by(name=_desk_name).first()
-        if _b and not _b.is_desk:
+        if _b:
             _b.is_desk = True
-    # Rock Hill - Reference is not used; deactivate so it disappears from all lists
-    _rhr = Branch.query.filter_by(name='Rock Hill - Reference').first()
-    if _rhr and _rhr.is_active:
-        _rhr.is_active = False
+            _b.is_active = True
+    # Create Rock Hill - Children's if it doesn't exist yet
+    if not Branch.query.filter_by(name="Rock Hill - Children's").first():
+        _max_sort = db.session.query(db.func.max(Branch.sort_order)).scalar() or 0
+        db.session.add(Branch(name="Rock Hill - Children's", is_desk=True, is_active=True, sort_order=_max_sort + 1))
+    # Create Administration branch if it doesn't exist yet
+    if not Branch.query.filter_by(name='Administration').first():
+        _max_sort = db.session.query(db.func.max(Branch.sort_order)).scalar() or 0
+        db.session.add(Branch(name='Administration', is_active=True, is_desk=False, sort_order=_max_sort + 1))
     db.session.commit()
 
     if Category.query.count() == 0:
         from seed_data import seed
         seed(db)
 
+    # Ensure 'New Library Card Registrations, Total' exists in Branch Stats
+    # (missing from early seed data; the SIRSI importer writes to it)
+    _bs = Category.query.filter_by(name='Branch Stats').first()
+    if _bs and not any(m.name == 'New Library Card Registrations, Total' for m in _bs.metrics):
+        _max_sort = max((m.sort_order for m in _bs.metrics), default=0)
+        _juv = next((m for m in _bs.metrics if m.name == 'New Library Card Registrations, Juvenile'), None)
+        db.session.add(Metric(
+            category_id=_bs.id,
+            name='New Library Card Registrations, Total',
+            group_name='Registrations',
+            data_type='integer',
+            sort_order=(_juv.sort_order + 1) if _juv else _max_sort + 1,
+        ))
+        db.session.commit()
+
+    # Backfill Total for entries imported before the Total metric existed
+    _bs = Category.query.filter_by(name='Branch Stats').first()
+    if _bs:
+        _total_m = next((m for m in _bs.metrics if m.name == 'New Library Card Registrations, Total'), None)
+        _adult_m = next((m for m in _bs.metrics if m.name == 'New Library Card Registrations, Adult'), None)
+        _juv_m   = next((m for m in _bs.metrics if m.name == 'New Library Card Registrations, Juvenile'), None)
+        if _total_m and _adult_m and _juv_m:
+            _backfilled = 0
+            for _entry in Entry.query.filter_by(category_id=_bs.id).all():
+                if EntryValue.query.filter_by(entry_id=_entry.id, metric_id=_total_m.id).first():
+                    continue
+                _a = EntryValue.query.filter_by(entry_id=_entry.id, metric_id=_adult_m.id).first()
+                _j = EntryValue.query.filter_by(entry_id=_entry.id, metric_id=_juv_m.id).first()
+                if not _a and not _j:
+                    continue
+                _av = _a.value_number if _a else 0
+                _jv = _j.value_number if _j else 0
+                if _av or _jv:
+                    db.session.add(EntryValue(entry_id=_entry.id, metric_id=_total_m.id,
+                                              value_number=(_av or 0) + (_jv or 0)))
+                    _backfilled += 1
+            if _backfilled:
+                db.session.commit()
+
+    # Remove DigitalLearn.org metrics from the Online Stats entry form.
+    # Deactivate if they hold recorded data (preserves history), else delete.
+    _os = Category.query.filter_by(name='Online Stats').first()
+    if _os:
+        for _dl in Metric.query.filter(
+            Metric.category_id == _os.id,
+            Metric.name.in_([
+                'DigitalLearn.org - Sessions',
+                'DigitalLearn.org - Completed Courses',
+            ]),
+        ).all():
+            if EntryValue.query.filter_by(metric_id=_dl.id).count():
+                _dl.is_active = False
+            else:
+                db.session.delete(_dl)
+        db.session.commit()
+
+    # Create import_logs table if it doesn't exist yet
+    try:
+        db.session.execute(db.text(
+            "CREATE TABLE IF NOT EXISTS import_logs ("
+            "  id SERIAL PRIMARY KEY,"
+            "  created_at TIMESTAMP DEFAULT NOW(),"
+            "  file_name VARCHAR(255),"
+            "  import_type VARCHAR(500),"
+            "  year INTEGER,"
+            "  month INTEGER,"
+            "  rows_affected INTEGER DEFAULT 0,"
+            "  undone_at TIMESTAMP,"
+            "  changes_json TEXT"
+            ")"
+        ))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    # Bootstrap: create default admin from env vars if no users exist yet
+    if User.query.count() == 0:
+        _admin = User(
+            username=os.environ.get('LOGIN_USERNAME', 'admin'),
+            email=None,
+            is_active=True,
+            is_admin=True,
+        )
+        _admin.set_password(os.environ.get('LOGIN_PASSWORD', ''))
+        db.session.add(_admin)
+        db.session.commit()
+
 MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
           'July', 'August', 'September', 'October', 'November', 'December']
+
+PROG_TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
+AGE_GROUPS = ['0-5', '6-11', '12-18', '19+', 'General Interest']
 
 
 @app.template_filter('commas')
@@ -57,29 +172,38 @@ def commas_filter(value):
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
-_PUBLIC_ENDPOINTS = {'login', 'logout', 'static'}
+_PUBLIC_ENDPOINTS = {'login', 'logout', 'static', 'public_annual_overview'}
 
 
 @app.before_request
 def require_login():
-    if request.endpoint not in _PUBLIC_ENDPOINTS and not session.get('logged_in'):
+    if request.endpoint == 'index' and not current_user.is_authenticated:
+        return redirect(url_for('public_annual_overview'))
+    if request.endpoint not in _PUBLIC_ENDPOINTS and not current_user.is_authenticated:
         return redirect(url_for('login', next=request.path))
+
+
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_admin:
+            flash('Admin access required.', 'danger')
+            return redirect(url_for('index'))
+        return f(*args, **kwargs)
+    return decorated
 
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    if session.get('logged_in'):
+    if current_user.is_authenticated:
         return redirect(url_for('index'))
     error = None
     if request.method == 'POST':
-        username = request.form.get('username', '')
+        username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
-        valid_user = os.environ.get('LOGIN_USERNAME', 'admin')
-        valid_pass = os.environ.get('LOGIN_PASSWORD', '')
-        if (hmac.compare_digest(username, valid_user) and
-                hmac.compare_digest(password, valid_pass) and valid_pass):
-            session.permanent = True
-            session['logged_in'] = True
+        user = User.query.filter_by(username=username).first()
+        if user and user.is_active and user.check_password(password):
+            login_user(user, remember=True)
             next_url = request.args.get('next') or url_for('index')
             return redirect(next_url)
         error = 'Invalid username or password.'
@@ -88,7 +212,7 @@ def login():
 
 @app.route('/logout')
 def logout():
-    session.clear()
+    logout_user()
     return redirect(url_for('login'))
 
 
@@ -108,7 +232,7 @@ def group_metrics(metrics):
 @app.context_processor
 def inject_nav():
     return {
-        'nav_categories': Category.query.filter_by(is_active=True).order_by(Category.sort_order).all(),
+        'nav_categories': Category.query.filter(Category.is_active == True, Category.name != 'Circulation').order_by(Category.sort_order).all(),
         'now': datetime.now(),
     }
 
@@ -121,7 +245,7 @@ def index():
         cat = Category.query.filter_by(name=cat_name).first()
         if not cat:
             return {}
-        entries = Entry.query.filter_by(category_id=cat.id, year=y, month=m).all()
+        entries = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat.id, year=y, month=m).all()
         id_to_name = {mx.id: mx.name for mx in cat.metrics}
         totals = {}
         for e in entries:
@@ -137,8 +261,8 @@ def index():
             return None
         return int(v) if v == int(v) else round(v, 1)
 
-    TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
-    AGE   = ['0-5', '6-11', '12-18', '19+', 'General Interest']
+    TYPES = PROG_TYPES
+    AGE   = AGE_GROUPS
 
     bs_cat = Category.query.filter_by(name='Branch Stats').first()
     latest_year = latest_month = None
@@ -207,18 +331,62 @@ def index():
                 circ_trend_data.append(_v(s, 'Total Branch Circulation'))
                 gate_trend_data.append(_v(s, 'Gate Count'))
 
-    # Per-category: most recent entry period
+    # Per-category: most recent entry period.
+    # The "Circulation" category is an alias for SIRSI data stored in Branch Stats —
+    # if it has no entries of its own, fall back to the latest Branch Stats entry
+    # that has a Total Branch Circulation value so the widget shows the correct date.
+    _bs_cat   = Category.query.filter_by(name='Branch Stats').first()
+    _circ_m   = next((m for m in _bs_cat.metrics if m.name == 'Total Branch Circulation'), None) \
+                if _bs_cat else None
+
+    # Real service branches for per-branch drill-down (exclude lockers, desks, system-wide, admin)
+    _real_branches = _real_branch_q().order_by(Branch.sort_order).all()
+
     coverage = []
     for cat in Category.query.filter_by(is_active=True).order_by(Category.sort_order).all():
-        last = (Entry.query.filter_by(category_id=cat.id)
-                .order_by(Entry.year.desc(), Entry.month.desc(), Entry.quarter.desc())
-                .first())
-        coverage.append({'category': cat, 'last_entry': last})
+        last = _latest_entry(Entry.query.filter_by(category_id=cat.id),
+                              quarterly=(cat.frequency == 'quarterly'))
+        if last is None and cat.name == 'Circulation' and _circ_m:
+            _ev = (EntryValue.query
+                   .join(Entry, Entry.id == EntryValue.entry_id)
+                   .filter(Entry.category_id == _bs_cat.id,
+                           Entry.month.isnot(None),
+                           EntryValue.metric_id == _circ_m.id)
+                   .order_by(Entry.year.desc(), Entry.month.desc())
+                   .first())
+            last = _ev.entry if _ev else None
+
+        branch_detail = []
+        if cat.has_branch:
+            # Quarterly Reference Stats is entered per Rock Hill desk
+            # (Circulation, Reference, YA, Children's), never under the
+            # parent "Rock Hill" branch — show the desks here too, matching
+            # the branch list the actual Quarterly Ref report uses.
+            _branch_list = (_branches_for_category(cat)
+                            if cat.name == 'Quarterly Reference Stats' else _real_branches)
+            for b in _branch_list:
+                b_last = _latest_entry(
+                    Entry.query.filter_by(category_id=cat.id, branch_id=b.id),
+                    quarterly=(cat.frequency == 'quarterly'))
+                if b_last is None and cat.name == 'Circulation' and _circ_m:
+                    _bev = (EntryValue.query
+                            .join(Entry, Entry.id == EntryValue.entry_id)
+                            .filter(Entry.category_id == _bs_cat.id,
+                                    Entry.branch_id == b.id,
+                                    Entry.month.isnot(None),
+                                    EntryValue.metric_id == _circ_m.id)
+                            .order_by(Entry.year.desc(), Entry.month.desc())
+                            .first())
+                    b_last = _bev.entry if _bev else None
+                branch_detail.append({'branch': b, 'last_entry': b_last})
+
+        coverage.append({'category': cat, 'last_entry': last, 'branch_detail': branch_detail})
 
     return render_template('index.html',
                            total_entries=Entry.query.count(),
                            total_categories=Category.query.filter_by(is_active=True).count(),
-                           total_branches=Branch.query.filter_by(is_active=True, is_desk=False).count(),
+                           total_branches=_real_branch_q().count(),
+                           real_branches=_real_branches,
                            latest_year=latest_year,
                            latest_month=latest_month,
                            kpi=kpi,
@@ -238,9 +406,29 @@ def entries_list():
     branch_id = request.args.get('branch', type=int)
     year = request.args.get('year', type=int)
 
+    ILL_ICL_PSEUDO = -1  # virtual filter id for ILL/ICL entries
+
+    def _bs_metric_filter(metric_name_set):
+        """Return a query filter for Branch Stats entries containing any of the named metrics."""
+        bs_cat = Category.query.filter_by(name='Branch Stats').first()
+        ids = [m.id for m in (bs_cat.metrics if bs_cat else []) if m.name in metric_name_set]
+        return (bs_cat, ids)
+
     q = Entry.query
-    if cat_id:
-        q = q.filter_by(category_id=cat_id)
+    if cat_id == ILL_ICL_PSEUDO:
+        bs_cat, ids = _bs_metric_filter(_ILL_METRICS | _ICL_METRICS)
+        if bs_cat and ids:
+            q = q.filter_by(category_id=bs_cat.id).filter(
+                Entry.values.any(EntryValue.metric_id.in_(ids)))
+    elif cat_id:
+        selected_cat = db.session.get(Category, cat_id)
+        if selected_cat and selected_cat.name == 'Circulation':
+            bs_cat, ids = _bs_metric_filter(_CIRC_METRICS)
+            if bs_cat and ids:
+                q = q.filter_by(category_id=bs_cat.id).filter(
+                    Entry.values.any(EntryValue.metric_id.in_(ids)))
+        else:
+            q = q.filter_by(category_id=cat_id)
     if branch_id:
         q = q.filter_by(branch_id=branch_id)
     if year:
@@ -255,20 +443,56 @@ def entries_list():
                            all_categories=Category.query.filter_by(is_active=True).order_by(Category.sort_order).all(),
                            all_branches=Branch.query.filter_by(is_active=True).order_by(Branch.name).all(),
                            available_years=years,
+                           ILL_ICL_PSEUDO=ILL_ICL_PSEUDO,
                            sel_cat=cat_id, sel_branch=branch_id, sel_year=year)
 
 
 # ── Create entry ─────────────────────────────────────────────────────────────
+
+# Quarterly Reference Stats' quarter labels are sample months, not calendar
+# quarters (Q1=June, Q2=October, Q3=January, Q4=April — see entries/form.html),
+# so raw quarter-number sorting does not match chronological order within a
+# year (confirmed: the stored "year" is the literal calendar year of the
+# sample month, no fiscal-year offset).
+_QRS_QUARTER_MONTH = {1: 6, 2: 10, 3: 1, 4: 4}
+
+
+def _qrs_calendar_key(entry):
+    """True (calendar_year, calendar_month) for a Quarterly Reference Stats entry."""
+    return (entry.year, _QRS_QUARTER_MONTH.get(entry.quarter, 0))
+
+
+def _latest_entry(query, quarterly=False):
+    """Most recent Entry from a query, honoring QRS's non-chronological quarter numbering."""
+    if quarterly:
+        return max(query.all(), key=_qrs_calendar_key, default=None)
+    return query.order_by(Entry.year.desc(), Entry.month.desc(), Entry.quarter.desc()).first()
+
+
+def _real_branch_q():
+    """Filtered query for the 6 real service branches — excludes lockers, desks, System Wide, Administration."""
+    return Branch.query.filter(
+        Branch.is_active == True,
+        Branch.is_desk == False,
+        ~Branch.name.ilike('%locker%'),
+        Branch.name != 'YCL (System Wide)',
+        Branch.name != 'Administration',
+    )
+
 
 def _branches_for_category(category):
     """Return the branch list appropriate for a given category."""
     if category.name == 'Quarterly Reference Stats':
         # Show desks (Circ, YA) but not the parent Rock Hill branch or system-wide
         return (Branch.query.filter_by(is_active=True)
-                .filter(~Branch.name.in_(['Rock Hill', 'YCL (System Wide)']))
-                .order_by(Branch.is_desk.desc(), Branch.sort_order).all())
-    # All other categories: exclude desk-level branches
-    return Branch.query.filter_by(is_active=True, is_desk=False).order_by(Branch.name).all()
+                .filter(~Branch.name.in_(['Rock Hill', 'YCL (System Wide)', 'Administration']),
+                        ~Branch.name.ilike('%locker%'))
+                .order_by(Branch.name).all())
+    # All other categories: exclude desk-level and locker branches
+    return (Branch.query.filter_by(is_active=True, is_desk=False)
+            .filter(~Branch.name.ilike('%locker%'),
+                    Branch.name != 'YCL (System Wide)')
+            .order_by(Branch.name).all())
 
 
 @app.route('/entries/new/<int:category_id>', methods=['GET', 'POST'])
@@ -293,7 +517,7 @@ def entry_create(category_id):
                 year=year,
                 month=request.form.get('month', type=int) or None,
                 quarter=request.form.get('quarter', type=int) or None,
-                submitted_by=request.form.get('submitted_by', '').strip(),
+                submitted_by=current_user.username,
                 notes=request.form.get('notes', '').strip(),
             )
             db.session.add(entry)
@@ -312,6 +536,9 @@ def entry_create(category_id):
                             pass
                     db.session.add(ev)
 
+            if category.name == 'Branch Stats' and entry.branch_id:
+                _save_branch_closures(entry.branch_id, current_user.username)
+
             db.session.commit()
             flash('Entry submitted successfully!', 'success')
             return redirect(url_for('entry_view', entry_id=entry.id))
@@ -323,7 +550,8 @@ def entry_create(category_id):
                            months=MONTHS,
                            year_range=year_range,
                            entry=None,
-                           values={})
+                           values={},
+                           closures=[])
 
 
 # ── View entry ───────────────────────────────────────────────────────────────
@@ -333,10 +561,48 @@ def entry_view(entry_id):
     entry = Entry.query.get_or_404(entry_id)
     all_metrics = Metric.query.filter_by(category_id=entry.category_id).order_by(Metric.sort_order).all()
     values = {ev.metric_id: ev for ev in entry.values}
+
+    closures = []
+    if entry.category.name == 'Branch Stats' and entry.branch_id and entry.month:
+        closures = _branch_closures_for(entry.branch_id, entry.year, entry.month)
+
     return render_template('entries/view.html',
                            entry=entry,
                            metric_groups=group_metrics(all_metrics),
-                           values=values)
+                           values=values,
+                           closures=closures)
+
+
+# ── Branch closures ─────────────────────────────────────────────────────────
+
+def _branch_closures_for(branch_id, year, month):
+    return (BranchClosure.query
+            .filter(BranchClosure.branch_id == branch_id)
+            .filter(db.extract('year', BranchClosure.closure_date) == year)
+            .filter(db.extract('month', BranchClosure.closure_date) == month)
+            .order_by(BranchClosure.closure_date).all())
+
+
+def _save_branch_closures(branch_id, submitted_by):
+    """Create BranchClosure rows from parallel closure_date/closure_hours form fields."""
+    dates = request.form.getlist('closure_date')
+    hours_list = request.form.getlist('closure_hours')
+    for raw_date, raw_hours in zip(dates, hours_list):
+        raw_date = raw_date.strip()
+        raw_hours = raw_hours.strip()
+        if not raw_date or not raw_hours:
+            continue
+        try:
+            parsed_date = datetime.strptime(raw_date, '%Y-%m-%d').date()
+            hours = float(raw_hours)
+        except ValueError:
+            continue
+        db.session.add(BranchClosure(
+            branch_id=branch_id,
+            closure_date=parsed_date,
+            hours_closed=hours,
+            submitted_by=submitted_by,
+        ))
 
 
 # ── Edit entry ───────────────────────────────────────────────────────────────
@@ -355,11 +621,13 @@ def entry_edit(entry_id):
     year_range = range(datetime.now().year - 5, datetime.now().year + 2)
 
     if request.method == 'POST':
+        old_branch_id, old_year, old_month = entry.branch_id, entry.year, entry.month
+
         entry.branch_id = request.form.get('branch_id', type=int) or None
         entry.year = request.form.get('year', type=int)
         entry.month = request.form.get('month', type=int) or None
         entry.quarter = request.form.get('quarter', type=int) or None
-        entry.submitted_by = request.form.get('submitted_by', '').strip()
+        entry.add_source(current_user.username)
         entry.notes = request.form.get('notes', '').strip()
 
         for m in metrics:
@@ -381,9 +649,20 @@ def entry_edit(entry_id):
             elif ev is not None:
                 db.session.delete(ev)
 
+        if category.name == 'Branch Stats':
+            if old_branch_id and old_month:
+                for c in _branch_closures_for(old_branch_id, old_year, old_month):
+                    db.session.delete(c)
+            if entry.branch_id:
+                _save_branch_closures(entry.branch_id, current_user.username)
+
         db.session.commit()
         flash('Entry updated successfully!', 'success')
         return redirect(url_for('entry_view', entry_id=entry.id))
+
+    closures = []
+    if category.name == 'Branch Stats' and entry.branch_id and entry.month:
+        closures = _branch_closures_for(entry.branch_id, entry.year, entry.month)
 
     return render_template('entries/form.html',
                            category=category,
@@ -392,12 +671,14 @@ def entry_edit(entry_id):
                            months=MONTHS,
                            year_range=year_range,
                            entry=entry,
-                           values=values)
+                           values=values,
+                           closures=closures)
 
 
 # ── Delete entry ─────────────────────────────────────────────────────────────
 
 @app.route('/entries/<int:entry_id>/delete', methods=['POST'])
+@admin_required
 def entry_delete(entry_id):
     entry = Entry.query.get_or_404(entry_id)
     db.session.delete(entry)
@@ -587,7 +868,7 @@ def report_data_table(metrics, branch_list, data):
         if v is None:
             return '—'
         if isinstance(v, float):
-            return str(int(v)) if v == int(v) else f"{v:.2f}".rstrip('0').rstrip('.')
+            return f"{int(v):,}" if v == int(v) else f"{v:,.2f}".rstrip('0').rstrip('.')
         return str(v) if v != '' else '—'
 
     groups, seen = [], {}
@@ -622,6 +903,29 @@ def metrics_by_category_json():
     return result
 
 
+def _xlsx_response(wb, filename):
+    """Serialize a workbook to a Flask send_file response."""
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
+def _xl_header(ws, bold_font, text):
+    """Write a bold section header row and return the next row index."""
+    from openpyxl.styles import PatternFill
+    ws.append([text])
+    row = ws.max_row
+    ws.cell(row, 1).font = bold_font
+    ws.cell(row, 1).fill = PatternFill('solid', fgColor='D9E1F2')
+    return row + 1
+
+
 @app.route('/reports')
 def reports_index():
     return render_template('reports/index.html')
@@ -633,7 +937,7 @@ def report_monthly():
     year   = request.args.get('year',     type=int)
     month  = request.args.get('month',    type=int)
 
-    categories = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
+    categories = Category.query.filter(Category.is_active == True, Category.name != 'Circulation').order_by(Category.sort_order).all()
     available_years = [r[0] for r in db.session.query(Entry.year).distinct()
                                                 .order_by(Entry.year.desc()).all()]
     table = branches = category = None
@@ -641,12 +945,14 @@ def report_monthly():
     if cat_id and year and month:
         category = Category.query.get_or_404(cat_id)
         metrics  = Metric.query.filter_by(category_id=cat_id, is_active=True).order_by(Metric.sort_order).all()
-        entries  = Entry.query.filter_by(category_id=cat_id, year=year, month=month).all()
+        entries  = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat_id, year=year, month=month).all()
 
-        branch_set, data = set(), {}
+        # Show every branch that has ever reported for this category, even if
+        # this specific month has no entry yet (rendered as blank by report_data_table).
+        branch_set = {r[0] for r in db.session.query(Entry.branch_id)
+                                               .filter_by(category_id=cat_id).distinct().all()}
+        data = {}
         for e in entries:
-            if e.branch_id not in branch_set:
-                branch_set.add(e.branch_id)
             if e.branch_id not in data:
                 data[e.branch_id] = {}
             for ev in e.values:
@@ -658,7 +964,7 @@ def report_monthly():
                     data[e.branch_id][ev.metric_id] = ev.value_number
 
         branches = sorted(
-            [b for b in (Branch.query.get(bid) for bid in branch_set) if b],
+            [b for b in (Branch.query.get(bid) for bid in branch_set) if b and b.name != 'Administration'],
             key=lambda b: b.name
         )
         table = report_data_table(metrics, branches if branches else [None], data)
@@ -673,41 +979,73 @@ def report_monthly():
 def report_trend():
     cat_id     = request.args.get('category', type=int)
     metric_id  = request.args.get('metric',   type=int)
-    year       = request.args.get('year',     type=int)
+    years      = request.args.getlist('year', type=int)
     branch_ids = request.args.getlist('branches', type=int)
 
-    categories  = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
-    available_years = [r[0] for r in db.session.query(Entry.year).distinct()
-                                                .order_by(Entry.year.asc()).all()]
+    categories  = Category.query.filter(Category.is_active == True, Category.name != 'Circulation').order_by(Category.sort_order).all()
+    fy_rows = db.session.query(Entry.year, Entry.month).filter(Entry.month.isnot(None)).distinct().all()
+    _now = datetime.now(); _cur_fy = _now.year + 1 if _now.month >= 7 else _now.year
+    fy_set = set()
+    for yr, mo in fy_rows:
+        fy_set.add(yr + 1 if mo >= 7 else yr)
+    available_years = sorted(y for y in fy_set if y <= _cur_fy)
     metrics_json = metrics_by_category_json()
     chart_data   = None
     metric = category = None
 
-    if cat_id and metric_id and year:
+    FY_MONTHS = list(range(7, 13)) + list(range(1, 7))  # Jul–Dec then Jan–Jun
+
+    if cat_id and metric_id and years:
         category = Category.query.get_or_404(cat_id)
         metric   = Metric.query.get_or_404(metric_id)
-        labels   = [m[:3] for m in MONTHS]
+        years_sorted = sorted(years)
+
+        # Build a chronological (cal_year, month) sequence across all selected FYs
+        all_month_keys = [
+            (fy - 1 if mo >= 7 else fy, mo)
+            for fy in years_sorted
+            for mo in FY_MONTHS
+        ]
+        multi = len(years_sorted) > 1
+        labels = [f"{MONTHS[mo-1][:3]} '{str(yr)[2:]}" if multi else MONTHS[mo-1][:3]
+                  for yr, mo in all_month_keys]
+
         datasets = []
         colors   = ['#2c6e8a','#e74c3c','#27ae60','#f39c12','#8e44ad',
                     '#16a085','#d35400','#2980b9','#c0392b','#1abc9c']
 
         if category.has_branch:
-            all_branches = Branch.query.filter_by(is_active=True).order_by(Branch.name).all()
-            selected = [b for b in all_branches if b.id in branch_ids] if branch_ids else all_branches
+            real_branches = _real_branch_q().order_by(Branch.name).all()
+            locker_branches = Branch.query.filter(
+                Branch.is_active == True,
+                Branch.name.ilike('%locker%'),
+            ).all()
+            selected = [b for b in real_branches if b.id in branch_ids] if branch_ids else real_branches
             for i, b in enumerate(selected):
+                lockers = [lb for lb in locker_branches
+                           if lb.name.lower().startswith(b.name.lower())]
                 pts = []
-                for mo in range(1, 13):
+                for yr, mo in all_month_keys:
+                    total = None
                     e = Entry.query.filter_by(category_id=cat_id, branch_id=b.id,
-                                              year=year, month=mo).first()
+                                              year=yr, month=mo).first()
                     ev = EntryValue.query.filter_by(entry_id=e.id, metric_id=metric_id).first() if e else None
-                    pts.append(ev.value_number if ev else None)
+                    if ev and ev.value_number is not None:
+                        total = ev.value_number
+                    for lb in lockers:
+                        le = Entry.query.filter_by(category_id=cat_id, branch_id=lb.id,
+                                                   year=yr, month=mo).first()
+                        lev = EntryValue.query.filter_by(entry_id=le.id, metric_id=metric_id).first() if le else None
+                        if lev and lev.value_number is not None:
+                            total = (total or 0) + lev.value_number
+                    pts.append(total)
                 datasets.append({'label': b.name, 'data': pts, 'tension': 0.3,
                                  'spanGaps': True, 'borderColor': colors[i % len(colors)],
                                  'backgroundColor': colors[i % len(colors)] + '22'})
         else:
             pts = []
-            for mo in range(1, 13):
-                e = Entry.query.filter_by(category_id=cat_id, year=year, month=mo).first()
+            for yr, mo in all_month_keys:
+                e = Entry.query.filter_by(category_id=cat_id, year=yr, month=mo).first()
                 ev = EntryValue.query.filter_by(entry_id=e.id, metric_id=metric_id).first() if e else None
                 pts.append(ev.value_number if ev else None)
             datasets.append({'label': metric.name, 'data': pts, 'tension': 0.3,
@@ -716,12 +1054,12 @@ def report_trend():
 
         chart_data = {'labels': labels, 'datasets': datasets}
 
-    all_branches = Branch.query.filter_by(is_active=True).order_by(Branch.name).all()
+    all_branches = _real_branch_q().order_by(Branch.name).all()
     return render_template('reports/trend.html',
                            categories=categories, available_years=available_years,
                            all_branches=all_branches, metrics_json=metrics_json,
                            sel_cat=cat_id, sel_metric=metric_id,
-                           sel_year=year, sel_branches=branch_ids,
+                           sel_years=years, sel_branches=branch_ids,
                            category=category, metric=metric, chart_data=chart_data)
 
 
@@ -733,16 +1071,15 @@ def report_programming():
 
     available_years = [r[0] for r in db.session.query(Entry.year).distinct()
                                                 .order_by(Entry.year.desc()).all()]
-    branches = Branch.query.filter_by(is_active=True).order_by(Branch.name).all()
-    TYPES      = ['ONSITE', 'OFFSITE', 'VIRTUAL']
-    AGE_GROUPS = ['0-5', '6-11', '12-18', '19+', 'General Interest']
+    branches = _real_branch_q().order_by(Branch.name).all()
+    TYPES      = PROG_TYPES
     summary = outreach = None
 
     if year:
         cat = Category.query.filter_by(name='Branch Stats').first()
         if cat:
             all_metrics = {m.name: m for m in cat.metrics}
-            q = Entry.query.filter_by(category_id=cat.id, year=year)
+            q = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat.id, year=year)
             if month:
                 q = q.filter_by(month=month)
             if branch_id:
@@ -779,6 +1116,135 @@ def report_programming():
                            months=MONTHS, sel_year=year, sel_month=month,
                            sel_branch=branch_id, summary=summary, outreach=outreach,
                            prog_types=TYPES, age_groups=AGE_GROUPS)
+
+
+@app.route('/reports/programs')
+def report_programs():
+    from models import ProgramEvent
+
+    year      = request.args.get('year',   type=int)
+    month     = request.args.get('month',  type=int)
+    branch_id = request.args.get('branch', type=int)
+
+    available_years = [r[0] for r in db.session.query(ProgramEvent.year).distinct()
+                                                 .order_by(ProgramEvent.year.desc()).all()]
+    branches = _real_branch_q().order_by(Branch.name).all()
+    programs = summary = grouped = None
+
+    if year:
+        q = ProgramEvent.query.filter_by(year=year).filter(ProgramEvent.location_mode != 'STUDY_ROOM')
+        if month:
+            q = q.filter_by(month=month)
+        if branch_id:
+            q = q.filter_by(branch_id=branch_id)
+        programs = q.order_by(ProgramEvent.event_date, ProgramEvent.title).all()
+        summary = {
+            'count':      len(programs),
+            'attendance': sum(p.attendance or 0 for p in programs),
+        }
+
+        # Group by Program Type (first type listed, for rows tagged with several)
+        # so each program lands in exactly one section.
+        buckets = {}
+        for p in programs:
+            label = p.program_type.split(',')[0].strip() if p.program_type else 'Uncategorized'
+            buckets.setdefault(label, []).append(p)
+        ordered_labels = sorted(k for k in buckets if k != 'Uncategorized')
+        if 'Uncategorized' in buckets:
+            ordered_labels.append('Uncategorized')
+        grouped = [{
+            'label':      label,
+            'programs':   buckets[label],
+            'count':      len(buckets[label]),
+            'attendance': sum(p.attendance or 0 for p in buckets[label]),
+        } for label in ordered_labels]
+
+    return render_template('reports/programs.html',
+                           available_years=available_years, branches=branches,
+                           months=MONTHS, sel_year=year, sel_month=month,
+                           sel_branch=branch_id, programs=programs, summary=summary,
+                           grouped=grouped)
+
+
+# Display buckets for the Programs Summary report: collapses the 5 stored
+# age_bucket values (0-5, 6-11, 12-18, 19+, General Interest — shared with the
+# ONSITE/OFFSITE/VIRTUAL metrics) into the 4 buckets requested for this report.
+_PROGRAMS_SUMMARY_BUCKET_MAP = {
+    '0-5': '0-11', '6-11': '0-11',
+    '12-18': '12-18',
+    '19+': '18+',
+    'General Interest': 'General Interest',
+}
+_PROGRAMS_SUMMARY_BUCKETS = ['0-11', '12-18', '18+', 'General Interest']
+
+
+@app.route('/reports/programs/summary')
+def report_programs_summary():
+    from models import ProgramEvent
+
+    fy_year = request.args.get('year', type=int)
+
+    # Fiscal year (Jul–Jun), matching Trend/Fiscal/Year-over-Year elsewhere in the app.
+    fy_rows = db.session.query(ProgramEvent.year, ProgramEvent.month).distinct().all()
+    _now = datetime.now()
+    _cur_fy = _now.year + 1 if _now.month >= 7 else _now.year
+    fy_set = {(yr + 1 if mo >= 7 else yr) for yr, mo in fy_rows}
+    available_years = sorted((y for y in fy_set if y <= _cur_fy), reverse=True)
+
+    FY_MONTHS = list(range(7, 13)) + list(range(1, 7))  # Jul–Dec, then Jan–Jun
+
+    monthly = year_total = None
+
+    if fy_year:
+        rows = (db.session.query(
+                    ProgramEvent.year, ProgramEvent.month, ProgramEvent.age_bucket,
+                    db.func.count(ProgramEvent.id),
+                    db.func.coalesce(db.func.sum(ProgramEvent.attendance), 0))
+                .filter(ProgramEvent.location_mode != 'STUDY_ROOM')
+                .group_by(ProgramEvent.year, ProgramEvent.month, ProgramEvent.age_bucket)
+                .all())
+
+        # (calendar_year, calendar_month) -> {display_bucket: [count, attendance]}
+        by_period = {}
+        for yr, mo, bucket, count, attendance in rows:
+            if (yr + 1 if mo >= 7 else yr) != fy_year:
+                continue
+            display_bucket = _PROGRAMS_SUMMARY_BUCKET_MAP.get(bucket, 'General Interest')
+            cell = by_period.setdefault((yr, mo), {})
+            cell.setdefault(display_bucket, [0, 0])
+            cell[display_bucket][0] += count
+            cell[display_bucket][1] += attendance
+
+        monthly = []
+        for mo in FY_MONTHS:
+            cal_year = fy_year - 1 if mo >= 7 else fy_year
+            cell = by_period.get((cal_year, mo), {})
+            row = {
+                'label': MONTHS[mo - 1], 'cal_year': cal_year, 'month': mo,
+                'buckets': {}, 'total_count': 0, 'total_attendance': 0,
+            }
+            for b in _PROGRAMS_SUMMARY_BUCKETS:
+                count, attendance = cell.get(b, (0, 0))
+                row['buckets'][b] = {'count': count, 'attendance': attendance}
+                row['total_count']      += count
+                row['total_attendance'] += attendance
+            monthly.append(row)
+
+        year_total = {
+            'buckets': {
+                b: {
+                    'count':      sum(r['buckets'][b]['count'] for r in monthly),
+                    'attendance': sum(r['buckets'][b]['attendance'] for r in monthly),
+                } for b in _PROGRAMS_SUMMARY_BUCKETS
+            },
+            'count':      sum(r['total_count'] for r in monthly),
+            'attendance': sum(r['total_attendance'] for r in monthly),
+        }
+
+    return render_template('reports/programs_summary.html',
+                           available_years=available_years, sel_year=fy_year,
+                           monthly=monthly, year_total=year_total,
+                           age_buckets=_PROGRAMS_SUMMARY_BUCKETS)
 
 
 @app.route('/reports/online')
@@ -828,22 +1294,46 @@ def report_yoy():
     branch_id = request.args.get('branch',   type=int)
     metric_id = request.args.get('metric',   type=int)
     mode      = request.args.get('mode', 'annual')
-    years     = sorted(request.args.getlist('years', type=int))
+    years     = sorted(request.args.getlist('years', type=int))  # fiscal years (e.g. 2024 = Jul 2023–Jun 2024)
 
-    categories      = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
-    available_years = [r[0] for r in db.session.query(Entry.year).distinct().order_by(Entry.year).all()]
-    metrics_json    = metrics_by_category_json()
+    categories   = Category.query.filter(Category.is_active == True, ~Category.name.in_(['Circulation', 'Quarterly Reference Stats'])).order_by(Category.sort_order).all()
+    metrics_json = metrics_by_category_json()
 
-    all_branches = Branch.query.filter_by(is_active=True).order_by(Branch.name).all()
-    table = col_headers = chart_data = category = metric = None
+    # Derive available fiscal years from stored data
+    fy_rows = db.session.query(Entry.year, Entry.month, Entry.quarter).filter(
+        or_(Entry.month.isnot(None), Entry.quarter.isnot(None))
+    ).distinct().all()
+    _now = datetime.now(); _cur_fy = _now.year + 1 if _now.month >= 7 else _now.year
+    fy_set = set()
+    for yr, mo, q in fy_rows:
+        if mo is not None:
+            fy_set.add(yr + 1 if mo >= 7 else yr)
+        if q is not None:
+            fy_set.add(yr + 1 if q in (3, 4) else yr)
+    available_years = sorted(y for y in fy_set if y <= _cur_fy)
+
+    all_branches = _real_branch_q().order_by(Branch.name).all()
+    table = col_headers = chart_data = category = metric = annual_chart_json = None
+
+    # Fiscal month order: Jul→Jun
+    FY_MONTHS = list(range(7, 13)) + list(range(1, 7))
+    FY_MONTH_LABELS = ['Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun']
 
     if cat_id and len(years) >= 2:
         category = Category.query.get_or_404(cat_id)
         metrics  = Metric.query.filter_by(category_id=cat_id, is_active=True).order_by(Metric.sort_order).all()
         colors   = ['#2c6e8a','#e74c3c','#27ae60','#f39c12','#8e44ad','#16a085']
 
-        def _entries(year):
-            q = Entry.query.filter_by(category_id=cat_id, year=year)
+        def _entries(fy_year):
+            # Fetch Jul(fy_year-1)–Jun(fy_year), handling monthly and quarterly entries
+            q = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat_id).filter(
+                or_(
+                    and_(Entry.year == fy_year - 1,
+                         or_(Entry.month >= 7, Entry.quarter.in_([3, 4]))),
+                    and_(Entry.year == fy_year,
+                         or_(Entry.month <= 6, Entry.quarter.in_([1, 2])))
+                )
+            )
             if branch_id and category.has_branch:
                 q = q.filter_by(branch_id=branch_id)
             return q.all()
@@ -860,20 +1350,20 @@ def report_yoy():
             return ('+' if p > 0 else '') + str(p) + '%'
 
         if mode == 'annual':
-            # totals[metric_id][year] = sum
+            # totals[metric_id][fy_year] = sum across Jul–Jun
             totals = {m.id: {} for m in metrics}
-            for year in years:
-                for e in _entries(year):
+            for fy_year in years:
+                for e in _entries(fy_year):
                     for ev in e.values:
                         if ev.value_number and ev.metric_id in totals:
-                            totals[ev.metric_id][year] = totals[ev.metric_id].get(year, 0) + ev.value_number
+                            totals[ev.metric_id][fy_year] = totals[ev.metric_id].get(fy_year, 0) + ev.value_number
 
-            # Column headers: Year, [Δ year→year], Year, ...
+            # Column headers: FY2024, [Δ FY2023→FY2024], ...
             col_headers = []
             for j, y in enumerate(years):
-                col_headers.append({'label': str(y), 'is_change': False})
+                col_headers.append({'label': f'FY{y}', 'is_change': False})
                 if j > 0:
-                    col_headers.append({'label': f'Δ {years[j-1]}→{y}', 'is_change': True})
+                    col_headers.append({'label': f'Δ FY{years[j-1]}→FY{y}', 'is_change': True})
 
             # Build grouped table
             groups, seen = [], {}
@@ -893,36 +1383,44 @@ def report_yoy():
                 seen[key]['rows'].append({'metric': m, 'cells': cells})
             table = groups
 
+            # Chart data for client-side bar chart (no extra queries)
+            annual_chart_json = {
+                str(m.id): {
+                    'name': m.name,
+                    'values': [totals[m.id].get(y, 0) for y in years]
+                }
+                for m in metrics
+            }
+
         elif mode == 'monthly' and metric_id:
             metric = Metric.query.get_or_404(metric_id)
-            # monthly_data[month][year] = value
-            monthly_data = {mo: {} for mo in range(1, 13)}
-            for year in years:
-                for e in _entries(year):
+            # monthly_data[calendar_month][fy_year] = value
+            monthly_data = {mo: {} for mo in FY_MONTHS}
+            for fy_year in years:
+                for e in _entries(fy_year):
                     if e.month:
                         for ev in e.values:
                             if ev.metric_id == metric_id and ev.value_number is not None:
-                                monthly_data[e.month][year] = ev.value_number
+                                monthly_data[e.month][fy_year] = ev.value_number
 
-            # Chart
-            labels   = [m[:3] for m in MONTHS]
+            # Chart — X axis is Jul→Jun
             datasets = []
-            for i, year in enumerate(years):
-                pts = [monthly_data[mo].get(year) for mo in range(1, 13)]
-                datasets.append({'label': str(year), 'data': pts, 'tension': 0.3,
+            for i, fy_year in enumerate(years):
+                pts = [monthly_data[mo].get(fy_year) for mo in FY_MONTHS]
+                datasets.append({'label': f'FY{fy_year}', 'data': pts, 'tension': 0.3,
                                  'spanGaps': True, 'borderColor': colors[i % len(colors)],
                                  'backgroundColor': colors[i % len(colors)] + '22'})
-            chart_data = {'labels': labels, 'datasets': datasets}
+            chart_data = {'labels': FY_MONTH_LABELS, 'datasets': datasets}
 
-            # Table: rows = months, cols = years + % change
+            # Table: rows = Jul–Jun months, cols = FY years + % change
             col_headers = []
             for j, y in enumerate(years):
-                col_headers.append({'label': str(y), 'is_change': False})
+                col_headers.append({'label': f'FY{y}', 'is_change': False})
                 if j > 0:
-                    col_headers.append({'label': f'Δ {years[j-1]}→{y}', 'is_change': True})
+                    col_headers.append({'label': f'Δ FY{years[j-1]}→FY{y}', 'is_change': True})
 
             table = []
-            for mo in range(1, 13):
+            for mo, label in zip(FY_MONTHS, FY_MONTH_LABELS):
                 cells = []
                 for j, y in enumerate(years):
                     val  = monthly_data[mo].get(y)
@@ -932,15 +1430,17 @@ def report_yoy():
                         cells.append({'val': _pct(prev, val) if (val and prev) else '—',
                                       'is_change': True,
                                       'up': val > prev if (val and prev) else None})
-                table.append({'label': MONTHS[mo - 1], 'cells': cells})
+                table.append({'label': label, 'cells': cells})
 
+    chart_year_labels = [f'FY{y}' for y in years]
     return render_template('reports/yearoveryear.html',
                            categories=categories, available_years=available_years,
                            metrics_json=metrics_json, all_branches=all_branches,
                            sel_cat=cat_id, sel_branch=branch_id, sel_metric=metric_id,
                            sel_mode=mode, sel_years=years,
                            category=category, metric=metric,
-                           col_headers=col_headers, table=table, chart_data=chart_data)
+                           col_headers=col_headers, table=table, chart_data=chart_data,
+                           annual_chart_json=annual_chart_json, chart_years=chart_year_labels)
 
 
 @app.route('/reports/fiscal')
@@ -949,19 +1449,23 @@ def report_fiscal():
     cat_id  = request.args.get('category', type=int)
     fy_year = request.args.get('fy_year',  type=int)  # FY2025 = Jul 2024 – Jun 2025
 
-    categories = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
+    categories = Category.query.filter(
+        Category.is_active == True,
+        Category.name != 'Circulation'
+    ).order_by(Category.sort_order).all()
 
     # Derive available fiscal years from any entry that has a month or quarter
     rows = db.session.query(Entry.year, Entry.month, Entry.quarter).filter(
         or_(Entry.month.isnot(None), Entry.quarter.isnot(None))
     ).distinct().all()
+    _now = datetime.now(); _cur_fy = _now.year + 1 if _now.month >= 7 else _now.year
     fy_set = set()
     for yr, mo, q in rows:
         if mo is not None:
             fy_set.add(yr + 1 if mo >= 7 else yr)
         if q is not None:
             fy_set.add(yr + 1 if q in (3, 4) else yr)
-    available_fy = sorted(fy_set, reverse=True)
+    available_fy = sorted((y for y in fy_set if y <= _cur_fy), reverse=True)
 
     table = branches = category = fy_label = None
 
@@ -972,7 +1476,7 @@ def report_fiscal():
 
         # Monthly categories: months 7-12 of fy_year-1 and months 1-6 of fy_year
         # Quarterly categories: Q3+Q4 of fy_year-1 and Q1+Q2 of fy_year
-        entries = Entry.query.filter_by(category_id=cat_id).filter(
+        entries = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat_id).filter(
             or_(
                 and_(Entry.year == fy_year - 1,
                      or_(Entry.month >= 7, Entry.quarter.in_([3, 4]))),
@@ -984,7 +1488,11 @@ def report_fiscal():
         if category.has_branch:
             bid_set  = {e.branch_id for e in entries if e.branch_id}
             branches = sorted(
-                [b for b in (Branch.query.get(bid) for bid in bid_set) if b],
+                [b for b in (Branch.query.get(bid) for bid in bid_set) if b
+                 and b.name != 'Administration'
+                 and b.name != 'YCL (System Wide)'
+                 and 'locker' not in b.name.lower()
+                 and not b.is_desk],
                 key=lambda b: b.name
             )
         else:
@@ -1002,22 +1510,79 @@ def report_fiscal():
 
         table = report_data_table(metrics, branch_list, totals)
 
+        # Detect empty-alias categories (e.g. Circulation — data lives in Branch Stats)
+        if not table or all(not g['rows'] for g in table):
+            has_any_entries = db.session.query(Entry.id).filter_by(
+                category_id=cat_id).limit(1).scalar() is not None
+            if not has_any_entries:
+                bs_cat = Category.query.filter_by(name='Branch Stats').first()
+                table = '__alias__'
+                alias_target = bs_cat
+
+    if table and table != '__alias__' and request.args.get('format') == 'xlsx':
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill
+        wb = Workbook()
+        ws = wb.active
+        ws.title = category.name[:31]
+        bold = Font(bold=True)
+
+        # Title row
+        ws.append([f'{category.name} — {fy_label}'])
+        ws.cell(1, 1).font = Font(bold=True, size=13)
+        ws.append([])
+
+        # Header row
+        hdr = ['Metric'] + [b.name for b in branches] + (['Total'] if len(branches) > 1 else [])
+        ws.append(hdr)
+        hr = ws.max_row
+        for col in range(1, len(hdr) + 1):
+            ws.cell(hr, col).font = bold
+            ws.cell(hr, col).fill = PatternFill('solid', fgColor='2C6E8A')
+            ws.cell(hr, col).font = Font(bold=True, color='FFFFFF')
+
+        for group in table:
+            if group['name']:
+                ws.append([group['name']])
+                r = ws.max_row
+                ws.cell(r, 1).font = Font(bold=True)
+                ws.cell(r, 1).fill = PatternFill('solid', fgColor='D9E1F2')
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=len(hdr))
+            for row in group['rows']:
+                def _num(s):
+                    try: return float(s.replace(',', ''))
+                    except Exception: return s
+                vals = [row['metric'].name] + [_num(c) for c in row['cells']]
+                if len(branches) > 1:
+                    vals.append(_num(row['row_total']))
+                ws.append(vals)
+
+        ws.column_dimensions['A'].width = 42
+        for i in range(len(branches) + 1):
+            col_letter = ws.cell(1, i + 2).column_letter
+            ws.column_dimensions[col_letter].width = 16
+
+        return _xlsx_response(wb, f'fiscal_{category.name.replace(" ", "_")}_{fy_year}.xlsx')
+
     return render_template('reports/fiscal.html',
                            categories=categories, available_fy=available_fy,
                            sel_cat=cat_id, sel_fy=fy_year,
                            category=category, table=table, branches=branches,
-                           fy_label=fy_label)
+                           fy_label=fy_label,
+                           alias_target=locals().get('alias_target'))
 
 
 # ── Fiscal-year helper ────────────────────────────────────────────────────────
 
 def _available_fy():
     """Sorted list of fiscal years (descending) derived from monthly entry data."""
+    now = datetime.now()
+    current_fy = now.year + 1 if now.month >= 7 else now.year
     rows = db.session.query(Entry.year, Entry.month).filter(Entry.month.isnot(None)).distinct().all()
     fy_set = set()
     for yr, mo in rows:
         fy_set.add(yr + 1 if mo >= 7 else yr)
-    return sorted(fy_set, reverse=True)
+    return sorted((y for y in fy_set if y <= current_fy), reverse=True)
 
 
 def _fy_label(fy_year):
@@ -1031,10 +1596,10 @@ def report_annual():
     from sqlalchemy import or_, and_
     fy_year = request.args.get('fy_year', type=int)
 
-    branches = Branch.query.filter_by(is_active=True, is_desk=False).order_by(Branch.name).all()
+    branches = _real_branch_q().order_by(Branch.name).all()
 
-    TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
-    AGES  = ['0-5', '6-11', '12-18', '19+', 'General Interest']
+    TYPES = PROG_TYPES
+    AGES  = AGE_GROUPS
 
     COLS = [
         ('Circulation',         'Total Branch Circulation'),
@@ -1056,7 +1621,7 @@ def report_annual():
         if bs_cat:
             id_to_name = {m.id: m.name for m in bs_cat.metrics}
 
-            entries = Entry.query.filter_by(category_id=bs_cat.id).filter(
+            entries = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=bs_cat.id).filter(
                 or_(
                     and_(Entry.year == fy_year - 1, Entry.month >= 7),
                     and_(Entry.year == fy_year,     Entry.month <= 6)
@@ -1108,164 +1673,97 @@ def report_annual():
                            col_maxes=col_maxes)
 
 
-# ── Cross-tab Heat Map ────────────────────────────────────────────────────────
-
-@app.route('/reports/crosstab')
-def report_crosstab():
+@app.route('/reports/branch_summary')
+def report_branch_summary():
     from sqlalchemy import or_, and_
-    cat_id    = request.args.get('category', type=int)
-    metric_id = request.args.get('metric',   type=int)
-    fy_year   = request.args.get('fy_year',  type=int)
+    branch_id = request.args.get('branch',  type=int)
+    fy_year   = request.args.get('fy_year', type=int)
 
-    categories   = Category.query.filter_by(is_active=True).order_by(Category.sort_order).all()
-    metrics_json = metrics_by_category_json()
-    branches     = Branch.query.filter_by(is_active=True, is_desk=False).order_by(Branch.name).all()
+    branches     = _real_branch_q().order_by(Branch.name).all()
+    available_fy = _available_fy()
 
-    # Fiscal year month order: Jul → Jun
-    FY_MONTHS = list(range(7, 13)) + list(range(1, 7))
+    branch = sections = fy_label = None
 
-    table = metric = category = col_max = col_totals = None
+    if branch_id and fy_year:
+        branch   = db.session.get(Branch, branch_id) or next((b for b in branches if b.id == branch_id), None)
+        fy_label = _fy_label(fy_year)
 
-    if cat_id and metric_id and fy_year:
-        category = Category.query.get_or_404(cat_id)
-        metric   = Metric.query.get_or_404(metric_id)
+        fy_filter = or_(
+            and_(Entry.year == fy_year - 1,
+                 or_(Entry.month >= 7, Entry.quarter.in_([3, 4]))),
+            and_(Entry.year == fy_year,
+                 or_(Entry.month <= 6, Entry.quarter.in_([1, 2])))
+        )
 
-        cols = branches if category.has_branch else [None]
+        categories = Category.query.filter(
+            Category.is_active == True,
+            Category.name != 'Circulation'
+        ).order_by(Category.sort_order).all()
 
-        data = {}  # (cal_year, month, branch_id_or_None) -> value
-        for e in Entry.query.filter_by(category_id=cat_id).filter(
-            or_(
-                and_(Entry.year == fy_year - 1, Entry.month >= 7),
-                and_(Entry.year == fy_year,     Entry.month <= 6)
-            )
-        ).filter(Entry.month.isnot(None)).all():
-            bid = e.branch_id if category.has_branch else None
-            for ev in e.values:
-                if ev.metric_id == metric_id and ev.value_number is not None:
-                    key = (e.year, e.month, bid)
-                    data[key] = data.get(key, 0) + ev.value_number
+        def _fmt(v):
+            if v is None:
+                return '—'
+            return f"{int(v):,}" if v == int(v) else f"{v:,.2f}".rstrip('0').rstrip('.')
 
-        col_max = max(data.values(), default=1) or 1
+        sections = []
+        for cat in categories:
+            metrics = Metric.query.filter_by(
+                category_id=cat.id, is_active=True
+            ).order_by(Metric.sort_order).all()
+            if not metrics:
+                continue
 
-        col_totals = []
-        for col in cols:
-            bid = col.id if col else None
-            t = sum(
-                data.get((fy_year - 1 if mo >= 7 else fy_year, mo, bid), 0)
-                for mo in FY_MONTHS
-            )
-            col_totals.append(int(t) if t == int(t) else round(t, 1) if t else None)
+            q = Entry.query.options(joinedload(Entry.values)).filter_by(
+                category_id=cat.id
+            ).filter(fy_filter)
+            if cat.has_branch:
+                q = q.filter(Entry.branch_id == branch_id)
+            entries = q.all()
 
-        table = []
-        for mo in FY_MONTHS:
-            cal_year = fy_year - 1 if mo >= 7 else fy_year
-            cells, row_sum = [], 0
-            for col in cols:
-                bid = col.id if col else None
-                v = data.get((cal_year, mo, bid))
-                cells.append(int(v) if v and v == int(v) else (round(v, 1) if v else None))
-                if v:
-                    row_sum += v
-            table.append({
-                'month_short': f"{MONTHS[mo - 1][:3]} '{str(cal_year)[2:]}",
-                'cells': cells,
-                'total': int(row_sum) if row_sum == int(row_sum) else round(row_sum, 1) if row_sum else None,
-            })
-
-    return render_template('reports/crosstab.html',
-                           categories=categories,
-                           available_fy=_available_fy(),
-                           metrics_json=metrics_json,
-                           branches=branches,
-                           sel_cat=cat_id,
-                           sel_metric=metric_id,
-                           sel_fy=fy_year,
-                           fy_label=_fy_label(fy_year) if fy_year else None,
-                           category=category,
-                           metric=metric,
-                           table=table,
-                           col_max=col_max,
-                           col_totals=col_totals,
-                           has_branch=category.has_branch if category else False)
-
-
-# ── Programming Age / Delivery-Type Cross-tab ─────────────────────────────────
-
-@app.route('/reports/programming_age')
-def report_programming_age():
-    from sqlalchemy import or_, and_
-    fy_year = request.args.get('fy_year', type=int)
-    month   = request.args.get('month',  type=int)
-    mode    = request.args.get('mode', 'age')   # 'age' | 'type'
-
-    branches = Branch.query.filter_by(is_active=True, is_desk=False).order_by(Branch.name).all()
-    TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
-    AGES  = ['0-5', '6-11', '12-18', '19+', 'General Interest']
-    tables = period_label = None
-
-    if fy_year:
-        bs_cat = Category.query.filter_by(name='Branch Stats').first()
-        if bs_cat:
-            id_to_name = {m.id: m.name for m in bs_cat.metrics}
-
-            if month:
-                # Single month within the fiscal year
-                cal_year = fy_year - 1 if month >= 7 else fy_year
-                q = Entry.query.filter_by(category_id=bs_cat.id, year=cal_year, month=month)
-                period_label = f'{MONTHS[month - 1]} {cal_year}'
-            else:
-                # Full fiscal year
-                q = Entry.query.filter_by(category_id=bs_cat.id).filter(
-                    or_(
-                        and_(Entry.year == fy_year - 1, Entry.month >= 7),
-                        and_(Entry.year == fy_year,     Entry.month <= 6)
-                    )
-                )
-                period_label = _fy_label(fy_year)
-
-            branch_sums = {b.id: {} for b in branches}
-            for e in q.all():
-                if e.branch_id not in branch_sums:
-                    continue
+            totals = {}
+            for e in entries:
                 for ev in e.values:
-                    n = id_to_name.get(ev.metric_id)
-                    if n and ev.value_number is not None:
-                        branch_sums[e.branch_id][n] = branch_sums[e.branch_id].get(n, 0) + ev.value_number
+                    if ev.value_number is not None:
+                        totals[ev.metric_id] = totals.get(ev.metric_id, 0) + ev.value_number
 
-            cols = AGES if mode == 'age' else TYPES
+            rows = [{'name': m.name, 'value': _fmt(totals.get(m.id)), 'raw': totals.get(m.id)}
+                    for m in metrics]
 
-            def _build(kind):
-                rows, col_totals = [], {c: 0 for c in cols}
-                for b in branches:
-                    sums = branch_sums[b.id]
-                    cells, row_total = {}, 0
-                    for c in cols:
-                        if mode == 'age':
-                            v = sum(sums.get(f'{t} {kind} {c}', 0) for t in TYPES)
-                        else:
-                            v = sum(sums.get(f'{c} {kind} {a}', 0) for a in AGES)
-                        cells[c] = int(v) if v else None
-                        row_total += v
-                        col_totals[c] += v
-                    rows.append({'branch': b, 'cells': cells, 'total': int(row_total) or None})
-                return {
-                    'kind': kind,
-                    'cols': cols,
+            if any(r['raw'] is not None for r in rows):
+                sections.append({
+                    'category': cat.name,
+                    'system_wide': not cat.has_branch,
                     'rows': rows,
-                    'col_totals': {c: int(col_totals[c]) or None for c in cols},
-                    'grand_total': int(sum(col_totals.values())) or None,
-                }
+                })
 
-            tables = [_build('Sessions'), _build('Attendance')]
+    if sections and request.args.get('format') == 'xlsx':
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill
+        wb  = Workbook()
+        ws  = wb.active
+        ws.title = 'Branch Summary'
+        ws.append([f'{branch.name} — {fy_label}'])
+        ws.cell(1, 1).font = Font(bold=True, size=13)
+        ws.append([])
+        for sec in sections:
+            label = sec['category'] + (' (System Wide)' if sec['system_wide'] else '')
+            ws.append([label, ''])
+            r = ws.max_row
+            ws.cell(r, 1).font = Font(bold=True, color='FFFFFF')
+            ws.cell(r, 1).fill = PatternFill('solid', fgColor='2C6E8A')
+            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=2)
+            for row in sec['rows']:
+                v = row['raw']
+                ws.append([row['name'], int(v) if isinstance(v, float) and v == int(v) else v])
+        ws.column_dimensions['A'].width = 42
+        ws.column_dimensions['B'].width = 18
+        safe_name = branch.name.replace(' ', '_').replace('/', '-')
+        return _xlsx_response(wb, f'branch_summary_{safe_name}_{fy_year}.xlsx')
 
-    return render_template('reports/programming_age.html',
-                           available_fy=_available_fy(),
-                           months=MONTHS,
-                           sel_fy=fy_year,
-                           sel_month=month,
-                           sel_mode=mode,
-                           period_label=period_label,
-                           tables=tables)
+    return render_template('reports/branch_summary.html',
+                           branches=branches, available_fy=available_fy,
+                           sel_branch=branch_id, sel_fy=fy_year,
+                           branch=branch, sections=sections, fy_label=fy_label)
 
 
 @app.route('/admin/import', methods=['GET', 'POST'])
@@ -1297,9 +1795,146 @@ def admin_import():
 
 # ── Upload (smart auto-detect) ───────────────────────────────────────────────
 
+_COMPARISON_METRICS = [
+    'Total Branch Circulation',
+    'Gate Count',
+    'New Library Card Registrations, Total',
+    'Total Prints per Month',
+]
+
+def _import_comparison(results):
+    """
+    After an import, compare written values to the same months one year prior.
+    Returns a list of period dicts, each with rows flagged by size of change.
+    """
+    from sqlalchemy import or_, and_
+    periods = set()
+    for r in results:
+        if r.get('year') and r.get('month'):
+            periods.add((r['year'], r['month']))
+        for p in r.get('periods', []):
+            periods.add(tuple(p))
+    if not periods:
+        return []
+
+    branch_cat = Category.query.filter_by(name='Branch Stats').first()
+    if not branch_cat:
+        return []
+
+    metric_id_map = {m.name: m.id for m in branch_cat.metrics
+                     if m.name in _COMPARISON_METRICS}
+    if not metric_id_map:
+        return []
+
+    branches = _real_branch_q().order_by(Branch.name).all()
+
+    all_periods = periods | {(y - 1, m) for y, m in periods}
+    entries = (Entry.query
+               .options(joinedload(Entry.values))
+               .filter(
+                   Entry.category_id == branch_cat.id,
+                   or_(*[and_(Entry.year == y, Entry.month == m) for y, m in all_periods])
+               ).all())
+
+    lookup = {}
+    for e in entries:
+        for ev in e.values:
+            if ev.value_number is not None:
+                lookup[(e.year, e.month, e.branch_id, ev.metric_id)] = ev.value_number
+
+    comparison = []
+    for year, month in sorted(periods):
+        rows = []
+        for b in branches:
+            for metric_name in _COMPARISON_METRICS:
+                mid = metric_id_map.get(metric_name)
+                if not mid:
+                    continue
+                curr  = lookup.get((year,     month, b.id, mid))
+                prior = lookup.get((year - 1, month, b.id, mid))
+                if curr is None and prior is None:
+                    continue
+                pct = flag = None
+                if prior and curr is not None:
+                    pct = ((curr - prior) / prior) * 100
+                    if abs(pct) > 200:
+                        flag = 'danger'
+                    elif abs(pct) > 50:
+                        flag = 'warning'
+                elif prior and not curr:
+                    flag = 'warning'
+                rows.append({
+                    'metric':  metric_name,
+                    'branch':  b.name,
+                    'current': curr,
+                    'prior':   prior,
+                    'pct':     pct,
+                    'flag':    flag,
+                })
+        if rows:
+            comparison.append({
+                'label': f'{MONTHS[month - 1]} {year} vs {MONTHS[month - 1]} {year - 1}',
+                'rows':  rows,
+                'flagged': sum(1 for r in rows if r['flag']),
+            })
+    return comparison
+
+
+def _import_snapshot():
+    """Capture current DB state so we can diff after an import."""
+    import json
+    ev_snap    = {row[0]: row[1] for row in
+                  db.session.execute(db.text('SELECT id, value_number FROM entry_values')).fetchall()}
+    entry_snap = {row[0] for row in
+                  db.session.execute(db.text('SELECT id FROM entries')).fetchall()}
+    sirsi_rows = db.session.execute(db.text(
+        'SELECT id, year, month, branch_id, patron_type, shelving_location, checkouts, renewals '
+        'FROM sirsi_checkouts'
+    )).fetchall()
+    sirsi_snap = {r[0] for r in sirsi_rows}
+    sirsi_full = {r[0]: dict(year=r[1], month=r[2], branch_id=r[3], patron_type=r[4],
+                              shelving_location=r[5], checkouts=r[6], renewals=r[7])
+                  for r in sirsi_rows}
+    program_snap = {r[0] for r in
+                    db.session.execute(db.text('SELECT id FROM program_events')).fetchall()}
+    return ev_snap, entry_snap, sirsi_snap, sirsi_full, program_snap
+
+
+def _import_diff(ev_before, entries_before, sirsi_before, sirsi_full_before, program_before):
+    """Compute what changed since the snapshot was taken."""
+    ev_after = {row[0]: row[1] for row in
+                db.session.execute(db.text('SELECT id, value_number FROM entry_values')).fetchall()}
+    entries_after = {row[0] for row in
+                     db.session.execute(db.text('SELECT id FROM entries')).fetchall()}
+    sirsi_after = {row[0] for row in
+                   db.session.execute(db.text('SELECT id FROM sirsi_checkouts')).fetchall()}
+    program_after = {row[0] for row in
+                     db.session.execute(db.text('SELECT id FROM program_events')).fetchall()}
+
+    ev_created  = [eid for eid in ev_after if eid not in ev_before]
+    ev_updated  = [{'id': eid, 'old': ev_before[eid], 'new': ev_after[eid]}
+                   for eid in ev_after
+                   if eid in ev_before and ev_before[eid] != ev_after[eid]]
+    entries_created  = list(entries_after - entries_before)
+    sirsi_created    = list(sirsi_after - sirsi_before)
+    sirsi_deleted    = [sirsi_full_before[sid] for sid in (sirsi_before - sirsi_after)]
+    program_events_created = list(program_after - program_before)
+
+    return {
+        'entries_created': entries_created,
+        'ev_created':      ev_created,
+        'ev_updated':      ev_updated,
+        'sirsi_created':   sirsi_created,
+        'sirsi_deleted':   sirsi_deleted,
+        'program_events_created': program_events_created,
+    }
+
+
 @app.route('/upload', methods=['GET', 'POST'])
 def upload_data():
+    import json
     results = None
+    comparison = None
     if request.method == 'POST':
         f = request.files.get('file')
         if not f or not f.filename:
@@ -1314,27 +1949,127 @@ def upload_data():
                     f.save(tmp.name)
                     tmp_path = tmp.name
                 wb = openpyxl.load_workbook(tmp_path, data_only=True)
-                results = detect_and_import(wb, year_override=year_override)
+
+                ev_before, entries_before, sirsi_before, sirsi_full, program_before = _import_snapshot()
+                results = detect_and_import(wb, year_override=year_override, filename=f.filename)
+                changes = _import_diff(ev_before, entries_before, sirsi_before, sirsi_full, program_before)
+
+                # Derive period + type summary from results
+                periods = {(r['year'], r['month']) for r in results if r.get('year') and r.get('month')}
+                period_year  = next((r['year']  for r in results if r.get('year')),  None)
+                period_month = next((r['month'] for r in results if r.get('month')), None)
+                import_type  = '; '.join(r['sheet'] for r in results if r.get('created', 0) + r.get('updated', 0) > 0)
+                rows_affected = sum(r.get('created', 0) + r.get('updated', 0) for r in results)
+
+                log = ImportLog(
+                    file_name=f.filename,
+                    import_type=import_type or 'Unknown',
+                    year=period_year,
+                    month=period_month,
+                    rows_affected=rows_affected,
+                    changes_json=json.dumps(changes),
+                )
+                db.session.add(log)
+                db.session.commit()
+
                 total_created = sum(r['created'] for r in results)
-                flash(f'Upload complete — {total_created} new records added.', 'success')
+                total_updated = sum(r.get('updated', 0) for r in results)
+                if total_created or total_updated:
+                    parts = []
+                    if total_created:
+                        parts.append(f'{total_created} new record(s) added')
+                    if total_updated:
+                        parts.append(f'{total_updated} existing record(s) updated')
+                    flash('Upload complete — ' + ', '.join(parts) + '.', 'success')
+                else:
+                    flash('Upload complete, but no records were added or updated — '
+                          'the file may already be fully loaded or its format was not '
+                          'recognised. See the import results below.', 'warning')
+                comparison = _import_comparison(results)
             except Exception as e:
                 flash(f'Upload failed: {e}', 'danger')
             finally:
                 if tmp_path and os.path.exists(tmp_path):
                     os.unlink(tmp_path)
-    return render_template('upload.html', results=results, now=datetime.utcnow())
+
+    recent_logs = ImportLog.query.order_by(ImportLog.created_at.desc()).limit(20).all()
+    return render_template('upload.html', results=results, comparison=comparison,
+                           now=datetime.utcnow(), recent_logs=recent_logs)
 
 
-# ── Manual staff entry ────────────────────────────────────────────────────────
+@app.route('/upload/undo/<int:log_id>', methods=['POST'])
+def upload_undo(log_id):
+    import json
+    from models import SirsiCheckout, ProgramEvent
+    if not current_user.is_admin:
+        flash('Admin access required.', 'danger')
+        return redirect(url_for('upload_data'))
 
-# Metrics populated via file upload or dedicated forms — excluded from the main branch table
+    log = ImportLog.query.get_or_404(log_id)
+    if log.undone_at:
+        flash('This import has already been undone.', 'warning')
+        return redirect(url_for('upload_data'))
+
+    try:
+        changes = json.loads(log.changes_json)
+
+        # Restore updated entry_values to their previous values
+        for ch in changes.get('ev_updated', []):
+            ev = db.session.get(EntryValue, ch['id'])
+            if ev:
+                ev.value_number = ch['old']
+
+        # Delete entry_values that were created by this import
+        if changes.get('ev_created'):
+            EntryValue.query.filter(EntryValue.id.in_(changes['ev_created'])).delete(synchronize_session=False)
+
+        # Delete entries that were created by this import (now empty)
+        for entry_id in changes.get('entries_created', []):
+            entry = db.session.get(Entry, entry_id)
+            if entry:
+                db.session.delete(entry)
+
+        # Delete SIRSI checkout rows created by this import
+        if changes.get('sirsi_created'):
+            SirsiCheckout.query.filter(SirsiCheckout.id.in_(changes['sirsi_created'])).delete(synchronize_session=False)
+
+        # Restore SIRSI checkout rows that were deleted by this import
+        for row in changes.get('sirsi_deleted', []):
+            db.session.add(SirsiCheckout(
+                year=row['year'], month=row['month'], branch_id=row['branch_id'],
+                patron_type=row['patron_type'], shelving_location=row['shelving_location'],
+                checkouts=row['checkouts'], renewals=row['renewals'],
+            ))
+
+        # Delete program event rows that were created by this import
+        if changes.get('program_events_created'):
+            ProgramEvent.query.filter(
+                ProgramEvent.id.in_(changes['program_events_created'])
+            ).delete(synchronize_session=False)
+
+        log.undone_at = datetime.utcnow()
+        db.session.commit()
+        flash(f'Import of "{log.file_name}" has been undone.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Undo failed: {e}', 'danger')
+
+    return redirect(url_for('upload_data'))
+
+
+# Metrics populated via file upload or dedicated forms — excluded from general entry forms
 _UPLOAD_SOURCED_METRICS = {
     'New Library Card Registrations, Adult',
     'New Library Card Registrations, Juvenile',
     'New Library Card Registrations, Total',
-    'Gate Count',
     'Total Branch Circulation',
     'Hotspots Circulation',
+    'Locker Circulation',
+    'WiFi - Unique Sessions',
+    'PC Reservations',
+    'Total Prints per Month',
+    'Printed Jobs',
+    'Printed Cost',
     'ILL - Sent (Main ONLY)',
     'ILL - Received (Main ONLY)',
     'ICLs - Sent (Main ONLY)',
@@ -1343,150 +2078,7 @@ _UPLOAD_SOURCED_METRICS = {
 
 _ILL_METRICS  = {'ILL - Sent (Main ONLY)', 'ILL - Received (Main ONLY)'}
 _ICL_METRICS  = {'ICLs - Sent (Main ONLY)', 'ICLs - Received (Main ONLY)'}
-
-
-@app.route('/enter/manual', methods=['GET', 'POST'])
-def manual_entry():
-    branch_cat  = Category.query.filter_by(name='Branch Stats').first()
-    online_cat  = Category.query.filter_by(name='Online Stats').first()
-
-    branch_metrics = [m for m in (branch_cat.active_metrics if branch_cat else [])
-                      if m.name not in _UPLOAD_SOURCED_METRICS]
-    online_metrics = online_cat.active_metrics if online_cat else []
-
-    # Main branches only — no lockers, no desk branches, no system-wide
-    branches = (Branch.query
-                .filter_by(is_active=True, is_desk=False)
-                .filter(~Branch.name.contains('Lockers'),
-                        Branch.name != 'YCL (System Wide)')
-                .order_by(Branch.name)
-                .all())
-
-    year  = request.args.get('year',  type=int) or datetime.now().year
-    month = request.args.get('month', type=int) or datetime.now().month
-
-    if request.method == 'POST':
-        year          = request.form.get('year',  type=int)
-        month         = request.form.get('month', type=int)
-        submitted_by  = request.form.get('submitted_by', '').strip()
-
-        # ── Branch Stats ──────────────────────────────────────────────────
-        for branch in branches:
-            vals = {}
-            for m in branch_metrics:
-                raw = request.form.get(f'b{branch.id}_m{m.id}', '').strip()
-                if raw:
-                    try:
-                        vals[m.id] = float(raw)
-                    except ValueError:
-                        pass
-            if not vals:
-                continue
-
-            entry = Entry.query.filter_by(category_id=branch_cat.id,
-                                          branch_id=branch.id,
-                                          year=year, month=month).first()
-            if not entry:
-                entry = Entry(category_id=branch_cat.id, branch_id=branch.id,
-                              year=year, month=month, submitted_by=submitted_by)
-                db.session.add(entry)
-                db.session.flush()
-
-            for metric_id, val in vals.items():
-                ev = EntryValue.query.filter_by(entry_id=entry.id,
-                                                metric_id=metric_id).first()
-                if ev:
-                    ev.value_number = val
-                else:
-                    db.session.add(EntryValue(entry_id=entry.id,
-                                              metric_id=metric_id,
-                                              value_number=val))
-
-        # ── Auto-compute Total New Library Cards ──────────────────────────
-        total_metric = next((m for m in (branch_cat.active_metrics if branch_cat else [])
-                             if m.name == 'New Library Card Registrations, Total'), None)
-        adult_metric = next((m for m in (branch_cat.active_metrics if branch_cat else [])
-                             if m.name == 'New Library Card Registrations, Adult'), None)
-        juv_metric   = next((m for m in (branch_cat.active_metrics if branch_cat else [])
-                             if m.name == 'New Library Card Registrations, Juvenile'), None)
-        if total_metric and adult_metric and juv_metric:
-            for branch in branches:
-                entry = Entry.query.filter_by(category_id=branch_cat.id,
-                                              branch_id=branch.id,
-                                              year=year, month=month).first()
-                if not entry:
-                    continue
-                adult_ev = EntryValue.query.filter_by(entry_id=entry.id, metric_id=adult_metric.id).first()
-                juv_ev   = EntryValue.query.filter_by(entry_id=entry.id, metric_id=juv_metric.id).first()
-                adult_val = adult_ev.value_number if adult_ev else 0
-                juv_val   = juv_ev.value_number   if juv_ev   else 0
-                if adult_val or juv_val:
-                    total_ev = EntryValue.query.filter_by(entry_id=entry.id, metric_id=total_metric.id).first()
-                    if total_ev:
-                        total_ev.value_number = (adult_val or 0) + (juv_val or 0)
-                    else:
-                        db.session.add(EntryValue(entry_id=entry.id, metric_id=total_metric.id,
-                                                  value_number=(adult_val or 0) + (juv_val or 0)))
-
-        # ── Online Stats ──────────────────────────────────────────────────
-        online_vals = {}
-        for m in online_metrics:
-            raw = request.form.get(f'online_m{m.id}', '').strip()
-            if raw:
-                try:
-                    online_vals[m.id] = float(raw)
-                except ValueError:
-                    pass
-
-        if online_vals:
-            o_entry = Entry.query.filter_by(category_id=online_cat.id,
-                                             branch_id=None,
-                                             year=year, month=month).first()
-            if not o_entry:
-                o_entry = Entry(category_id=online_cat.id, branch_id=None,
-                                year=year, month=month, submitted_by=submitted_by)
-                db.session.add(o_entry)
-                db.session.flush()
-
-            for metric_id, val in online_vals.items():
-                ev = EntryValue.query.filter_by(entry_id=o_entry.id,
-                                                metric_id=metric_id).first()
-                if ev:
-                    ev.value_number = val
-                else:
-                    db.session.add(EntryValue(entry_id=o_entry.id,
-                                              metric_id=metric_id,
-                                              value_number=val))
-
-        db.session.commit()
-        flash(f'Data saved for {MONTHS[month - 1]} {year}.', 'success')
-        return redirect(url_for('manual_entry', year=year, month=month))
-
-    # ── Load existing values for selected period ──────────────────────────
-    branch_values = {}
-    for branch in branches:
-        entry = Entry.query.filter_by(category_id=branch_cat.id,
-                                      branch_id=branch.id,
-                                      year=year, month=month).first()
-        branch_values[branch.id] = (
-            {ev.metric_id: ev for ev in entry.values} if entry else {}
-        )
-
-    o_entry = Entry.query.filter_by(category_id=online_cat.id,
-                                     branch_id=None,
-                                     year=year, month=month).first()
-    online_values = {ev.metric_id: ev for ev in o_entry.values} if o_entry else {}
-
-    year_range = range(datetime.now().year - 5, datetime.now().year + 2)
-    return render_template('entries/manual.html',
-                           branches=branches,
-                           branch_metrics=branch_metrics,
-                           online_metrics=online_metrics,
-                           branch_values=branch_values,
-                           online_values=online_values,
-                           year=year, month=month,
-                           months=MONTHS,
-                           year_range=year_range)
+_CIRC_METRICS = {'Total Branch Circulation', 'Hotspots Circulation', 'Locker Circulation'}
 
 
 def _ill_icl_entry(metric_names_set, form_title, endpoint):
@@ -1504,7 +2096,7 @@ def _ill_icl_entry(metric_names_set, form_title, endpoint):
     if request.method == 'POST':
         year         = request.form.get('year',  type=int)
         month        = request.form.get('month', type=int)
-        submitted_by = request.form.get('submitted_by', '').strip()
+        submitted_by = current_user.username
 
         vals = {}
         for m in metrics:
@@ -1521,9 +2113,10 @@ def _ill_icl_entry(metric_names_set, form_title, endpoint):
                                           year=year, month=month).first()
             if not entry:
                 entry = Entry(category_id=branch_cat.id, branch_id=rock_hill.id,
-                              year=year, month=month, submitted_by=submitted_by)
+                              year=year, month=month)
                 db.session.add(entry)
                 db.session.flush()
+            entry.add_source(submitted_by)
 
             for metric_id, val in vals.items():
                 ev = EntryValue.query.filter_by(entry_id=entry.id,
@@ -1601,7 +2194,19 @@ def report_monthly_stats():
             cat = Category.query.filter_by(name=cat_name).first()
             if not cat:
                 return {}
-            entries = Entry.query.filter_by(category_id=cat.id, year=y, month=m).all()
+            q = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat.id, year=y, month=m)
+            if cat.has_branch:
+                excluded_ids = [b.id for b in Branch.query.filter(
+                    db.or_(
+                        Branch.name.ilike('%locker%'),
+                        Branch.name == 'YCL (System Wide)',
+                        Branch.name == 'Administration',
+                        Branch.is_desk == True,
+                    )
+                ).with_entities(Branch.id).all()]
+                if excluded_ids:
+                    q = q.filter(~Entry.branch_id.in_(excluded_ids))
+            entries = q.all()
             id_to_name = {mx.id: mx.name for mx in cat.metrics}
             totals = {}
             for e in entries:
@@ -1616,11 +2221,10 @@ def report_monthly_stats():
         os_c = get_sums('Online Stats', year,      month)
         os_p = get_sums('Online Stats', prev_year, month)
 
-        AGE  = ['0-5', '6-11', '12-18', '19+', 'General Interest']
-        TYPE = ['ONSITE', 'OFFSITE', 'VIRTUAL']
+        AGE  = AGE_GROUPS
 
-        def prog(sums, kind, age):
-            return sum(sums.get(f'{t} {kind} {age}', 0) for t in TYPE) or None
+        def prog(sums, ptype, kind, age):
+            return sums.get(f'{ptype} {kind} {age}') or None
 
         def pair(curr, prev, label):
             return {'label': label, 'curr': curr, 'prev': prev}
@@ -1632,7 +2236,6 @@ def report_monthly_stats():
                 'items': [
                     pair(bs_c.get('Total Branch Circulation'), bs_p.get('Total Branch Circulation'), 'Monthly Circulation'),
                     pair(bs_c.get('Gate Count'),               bs_p.get('Gate Count'),               'Monthly Gate Count'),
-                    pair(bs_c.get('Locker Circulation'),       bs_p.get('Locker Circulation'),       'Locker Checkouts'),
                 ],
             },
             {
@@ -1644,14 +2247,14 @@ def report_monthly_stats():
                 ],
             },
             {
-                'title': 'Monthly Program Sessions',
+                'title': 'ONSITE Program Sessions',
                 'color': '#6c3483',
-                'items': [pair(prog(bs_c,'Sessions',a), prog(bs_p,'Sessions',a), f'Sessions {a}') for a in AGE],
+                'items': [pair(prog(bs_c,'ONSITE','Sessions',a), prog(bs_p,'ONSITE','Sessions',a), f'Sessions {a}') for a in AGE],
             },
             {
-                'title': 'Monthly Program Attendance',
+                'title': 'ONSITE Program Attendance',
                 'color': '#784212',
-                'items': [pair(prog(bs_c,'Attendance',a), prog(bs_p,'Attendance',a), f'Attendance {a}') for a in AGE],
+                'items': [pair(prog(bs_c,'ONSITE','Attendance',a), prog(bs_p,'ONSITE','Attendance',a), f'Attendance {a}') for a in AGE],
             },
             {
                 'title': 'Online Usage',
@@ -1685,6 +2288,11 @@ def report_monthly_stats():
             },
         ]
 
+        # Drop sections where every item has no data in either year
+        sections = [s for s in sections
+                    if any(it['curr'] is not None or it['prev'] is not None
+                           for it in s['items'])]
+
     return render_template('reports/monthly_stats.html',
                            months=MONTHS, available_years=available_years,
                            sel_month=month, sel_year=year, prev_year=prev_year,
@@ -1698,13 +2306,14 @@ def director_dashboard():
     rows = db.session.query(Entry.year, Entry.month, Entry.quarter).filter(
         or_(Entry.month.isnot(None), Entry.quarter.isnot(None))
     ).distinct().all()
+    _now = datetime.now(); _cur_fy = _now.year + 1 if _now.month >= 7 else _now.year
     fy_set = set()
     for yr, mo, q in rows:
         if mo is not None:
             fy_set.add(yr + 1 if mo >= 7 else yr)
         if q is not None:
             fy_set.add(yr + 1 if q in (3, 4) else yr)
-    available_fy = sorted(fy_set, reverse=True)
+    available_fy = sorted((y for y in fy_set if y <= _cur_fy), reverse=True)
 
     fy_year = request.args.get('fy_year', type=int)
     stats = None
@@ -1714,7 +2323,7 @@ def director_dashboard():
             cat = Category.query.filter_by(name=cat_name).first()
             if not cat:
                 return {}
-            entries = Entry.query.filter_by(category_id=cat.id).filter(
+            entries = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat.id).filter(
                 or_(
                     and_(Entry.year == fy_year - 1,
                          or_(Entry.month >= 7, Entry.quarter.in_([3, 4]))),
@@ -1735,8 +2344,8 @@ def director_dashboard():
         os = fy_filter('Online Stats')
         qs = fy_filter('Quarterly Reference Stats')
 
-        AGE  = ['0-5', '6-11', '12-18', '19+', 'General Interest']
-        TYPES = ['ONSITE', 'OFFSITE', 'VIRTUAL']
+        AGE   = AGE_GROUPS
+        TYPES = PROG_TYPES
 
         def v(d, key):
             val = d.get(key)
@@ -1779,7 +2388,41 @@ def director_dashboard():
         def attend_row(type_, age):
             return v(bs, f'{type_} Attendance {age}')
 
+        _outlet_fy_start, _outlet_fy_end = _fy_date_range(fy_year)
+        outlet_rows = []
+        outlet_meeting_rows = []
+        _hours_open_total = 0
+        _j11_annual_total = 0
+        for _ob in _outlet_branches():
+            _sj = SectionJOutletData.query.filter_by(branch_id=_ob.id, fiscal_year=fy_year).first()
+            _wh = BranchWeeklyHours.query.filter_by(branch_id=_ob.id).first()
+            _weeks = _sj.weeks_open if _sj else _live_weeks_open(_ob.id, _wh, _outlet_fy_start, _outlet_fy_end)
+            _j11_weekly = _j11_weekly_hours(_wh)
+            _j11_annual = (round(_j11_weekly * _weeks, 1)
+                           if _j11_weekly is not None and _weeks is not None else None)
+            _hours_open = _live_hours_open(_ob.id, fy_year, _wh, _outlet_fy_start, _outlet_fy_end)
+            outlet_rows.append(('J10', f'{_ob.name} — Hours Open',  _hours_open))
+            outlet_rows.append(('J11', f'{_ob.name} — Weekend/Evening Hours', _j11_annual))
+            outlet_rows.append(('J12', f'{_ob.name} — Weeks Open',  _weeks))
+            if _hours_open is not None:
+                _hours_open_total += _hours_open
+            if _j11_annual is not None:
+                _j11_annual_total += _j11_annual
+            outlet_meeting_rows.append((
+                _ob.name,
+                v(fy_filter_by_branch('Branch Stats', _ob.id), 'External Party Library Room Use')
+            ))
+        outlet_meeting_total = sum(val for _, val in outlet_meeting_rows if val) or None
+        outlet_hours_totals = [
+            ('J10', 'All Branches — Hours Open',            round(_hours_open_total, 1) or None),
+            ('J11', 'All Branches — Weekend/Evening Hours', round(_j11_annual_total, 1) or None),
+        ]
+
         stats = {
+            'outlets': outlet_rows,
+            'outlet_hours_totals': outlet_hours_totals,
+            'outlet_meeting_rooms': outlet_meeting_rows,
+            'outlet_meeting_total': outlet_meeting_total,
             'users': [
                 ('G1',  'Registered Users, Adult',            v(bs, 'New Library Card Registrations, Adult')),
                 ('G2',  'Registered Users, Juvenile',         v(bs, 'New Library Card Registrations, Juvenile')),
@@ -1787,7 +2430,6 @@ def director_dashboard():
                 ('G6',  'Public Internet Computer Use',       v(bs, 'PC Reservations')),
                 ('G9',  'WiFi Sessions',                      v(bs, 'WiFi - Unique Sessions')),
                 ('G11', 'Website Visits',                     v(os, 'yclibrary.org - Web Sessions')),
-                ('G12', 'External Party Meeting Room Use',    v(bs, 'External Party Library Room Use')),
             ],
             'circulation': [
                 ('',    'Total Branch Circulation',           v(bs, 'Total Branch Circulation')),
@@ -1851,55 +2493,156 @@ def director_dashboard():
             },
         }
 
+    if stats and request.args.get('format') == 'xlsx':
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        wb = Workbook()
+        ws = wb.active
+        ws.title = 'Director Dashboard'
+        bold = Font(bold=True)
+        hdr_fill = PatternFill('solid', fgColor='1A5276')
+        hdr_font = Font(bold=True, color='FFFFFF')
+        fy_lbl = f'FY{fy_year} (Jul {fy_year-1} – Jun {fy_year})'
+        ws.column_dimensions['A'].width = 12
+        ws.column_dimensions['B'].width = 48
+        ws.column_dimensions['C'].width = 16
+
+        ws.append(['York County Library', '', fy_lbl])
+        ws.cell(1, 1).font = Font(bold=True, size=14)
+        ws.cell(1, 3).font = Font(italic=True)
+        ws.append([])
+
+        def section(title, rows, has_code=True):
+            ws.append([title])
+            r = ws.max_row
+            ws.cell(r, 1).font = Font(bold=True, color='FFFFFF')
+            ws.cell(r, 1).fill = PatternFill('solid', fgColor='2C3E50')
+            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=3)
+            if has_code:
+                ws.append(['Code', 'Metric', 'FY Total'])
+            else:
+                ws.append(['Metric', 'FY Total'])
+            hr = ws.max_row
+            for col in range(1, 4 if has_code else 3):
+                ws.cell(hr, col).font = bold
+                ws.cell(hr, col).fill = PatternFill('solid', fgColor='D9E1F2')
+            for row in rows:
+                if has_code:
+                    code, label, val = row
+                    ws.append([code, label, val if val is not None else ''])
+                else:
+                    label, val = row
+                    ws.append([label, val if val is not None else ''])
+            ws.append([])
+
+        section('Library Users, Visits & Internet Usage', stats['users'])
+        section('Reference & Circulation', stats['circulation'])
+
+        ws.append(['Programming'])
+        r = ws.max_row
+        ws.cell(r, 1).font = Font(bold=True, color='FFFFFF')
+        ws.cell(r, 1).fill = PatternFill('solid', fgColor='2C3E50')
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=7)
+        hdrs = ['Age Group'] + [f'{t} Sessions' for t in TYPES] + [f'{t} Attendance' for t in TYPES]
+        ws.append(hdrs)
+        hr = ws.max_row
+        for col in range(1, len(hdrs) + 1):
+            ws.cell(hr, col).font = bold
+            ws.cell(hr, col).fill = PatternFill('solid', fgColor='D9E1F2')
+        for age in AGE:
+            row_data = [age]
+            for t in TYPES:
+                sv = next((val for a, val in stats['sessions'][t] if a == age), None)
+                row_data.append(sv if sv is not None else '')
+            for t in TYPES:
+                av = next((val for a, val in stats['attendance'][t] if a == age), None)
+                row_data.append(av if av is not None else '')
+            ws.append(row_data)
+        ws.append([])
+
+        for col_idx in range(2, 8):
+            ws.column_dimensions[ws.cell(1, col_idx).column_letter].width = 16
+
+        section('Outreach & Other', stats['outreach'], has_code=False)
+        section('Asynchronous Programs', stats['async_'], has_code=False)
+        section('Online & Social Media', stats['online'], has_code=False)
+
+        return _xlsx_response(wb, f'director_dashboard_{fy_year}.xlsx')
+
     return render_template('director.html',
                            available_fy=available_fy, sel_fy=fy_year,
                            fy_label=f'FY{fy_year} (Jul {fy_year-1} – Jun {fy_year})' if fy_year else None,
-                           stats=stats, TYPES=['ONSITE', 'OFFSITE', 'VIRTUAL'],
-                           AGE=['0-5', '6-11', '12-18', '19+', 'General Interest'])
+                           stats=stats, TYPES=PROG_TYPES,
+                           AGE=AGE_GROUPS)
 
 
 @app.route('/reports/quarterly_ref')
 def report_quarterly_ref():
-    year       = request.args.get('year',       type=int)
-    holidays   = request.args.get('holidays',   type=int, default=0)
-    unexpected = request.args.get('unexpected', type=int, default=0)
+    fy_year = request.args.get('year', type=int)
 
-    available_years = sorted(
-        {r[0] for r in db.session.query(Entry.year).distinct().all()},
-        reverse=True
-    )
+    # Derive available FY years from stored entries.
+    # Q1+Q2 belong to FY = calendar_year + 1; Q3+Q4 belong to FY = calendar_year.
+    cat_check = Category.query.filter_by(name='Quarterly Reference Stats').first()
+    if cat_check:
+        rows = db.session.query(Entry.year, Entry.quarter).filter_by(
+            category_id=cat_check.id
+        ).distinct().all()
+        fy_set = set()
+        for yr, q in rows:
+            if q in (1, 2):
+                fy_set.add(yr + 1)
+            elif q in (3, 4):
+                fy_set.add(yr)
+        available_years = sorted(fy_set, reverse=True)
+    else:
+        available_years = []
 
     table = quarterly_totals = None
     open_days = open_weeks = annual_estimate = None
+    closure_saved = False
+    holidays = unexpected = 0
 
-    if year:
-        cat = Category.query.filter_by(name='Quarterly Reference Stats').first()
+    if fy_year:
+        # Load saved closure days keyed by FY year
+        saved = QuarterlyRefClosureDays.query.filter_by(year=fy_year).first()
+        if saved:
+            holidays = saved.holidays
+            unexpected = saved.unexpected
+            closure_saved = True
+
+        cat = cat_check
         if cat:
             metric = next((m for m in cat.metrics if m.name == 'Total Transactions for the Week'), None)
             all_branches = _branches_for_category(cat)
 
-            # Raw data: {branch_id: {quarter: value}}
+            # Fetch entries spanning two calendar years:
+            # Q1+Q2 from year fy_year-1, Q3+Q4 from year fy_year
             raw = {b.id: {} for b in all_branches}
-            for e in Entry.query.filter_by(category_id=cat.id, year=year).all():
+            fy_entries = Entry.query.options(joinedload(Entry.values)).filter(
+                Entry.category_id == cat.id,
+                or_(
+                    and_(Entry.year == fy_year - 1, Entry.quarter.in_([1, 2])),
+                    and_(Entry.year == fy_year,     Entry.quarter.in_([3, 4]))
+                )
+            ).all()
+            for e in fy_entries:
                 if e.branch_id in raw and e.quarter and metric:
                     for ev in e.values:
                         if ev.metric_id == metric.id and ev.value_number is not None:
                             raw[e.branch_id][e.quarter] = int(ev.value_number)
 
-            # Open-time calculation
-            closed_days = (holidays or 0) + (unexpected or 0)
+            closed_days = holidays + unexpected
             open_days   = 52 * 6 - closed_days
             open_weeks  = round(open_days / 6, 2)
 
             def _row(label, branch_ids, is_combined=False):
-                """Build one display row by summing across the given branch IDs."""
                 q_vals = {}
                 for q in range(1, 5):
                     parts = [raw[bid][q] for bid in branch_ids if raw[bid].get(q) is not None]
                     if parts:
                         q_vals[q] = sum(parts)
                 avg = round(sum(q_vals.values()) / len(q_vals), 1) if q_vals else None
-                est = round(avg * open_weeks) if avg else None
+                est = round(avg * open_weeks) if (avg and closure_saved) else None
                 return {
                     'label':       label,
                     'quarters':    [q_vals.get(q) for q in range(1, 5)],
@@ -1926,19 +2669,1551 @@ def report_quarterly_ref():
                 if parts:
                     quarterly_totals[q] = sum(parts)
 
-            # Annual estimate = sum of per-branch estimates
-            annual_estimate = sum(r['estimate'] for r in table if r['estimate']) or None
+            # Annual estimate only when closure days have been saved
+            if closure_saved:
+                annual_estimate = sum(r['estimate'] for r in table if r['estimate']) or None
 
     return render_template('reports/quarterly_ref.html',
                            available_years=available_years,
-                           sel_year=year,
-                           holidays=holidays or 0,
-                           unexpected=unexpected or 0,
+                           sel_year=fy_year,
+                           holidays=holidays,
+                           unexpected=unexpected,
+                           closure_saved=closure_saved,
                            table=table,
                            quarterly_totals=quarterly_totals,
                            open_days=open_days,
                            open_weeks=open_weeks,
                            annual_estimate=annual_estimate)
+
+
+@app.route('/reports/quarterly_ref/save_closure', methods=['POST'])
+def quarterly_ref_save_closure():
+    year       = request.form.get('year',       type=int)
+    holidays   = request.form.get('holidays',   type=int, default=0) or 0
+    unexpected = request.form.get('unexpected', type=int, default=0) or 0
+    if not year:
+        flash('Year is required.', 'danger')
+        return redirect(url_for('report_quarterly_ref'))
+    saved = QuarterlyRefClosureDays.query.filter_by(year=year).first()
+    if saved:
+        saved.holidays   = holidays
+        saved.unexpected = unexpected
+        saved.saved_by   = current_user.username
+        saved.saved_at   = datetime.utcnow()
+    else:
+        db.session.add(QuarterlyRefClosureDays(
+            year=year, holidays=holidays, unexpected=unexpected,
+            saved_by=current_user.username
+        ))
+    db.session.commit()
+    flash(f'Closure days saved for {year}.', 'success')
+    return redirect(url_for('report_quarterly_ref', year=year))
+
+
+@app.route('/reports/quarterly_ref/clear_closure', methods=['POST'])
+def quarterly_ref_clear_closure():
+    year = request.form.get('year', type=int)
+    if not year:
+        flash('Year is required.', 'danger')
+        return redirect(url_for('report_quarterly_ref'))
+    saved = QuarterlyRefClosureDays.query.filter_by(year=year).first()
+    if saved:
+        db.session.delete(saved)
+        db.session.commit()
+        flash(f'Closure days cleared for {year}.', 'info')
+    return redirect(url_for('report_quarterly_ref', year=year))
+
+
+# ── User Management ──────────────────────────────────────────────────────────
+
+@app.route('/admin/users')
+@admin_required
+def admin_users():
+    users = User.query.order_by(User.username).all()
+    return render_template('admin/users.html', users=users)
+
+
+@app.route('/admin/users/new', methods=['GET', 'POST'])
+@admin_required
+def admin_user_new():
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        email    = request.form.get('email', '').strip() or None
+        password = request.form.get('password', '')
+        is_admin = bool(request.form.get('is_admin'))
+
+        if not username or not password:
+            flash('Username and password are required.', 'danger')
+            return render_template('admin/user_form.html', editing=False)
+
+        if User.query.filter_by(username=username).first():
+            flash(f'Username "{username}" is already taken.', 'danger')
+            return render_template('admin/user_form.html', editing=False)
+
+        user = User(username=username, email=email, is_admin=is_admin, is_active=True)
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+        flash(f'User "{username}" created.', 'success')
+        return redirect(url_for('admin_users'))
+
+    return render_template('admin/user_form.html', editing=False)
+
+
+@app.route('/admin/users/<int:user_id>/edit', methods=['GET', 'POST'])
+@admin_required
+def admin_user_edit(user_id):
+    user = db.session.get(User, user_id)
+    if not user:
+        flash('User not found.', 'danger')
+        return redirect(url_for('admin_users'))
+
+    if request.method == 'POST':
+        action = request.form.get('action')
+
+        if action == 'reset_password':
+            new_pw = request.form.get('new_password', '')
+            if not new_pw:
+                flash('New password cannot be blank.', 'danger')
+            else:
+                user.set_password(new_pw)
+                db.session.commit()
+                flash(f'Password for "{user.username}" updated.', 'success')
+            return redirect(url_for('admin_user_edit', user_id=user_id))
+
+        username  = request.form.get('username', '').strip()
+        email     = request.form.get('email', '').strip() or None
+        is_admin  = bool(request.form.get('is_admin'))
+        is_active = bool(request.form.get('is_active'))
+
+        if not username:
+            flash('Username cannot be blank.', 'danger')
+            return render_template('admin/user_form.html', editing=True, user=user)
+
+        existing = User.query.filter_by(username=username).first()
+        if existing and existing.id != user_id:
+            flash(f'Username "{username}" is already taken.', 'danger')
+            return render_template('admin/user_form.html', editing=True, user=user)
+
+        # Prevent locking yourself out
+        if user.id == current_user.id:
+            is_admin  = True
+            is_active = True
+
+        user.username  = username
+        user.email     = email
+        user.is_admin  = is_admin
+        user.is_active = is_active
+        db.session.commit()
+        flash(f'User "{username}" updated.', 'success')
+        return redirect(url_for('admin_users'))
+
+    return render_template('admin/user_form.html', editing=True, user=user)
+
+
+@app.route('/admin/users/<int:user_id>/toggle', methods=['POST'])
+@admin_required
+def admin_user_toggle(user_id):
+    user = db.session.get(User, user_id)
+    if not user:
+        flash('User not found.', 'danger')
+        return redirect(url_for('admin_users'))
+    if user.id == current_user.id:
+        flash('You cannot deactivate your own account.', 'warning')
+        return redirect(url_for('admin_users'))
+    user.is_active = not user.is_active
+    db.session.commit()
+    flash(f'User "{user.username}" {"activated" if user.is_active else "deactivated"}.', 'success')
+    return redirect(url_for('admin_users'))
+
+
+# ── Annual Survey Dashboard ───────────────────────────────────────────────────
+
+from models import AnnualSurveyMetric, AnnualSurveyValue, HolidayClosure, OutletScheduledHours, SectionJOutletData, BranchWeeklyHours
+
+_ANNUAL_CHART_METRICS = [
+    'Annual Library Visits (gate count)',
+    'TOTAL COLLECTION USE',
+    'GRAND TOTAL ALL CIRC',
+    'Total of all programs',
+    'Total Attendance all programs and all ages',
+    'Total operating revenue',
+    'Expenditures: Total operating',
+    'Grand total library staff FTE',
+]
+
+_ANNUAL_KPI_METRICS = [
+    ('Annual Library Visits (gate count)',       'Gate Count'),
+    ('TOTAL COLLECTION USE',                  'Collection Use'),
+    ('GRAND TOTAL ALL CIRC',                     'Total Circ'),
+    ('Total of all programs',                    'Programs'),
+    ('Total Attendance all programs and all ages','Attendance'),
+    ('Total operating revenue',                  'Revenue'),
+    ('Expenditures: Total operating',            'Expenses'),
+    ('Grand total library staff FTE',            'Staff FTE'),
+]
+
+
+def _annual_get_value(year_map, metric_name):
+    sv = year_map.get(metric_name)
+    return int(sv.value) if sv and sv.value is not None else None
+
+
+@app.route('/annual-survey')
+def annual_survey_dashboard():
+    all_metrics  = AnnualSurveyMetric.query.order_by(AnnualSurveyMetric.sort_order).all()
+    all_values   = AnnualSurveyValue.query.all()
+    metric_by_id = {m.id: m for m in all_metrics}
+
+    # Build: {year: {metric_name: AnnualSurveyValue}}
+    by_year = {}
+    for v in all_values:
+        m = metric_by_id.get(v.metric_id)
+        if not m:
+            continue
+        by_year.setdefault(v.report_year, {})[m.name] = v
+
+    years = sorted(by_year.keys())
+    latest_year = years[-1] if years else None
+
+    # KPI cards for all years (used by JS year picker)
+    kpis_by_year = {}
+    for y in years:
+        ym = by_year[y]
+        prev_ym = by_year.get(y - 1, {})
+        kpis_by_year[y] = [
+            {'label': label, 'value': _annual_get_value(ym, metric_name),
+             'prev': _annual_get_value(prev_ym, metric_name)}
+            for metric_name, label in _ANNUAL_KPI_METRICS
+        ]
+
+    # Chart data — all years for every numeric metric (for interactive chart builder)
+    chart_data = {}
+    for m in all_metrics:
+        if m.data_type in ('integer', 'decimal'):
+            chart_data[m.name] = {
+                'labels': years,
+                'values': [_annual_get_value(by_year.get(y, {}), m.name) for y in years],
+            }
+
+    # Section summary table — group metrics by section, one col per year
+    sections = {}
+    for m in all_metrics:
+        sections.setdefault(m.section, []).append(m)
+
+    section_order = [
+        'USERS GATE COUNT', 'CIRC', 'PROGRAMMING', 'OUTREACH',
+        'TECH USE', 'REF MTG RM', 'ILL',
+        'OPERATIONS', 'STAFFING', 'REVENUE',
+        'EXPENSES STAFF', 'EXPENSES COLLECTION', 'EXPENSES OPERATIONS',
+        'EXPENSES CAPITAL', 'EXPENSES TOTAL', 'COLLECTION SIZE',
+    ]
+    section_labels = {
+        'USERS GATE COUNT':      'Users & Gate Count',
+        'CIRC':                  'Circulation',
+        'PROGRAMMING':           'Programming',
+        'OUTREACH':              'Outreach',
+        'TECH USE':              'Technology Use',
+        'REF MTG RM':            'Reference & Meeting Rooms',
+        'ILL':                   'Interlibrary Loans',
+        'OPERATIONS':            'Operations',
+        'STAFFING':              'Staffing',
+        'REVENUE':               'Revenue',
+        'EXPENSES STAFF':        'Expenses: Staff',
+        'EXPENSES COLLECTION':   'Expenses: Collection',
+        'EXPENSES OPERATIONS':   'Expenses: Operations',
+        'EXPENSES CAPITAL':      'Expenses: Capital',
+        'EXPENSES TOTAL':        'Expenses: Total',
+        'COLLECTION SIZE':       'Collection Size',
+    }
+
+    return render_template('annual/dashboard.html',
+                           years=years,
+                           latest_year=latest_year,
+                           kpis_by_year=kpis_by_year,
+                           chart_data=chart_data,
+                           sections=sections,
+                           section_order=section_order,
+                           section_labels=section_labels,
+                           by_year=by_year,
+                           all_metrics=all_metrics)
+
+
+@app.route('/annual-survey/<int:year>/enter', methods=['GET', 'POST'])
+def annual_survey_enter(year):
+    all_metrics = AnnualSurveyMetric.query.order_by(AnnualSurveyMetric.sort_order).all()
+    existing    = {v.metric_id: v for v in AnnualSurveyValue.query.filter_by(report_year=year).all()}
+
+    section_order = [
+        'USERS GATE COUNT', 'CIRC', 'PROGRAMMING', 'OUTREACH',
+        'TECH USE', 'REF MTG RM', 'ILL',
+        'OPERATIONS', 'STAFFING', 'REVENUE',
+        'EXPENSES STAFF', 'EXPENSES COLLECTION', 'EXPENSES OPERATIONS',
+        'EXPENSES CAPITAL', 'EXPENSES TOTAL', 'COLLECTION SIZE',
+    ]
+    sections = {}
+    for m in all_metrics:
+        sections.setdefault(m.section, []).append(m)
+
+    if request.method == 'POST':
+        saved = 0
+        for m in all_metrics:
+            if m.is_auto_calculated:
+                continue
+            raw = request.form.get(f'm{m.id}', '').strip()
+            sv  = existing.get(m.id)
+            if m.data_type == 'text':
+                val_num, val_text = None, raw or None
+            else:
+                try:
+                    val_num, val_text = float(raw), None
+                except ValueError:
+                    val_num, val_text = None, None
+
+            if sv:
+                sv.value      = val_num
+                sv.value_text = val_text
+            else:
+                if val_num is not None or val_text is not None:
+                    db.session.add(AnnualSurveyValue(
+                        report_year=year, metric_id=m.id,
+                        value=val_num, value_text=val_text
+                    ))
+            saved += 1
+
+        db.session.commit()
+        flash(f'Annual survey data saved for Report Year {year}.', 'success')
+        return redirect(url_for('annual_survey_enter', year=year))
+
+    available_years = sorted({v.report_year for v in AnnualSurveyValue.query.all()}, reverse=True)
+    all_years = sorted(set(list(available_years) + [year]), reverse=True)
+
+    return render_template('annual/entry.html',
+                           year=year,
+                           all_years=all_years,
+                           sections=sections,
+                           section_order=section_order,
+                           existing=existing)
+
+
+def _calculate_annual_metrics(year):
+    """Calculate auto-metrics for one FY year from monthly Branch/Online Stats.
+
+    Returns the number of metrics saved (inserted or updated).
+    Does NOT commit — caller must call db.session.commit().
+    """
+    from sqlalchemy import or_, and_
+
+    bs_cat     = Category.query.filter_by(name='Branch Stats').first()
+    online_cat = Category.query.filter_by(name='Online Stats').first()
+    metrics_map = {m.name: m for m in AnnualSurveyMetric.query.all()}
+
+    def fy_entries(cat):
+        if not cat:
+            return []
+        return Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat.id).filter(
+            or_(
+                and_(Entry.year == year - 1, Entry.month >= 7),
+                and_(Entry.year == year,     Entry.month <= 6)
+            )
+        ).all()
+
+    def sum_metric(entries, metric_name):
+        m = Metric.query.filter_by(name=metric_name).first()
+        if not m:
+            return None
+        total = 0
+        found = False
+        for e in entries:
+            for ev in e.values:
+                if ev.metric_id == m.id and ev.value_number is not None:
+                    total += ev.value_number
+                    found = True
+        return round(total) if found else None
+
+    bs_entries     = fy_entries(bs_cat)
+    online_entries = fy_entries(online_cat)
+    locker_ids = {b.id for b in Branch.query.filter(Branch.name.ilike('%locker%')).all()}
+    bs_entries_no_locker = [e for e in bs_entries if e.branch_id not in locker_ids]
+
+    calculated = {}
+    note = f'Auto-calculated from monthly data for FY{year} (Jul {year-1} – Jun {year})'
+
+    def _save(metric_name, value):
+        if value is None:
+            return
+        am = metrics_map.get(metric_name)
+        if not am:
+            return
+        sv = AnnualSurveyValue.query.filter_by(report_year=year, metric_id=am.id).first()
+        if sv:
+            sv.value = value
+            sv.is_adjusted = False
+            sv.adjustment_note = note
+        else:
+            db.session.add(AnnualSurveyValue(
+                report_year=year, metric_id=am.id,
+                value=value, adjustment_note=note
+            ))
+        calculated[metric_name] = value
+
+    _save('Annual Library Visits (gate count)',
+          sum_metric(bs_entries_no_locker, 'Gate Count'))
+    _save('Number of wireless sessions',
+          sum_metric(bs_entries_no_locker, 'WiFi - Unique Sessions'))
+    _save('Number of website visits',
+          sum_metric(online_entries, 'yclibrary.org - Web Sessions'))
+    _save('TOTAL COLLECTION USE',
+          sum_metric(bs_entries_no_locker, 'Total Branch Circulation'))
+
+    for age, label in [('0-5',              'Synchronous Pgm Sessions Kids 0-5'),
+                        ('6-11',             'Synchronous Pgm Sessions Kids 6-11'),
+                        ('12-18',            'Total YA Programs for ages 12-18'),
+                        ('19+',              'Total Adult Programs for 18+'),
+                        ('General Interest', 'Total Gen Audience')]:
+        total = 0
+        found = False
+        for t in PROG_TYPES:
+            v = sum_metric(bs_entries_no_locker, f'{t} Sessions {age}')
+            if v is not None:
+                total += v
+                found = True
+        _save(label, round(total) if found else None)
+
+    kids05  = calculated.get('Synchronous Pgm Sessions Kids 0-5', 0) or 0
+    kids611 = calculated.get('Synchronous Pgm Sessions Kids 6-11', 0) or 0
+    ya      = calculated.get('Total YA Programs for ages 12-18', 0) or 0
+    adult   = calculated.get('Total Adult Programs for 18+', 0) or 0
+    gen     = calculated.get('Total Gen Audience', 0) or 0
+    if any([kids05, kids611, ya, adult, gen]):
+        _save('Total Programs 0-11', kids05 + kids611)
+        _save('Total of all programs', kids05 + kids611 + ya + adult + gen)
+
+    for age, label in [('0-5',              'children_05'),
+                        ('6-11',             'children_611'),
+                        ('12-18',            'ya'),
+                        ('19+',              'adult'),
+                        ('General Interest', 'gen')]:
+        total = 0
+        found = False
+        for t in PROG_TYPES:
+            v = sum_metric(bs_entries_no_locker, f'{t} Attendance {age}')
+            if v is not None:
+                total += v
+                found = True
+        calculated[f'att_{label}'] = round(total) if found else None
+
+    c05  = calculated.get('att_children_05', 0) or 0
+    c611 = calculated.get('att_children_611', 0) or 0
+    ya_a = calculated.get('att_ya', 0) or 0
+    ad_a = calculated.get('att_adult', 0) or 0
+    ge_a = calculated.get('att_gen', 0) or 0
+
+    _save('Children 0 to 11 programs attendance', c05 + c611)
+    _save('YA 12-18 programs attendance', ya_a)
+    _save('Adult programs attendance', ad_a)
+    _save('Total General attendance', ge_a)
+    if any([c05, c611, ya_a, ad_a, ge_a]):
+        _save('Total Attendance all programs and all ages',
+              c05 + c611 + ya_a + ad_a + ge_a)
+
+    _save('Number of staff trained',
+          sum_metric(bs_entries_no_locker, 'Number of Staff Taking Training'))
+    _save('Number of hours of training attended by staff',
+          sum_metric(bs_entries_no_locker, 'Number of Hours Staff Attended Training'))
+    _save('Number of items distributed as take-and-makes',
+          sum_metric(bs_entries_no_locker, 'Take & Makes / Other Passive Program Participants'))
+
+    return len(calculated)
+
+
+@app.route('/annual-survey/<int:year>/calculate', methods=['POST'])
+def annual_survey_calculate(year):
+    n = _calculate_annual_metrics(year)
+    db.session.commit()
+    flash(f'{n} metrics auto-calculated for FY{year} from monthly data.', 'success')
+    if request.form.get('next') == 'dashboard':
+        return redirect(url_for('annual_survey_dashboard'))
+    return redirect(url_for('annual_survey_enter', year=year))
+
+
+@app.route('/annual-survey/calculate-bulk', methods=['POST'])
+def annual_survey_calculate_bulk():
+    years = request.form.getlist('years', type=int)
+    if not years:
+        flash('No years selected.', 'warning')
+        return redirect(url_for('annual_survey_dashboard'))
+    total = sum(_calculate_annual_metrics(y) for y in years)
+    db.session.commit()
+    flash(f'{total} metrics auto-calculated across {len(years)} fiscal year(s): '
+          + ', '.join(f'FY{y}' for y in sorted(years)) + '.', 'success')
+    return redirect(url_for('annual_survey_dashboard'))
+
+
+# ── Section J: Outlet Hours/Weeks Open ───────────────────────────────────────
+
+def _fy_date_range(fy_year):
+    """Jul 1 of fy_year-1 through Jun 30 of fy_year, matching the FY convention
+    already used by report_quarterly_ref and the rest of the app."""
+    from datetime import date
+    return date(fy_year - 1, 7, 1), date(fy_year, 6, 30)
+
+
+def _outlet_branches():
+    """Real public-service outlets for Section J (excludes admin/backoffice, desks, lockers, system-wide)."""
+    return (Branch.query.filter_by(is_active=True, is_desk=False)
+            .filter(~Branch.name.ilike('%locker%'),
+                    ~Branch.name.in_(['YCL (System Wide)', 'Administration']))
+            .order_by(Branch.name).all())
+
+
+def _j11_weekly_hours(wh):
+    """Weekly Section J11 hours: evening (Mon-Fri after 5pm) + weekend (all Sat/Sun hours).
+    Every branch opens at 9:00am (confirmed actual open/close times), so hours beyond
+    the first 8 of a weekday fall after 5pm."""
+    if not wh:
+        return None
+    evening = sum(max(0, getattr(wh, d) - 8) for d in
+                  ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'])
+    weekend = wh.saturday + wh.sunday
+    return evening + weekend
+
+
+def _holiday_hours_for_branch(branch_id, weekly_hours_by_branch, fy_start, fy_end):
+    """Sum of hours lost to official holiday closures for one branch within a FY date range.
+    Full-day closures cost that branch's own normal hours for that weekday; partial
+    closures (e.g. early-closing days) use their flat hours_closed value for every branch."""
+    wh = weekly_hours_by_branch.get(branch_id)
+    total = 0.0
+    for h in HolidayClosure.query.filter(
+        HolidayClosure.closure_date >= fy_start,
+        HolidayClosure.closure_date <= fy_end,
+    ).all():
+        if h.is_full_day:
+            if wh:
+                total += wh.hours_for_weekday(h.closure_date.weekday())
+        else:
+            total += h.hours_closed or 0
+    return total
+
+
+def _live_hours_open(branch_id, fy_year, wh, fy_start, fy_end):
+    """Section J Hours Open for one branch/FY, computed fresh every time from Scheduled
+    Hours, the Holiday Schedule, and the Non-holiday Closures log — never a stale saved
+    snapshot, so newly logged closures show up immediately everywhere this is used."""
+    sh = OutletScheduledHours.query.filter_by(branch_id=branch_id, fiscal_year=fy_year).first()
+    scheduled = sh.scheduled_hours if sh else (round(wh.weekly_total * 52, 1) if wh else None)
+    if scheduled is None:
+        return None
+    holiday_hours = _holiday_hours_for_branch(branch_id, {branch_id: wh}, fy_start, fy_end)
+    unexpected_hours = db.session.query(
+        db.func.coalesce(db.func.sum(BranchClosure.hours_closed), 0)
+    ).filter(
+        BranchClosure.branch_id == branch_id,
+        BranchClosure.closure_date >= fy_start,
+        BranchClosure.closure_date <= fy_end,
+    ).scalar()
+    return scheduled - holiday_hours - unexpected_hours
+
+
+def _live_weeks_open(branch_id, wh, fy_start, fy_end):
+    """Section J12 Weeks Open for one branch/FY, computed fresh from the Holiday Schedule and
+    Non-holiday Closures log: a week only fails to count if every one of the branch's normally-
+    scheduled open days that week was fully closed (e.g. Rock Hill's renovation closure).
+
+    Weeks are real Monday-Sunday calendar weeks (not 7-day blocks offset from fy_start, which
+    for a fy_start that isn't a Monday would misalign closures spanning a week boundary --
+    e.g. a Mon-Sat closure could straddle two such blocks and register as fully open in both).
+    Still 52 weeks total, matching the flat default used elsewhere when nothing has closed --
+    the first bucket starts on the Monday on/before fy_start, and the last bucket is extended
+    through fy_end to absorb the day or two that shift introduces at the far end."""
+    from datetime import timedelta
+    if not wh:
+        return None
+    holidays = {h.closure_date: h for h in HolidayClosure.query.filter(
+        HolidayClosure.closure_date >= fy_start, HolidayClosure.closure_date <= fy_end).all()}
+    branch_closed_hours = {}
+    for bc in BranchClosure.query.filter(
+        BranchClosure.branch_id == branch_id,
+        BranchClosure.closure_date >= fy_start, BranchClosure.closure_date <= fy_end,
+    ).all():
+        branch_closed_hours[bc.closure_date] = branch_closed_hours.get(bc.closure_date, 0) + bc.hours_closed
+
+    total_weeks = 52
+    cal_week_start = fy_start - timedelta(days=fy_start.weekday())  # Monday on/before fy_start
+    closed_weeks = 0
+    for w in range(total_weeks):
+        week_start = cal_week_start + timedelta(days=7 * w)
+        week_end = fy_end if w == total_weeks - 1 else week_start + timedelta(days=6)
+        any_open = False
+        d = week_start
+        while d <= week_end:
+            if fy_start <= d <= fy_end:
+                normal_hours = wh.hours_for_weekday(d.weekday())
+                if normal_hours > 0:
+                    lost = 0.0
+                    h = holidays.get(d)
+                    if h:
+                        lost += normal_hours if h.is_full_day else (h.hours_closed or 0)
+                    lost += branch_closed_hours.get(d, 0)
+                    if lost < normal_hours - 1e-6:
+                        any_open = True
+                        break
+            d += timedelta(days=1)
+        if not any_open:
+            closed_weeks += 1
+    return total_weeks - closed_weeks
+
+
+@app.route('/annual-survey/<int:year>/section-j', methods=['GET', 'POST'])
+def annual_survey_section_j(year):
+    branches = _outlet_branches()
+    fy_start, fy_end = _fy_date_range(year)
+    weekly_hours_by_branch = {wh.branch_id: wh for wh in BranchWeeklyHours.query.all()}
+
+    if request.method == 'POST':
+        for b in branches:
+            scheduled = request.form.get(f'scheduled_{b.id}', type=float)
+            weeks     = request.form.get(f'weeks_{b.id}', type=float)
+            if scheduled is None:
+                continue
+            weeks = weeks if weeks is not None else 52
+
+            sh = OutletScheduledHours.query.filter_by(branch_id=b.id, fiscal_year=year).first()
+            if sh:
+                sh.scheduled_hours = scheduled
+                sh.submitted_by = current_user.username
+            else:
+                db.session.add(OutletScheduledHours(
+                    branch_id=b.id, fiscal_year=year,
+                    scheduled_hours=scheduled, submitted_by=current_user.username,
+                ))
+
+            holiday_hours = _holiday_hours_for_branch(b.id, weekly_hours_by_branch, fy_start, fy_end)
+            unexpected_hours = db.session.query(
+                db.func.coalesce(db.func.sum(BranchClosure.hours_closed), 0)
+            ).filter(
+                BranchClosure.branch_id == b.id,
+                BranchClosure.closure_date >= fy_start,
+                BranchClosure.closure_date <= fy_end,
+            ).scalar()
+
+            hours_open = scheduled - holiday_hours - unexpected_hours
+
+            sj = SectionJOutletData.query.filter_by(branch_id=b.id, fiscal_year=year).first()
+            if sj:
+                sj.hours_open = hours_open
+                sj.weeks_open = weeks
+                sj.saved_by = current_user.username
+            else:
+                db.session.add(SectionJOutletData(
+                    branch_id=b.id, fiscal_year=year,
+                    hours_open=hours_open, weeks_open=weeks, saved_by=current_user.username,
+                ))
+
+        db.session.commit()
+        flash(f'Section J data saved for FY{year}.', 'success')
+        return redirect(url_for('annual_survey_section_j', year=year))
+
+    scheduled_by_branch = {sh.branch_id: sh for sh in
+                            OutletScheduledHours.query.filter_by(fiscal_year=year).all()}
+    saved_by_branch = {sj.branch_id: sj for sj in
+                        SectionJOutletData.query.filter_by(fiscal_year=year).all()}
+
+    rows = []
+    for b in branches:
+        sh = scheduled_by_branch.get(b.id)
+        wh = weekly_hours_by_branch.get(b.id)
+        default_scheduled = round(wh.weekly_total * 52, 1) if wh else None
+        scheduled = sh.scheduled_hours if sh else default_scheduled
+        holiday_hours = _holiday_hours_for_branch(b.id, weekly_hours_by_branch, fy_start, fy_end)
+        unexpected_hours = db.session.query(
+            db.func.coalesce(db.func.sum(BranchClosure.hours_closed), 0)
+        ).filter(
+            BranchClosure.branch_id == b.id,
+            BranchClosure.closure_date >= fy_start,
+            BranchClosure.closure_date <= fy_end,
+        ).scalar()
+        sj = saved_by_branch.get(b.id)
+        rows.append({
+            'branch': b,
+            'scheduled_hours': scheduled,
+            'holiday_hours': holiday_hours,
+            'unexpected_hours': unexpected_hours,
+            'hours_open': (scheduled - holiday_hours - unexpected_hours) if scheduled is not None else None,
+            'weeks_open': sj.weeks_open if sj else 52,
+        })
+
+    all_years = sorted({sh.fiscal_year for sh in OutletScheduledHours.query.all()} | {year}, reverse=True)
+
+    return render_template('annual/section_j.html',
+                           year=year,
+                           all_years=all_years,
+                           rows=rows)
+
+
+@app.route('/annual-survey/branch-hours', methods=['GET', 'POST'])
+def annual_survey_branch_hours():
+    branches = _outlet_branches()
+    days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+
+    if request.method == 'POST':
+        for b in branches:
+            wh = BranchWeeklyHours.query.filter_by(branch_id=b.id).first()
+            if not wh:
+                wh = BranchWeeklyHours(branch_id=b.id)
+                db.session.add(wh)
+            for d in days:
+                val = request.form.get(f'{d}_{b.id}', type=float)
+                setattr(wh, d, val or 0)
+        db.session.commit()
+        flash('Branch weekly hours saved.', 'success')
+        return redirect(url_for('annual_survey_branch_hours'))
+
+    hours_by_branch = {wh.branch_id: wh for wh in BranchWeeklyHours.query.all()}
+    rows = []
+    for b in branches:
+        wh = hours_by_branch.get(b.id)
+        values = {d: getattr(wh, d) for d in days} if wh else {d: 0 for d in days}
+        rows.append({'branch': b, 'values': values, 'weekly_total': (wh.weekly_total if wh else 0)})
+    return render_template('annual/branch_hours.html', rows=rows, days=days)
+
+
+@app.route('/annual-survey/holidays', methods=['GET', 'POST'])
+def annual_survey_holidays():
+    if request.method == 'POST':
+        closure_date = request.form.get('closure_date', '').strip()
+        name = request.form.get('name', '').strip()
+        is_full_day = request.form.get('is_full_day') == 'on'
+        hours = request.form.get('hours_closed', type=float)
+        if not closure_date or not name or (not is_full_day and hours is None):
+            flash('Date and name are required (and hours closed, for a partial-day closure).', 'danger')
+        else:
+            try:
+                parsed_date = datetime.strptime(closure_date, '%Y-%m-%d').date()
+            except ValueError:
+                flash('Invalid date.', 'danger')
+                return redirect(url_for('annual_survey_holidays'))
+            if HolidayClosure.query.filter_by(closure_date=parsed_date).first():
+                flash(f'A holiday closure is already recorded for {parsed_date}.', 'danger')
+            else:
+                db.session.add(HolidayClosure(
+                    closure_date=parsed_date, name=name,
+                    is_full_day=is_full_day, hours_closed=None if is_full_day else hours,
+                ))
+                db.session.commit()
+                flash('Holiday closure added.', 'success')
+        return redirect(url_for('annual_survey_holidays'))
+
+    holidays = HolidayClosure.query.order_by(HolidayClosure.closure_date).all()
+    return render_template('annual/holidays.html', holidays=holidays)
+
+
+@app.route('/annual-survey/holidays/<int:holiday_id>/delete', methods=['POST'])
+def annual_survey_holiday_delete(holiday_id):
+    holiday = HolidayClosure.query.get_or_404(holiday_id)
+    db.session.delete(holiday)
+    db.session.commit()
+    flash('Holiday closure removed.', 'info')
+    return redirect(url_for('annual_survey_holidays'))
+
+
+def _overview_fy_stats():
+    """Fiscal-year-over-fiscal-year Branch Stats totals, shared by the internal
+    and public Annual Overview pages."""
+    bs_cat = Category.query.filter_by(name='Branch Stats').first()
+
+    full_fy_years = []
+    if bs_cat:
+        bs_months = db.session.query(Entry.year, Entry.month).filter(
+            Entry.category_id == bs_cat.id,
+            Entry.month.isnot(None)
+        ).distinct().all()
+
+        fy_months = {}
+        for yr, mo in bs_months:
+            fy = yr + 1 if mo >= 7 else yr
+            fy_months.setdefault(fy, set()).add((yr, mo))
+
+        def is_full_fy(fy_year, month_set):
+            needed = (
+                {(fy_year - 1, m) for m in range(7, 13)} |
+                {(fy_year, m) for m in range(1, 7)}
+            )
+            return needed.issubset(month_set)
+
+        now = datetime.now()
+        cur_fy = now.year + 1 if now.month >= 7 else now.year
+        full_fy_years = sorted(
+            [fy for fy, months in fy_months.items() if fy < cur_fy and is_full_fy(fy, months)],
+            reverse=True
+        )
+
+    fy1 = fy2 = stats = None
+
+    if len(full_fy_years) >= 2:
+        fy2, fy1 = full_fy_years[0], full_fy_years[1]
+
+        def fy_totals(fy_year):
+            entries = Entry.query.options(joinedload(Entry.values)).filter_by(
+                category_id=bs_cat.id
+            ).filter(
+                or_(
+                    and_(Entry.year == fy_year - 1, Entry.month >= 7),
+                    and_(Entry.year == fy_year, Entry.month <= 6)
+                )
+            ).all()
+            id_to_name = {m.id: m.name for m in bs_cat.metrics}
+            totals = {}
+            for e in entries:
+                if e.branch and ('system wide' in e.branch.name.lower() or
+                                 'locker' in e.branch.name.lower() or
+                                 e.branch.name == 'Administration'):
+                    continue
+                for ev in e.values:
+                    n = id_to_name.get(ev.metric_id)
+                    if n and ev.value_number is not None:
+                        totals[n] = totals.get(n, 0) + ev.value_number
+            return totals
+
+        d1 = fy_totals(fy1)
+        d2 = fy_totals(fy2)
+
+        AGE   = AGE_GROUPS
+        TYPES = PROG_TYPES
+
+        def iv(d, key):
+            val = d.get(key)
+            if val is None:
+                return None
+            return int(val) if val == int(val) else round(val, 1)
+
+        def prog_sessions(d):
+            total = sum((iv(d, f'{t} Sessions {a}') or 0) for t in TYPES for a in AGE)
+            return total or None
+
+        def prog_attendance(d):
+            total = sum((iv(d, f'{t} Attendance {a}') or 0) for t in TYPES for a in AGE)
+            return total or None
+
+        def new_cards(d):
+            total = (iv(d, 'New Library Card Registrations, Adult') or 0) + \
+                    (iv(d, 'New Library Card Registrations, Juvenile') or 0)
+            return total or None
+
+        stats = [
+            ('bi-arrow-repeat',    'Total Circulation',            iv(d1, 'Total Branch Circulation'), iv(d2, 'Total Branch Circulation'), True),
+            ('bi-wifi',            'Hotspot Circulation',          iv(d1, 'Hotspots Circulation'),     iv(d2, 'Hotspots Circulation'),     True),
+            ('bi-door-open',       'Gate Count',                   iv(d1, 'Gate Count'),               iv(d2, 'Gate Count'),               True),
+            ('bi-calendar-event',  'Program Sessions',             prog_sessions(d1),                   prog_sessions(d2),                  True),
+            ('bi-people-fill',     'Program Attendance',           prog_attendance(d1),                 prog_attendance(d2),                True),
+            ('bi-credit-card',     'New Library Card Applications',new_cards(d1),                       new_cards(d2),                      True),
+            ('bi-printer',         'Total Prints',                  iv(d1, 'Total Prints per Month'),   iv(d2, 'Total Prints per Month'),   True),
+        ]
+
+    return full_fy_years, fy1, fy2, stats
+
+
+@app.route('/reports/overview')
+def report_overview():
+    full_fy_years, fy1, fy2, stats = _overview_fy_stats()
+    return render_template('reports/overview.html',
+                           full_fy_years=full_fy_years,
+                           fy1=fy1, fy2=fy2,
+                           stats=stats)
+
+
+@app.route('/public/annual-stats')
+def public_annual_overview():
+    full_fy_years, fy1, fy2, stats = _overview_fy_stats()
+    return render_template('public/annual_overview.html',
+                           full_fy_years=full_fy_years,
+                           fy1=fy1, fy2=fy2,
+                           stats=stats)
+
+
+@app.route('/reports/impact')
+@admin_required
+def report_impact():
+    bs_cat = Category.query.filter_by(name='Branch Stats').first()
+
+    fy1, fy2 = 2023, 2024
+    data = None
+    selectable_years = []
+    sel_fy = fy2
+
+    if fy1 and fy2:
+        def fy_totals(fy_year):
+            entries = Entry.query.options(joinedload(Entry.values)).filter_by(
+                category_id=bs_cat.id
+            ).filter(
+                or_(
+                    and_(Entry.year == fy_year - 1, Entry.month >= 7),
+                    and_(Entry.year == fy_year, Entry.month <= 6)
+                )
+            ).all()
+            id_to_name = {m.id: m.name for m in bs_cat.metrics}
+            totals = {}
+            for e in entries:
+                bname = e.branch.name if e.branch else ''
+                if bname == 'YCL (System Wide)' or 'Lockers' in bname or bname == 'Administration':
+                    continue
+                for ev in e.values:
+                    n = id_to_name.get(ev.metric_id)
+                    if n and ev.value_number is not None:
+                        totals[n] = totals.get(n, 0) + ev.value_number
+            return totals
+
+        d1 = fy_totals(fy1)
+        d2 = fy_totals(fy2)
+        AGE   = AGE_GROUPS
+        TYPES = PROG_TYPES
+
+        def iv(d, key):
+            val = d.get(key)
+            if val is None:
+                return None
+            return int(val) if val == int(val) else round(val, 1)
+
+        def pct(old, new):
+            if not old or not new:
+                return None
+            return round((new - old) / old * 100, 1)
+
+        def prog_sessions(d):
+            return sum((iv(d, f'{t} Sessions {a}') or 0) for t in TYPES for a in AGE) or None
+
+        def prog_attendance(d):
+            return sum((iv(d, f'{t} Attendance {a}') or 0) for t in TYPES for a in AGE) or None
+
+        # Annual Comparables: physical + digital from system-wide annual entries
+        eres_cat = Category.query.filter_by(name='eResources').first()
+
+        def ac_totals(fy_year):
+            sw = Branch.query.filter(Branch.name == 'YCL (System Wide)').first()
+            if not sw:
+                return None, None
+            phys = None
+            bs_e = Entry.query.options(joinedload(Entry.values)).filter_by(
+                category_id=bs_cat.id, branch_id=sw.id, year=fy_year, month=None
+            ).first()
+            if bs_e:
+                circ_m = next((m for m in bs_cat.metrics if m.name == 'Total Branch Circulation'), None)
+                if circ_m:
+                    ev = next((v for v in bs_e.values if v.metric_id == circ_m.id), None)
+                    if ev and ev.value_number is not None:
+                        phys = int(ev.value_number)
+            dig = None
+            if eres_cat:
+                er_e = Entry.query.options(joinedload(Entry.values)).filter_by(
+                    category_id=eres_cat.id, branch_id=sw.id, year=fy_year, month=None
+                ).first()
+                if er_e:
+                    total = sum(v.value_number for v in er_e.values if v.value_number is not None)
+                    if total > 0:
+                        dig = int(total)
+            return phys, dig
+
+        ac_phys1, digital1 = ac_totals(fy1)
+        ac_phys2, digital2 = ac_totals(fy2)
+
+        circ1      = ac_phys1 if ac_phys1 is not None else iv(d1, 'Total Branch Circulation')
+        circ2      = ac_phys2 if ac_phys2 is not None else iv(d2, 'Total Branch Circulation')
+        hot1       = iv(d1, 'Hotspots Circulation')
+        hot2       = iv(d2, 'Hotspots Circulation')
+        gate1      = iv(d1, 'Gate Count')
+        gate2      = iv(d2, 'Gate Count')
+        sess1      = prog_sessions(d1)
+        sess2      = prog_sessions(d2)
+        att1       = prog_attendance(d1)
+        att2       = prog_attendance(d2)
+        cards1     = (iv(d1, 'New Library Card Registrations, Adult') or 0) + \
+                     (iv(d1, 'New Library Card Registrations, Juvenile') or 0) or None
+        cards2     = (iv(d2, 'New Library Card Registrations, Adult') or 0) + \
+                     (iv(d2, 'New Library Card Registrations, Juvenile') or 0) or None
+        pc_res1    = iv(d1, 'PC Reservations')
+        pc_res2    = iv(d2, 'PC Reservations')
+
+        # Only show physical/total % change when both years come from Annual Comparables
+        phys_pct  = pct(circ1, circ2) if (ac_phys1 is not None and ac_phys2 is not None) else None
+        total1    = (circ1 + digital1) if (ac_phys1 is not None and digital1 is not None) else None
+        total2    = (circ2 + digital2) if (ac_phys2 is not None and digital2 is not None) else None
+        total_pct = pct(total1, total2) if (total1 is not None and total2 is not None) else None
+
+        CHILD_AGES = ['0-5', '6-11']
+        YA_AGES    = ['12-18']
+        child1 = sum((iv(d1, f'{t} Sessions {a}') or 0) for t in TYPES for a in CHILD_AGES) or None
+        child2 = sum((iv(d2, f'{t} Sessions {a}') or 0) for t in TYPES for a in CHILD_AGES) or None
+        ya1    = sum((iv(d1, f'{t} Sessions {a}') or 0) for t in TYPES for a in YA_AGES) or None
+        ya2    = sum((iv(d2, f'{t} Sessions {a}') or 0) for t in TYPES for a in YA_AGES) or None
+
+        data = {
+            'circulation':    {'v1': circ1,    'v2': circ2,    'pct': phys_pct},
+            'digital':        {'v1': digital1, 'v2': digital2, 'pct': pct(digital1, digital2)},
+            'total_checkout': {'v1': total1,   'v2': total2,   'pct': total_pct},
+            'hotspots':       {'v1': hot1,     'v2': hot2,     'pct': pct(hot1,     hot2)},
+            'gate':           {'v1': gate1,    'v2': gate2,    'pct': pct(gate1,    gate2)},
+            'sessions':       {'v1': sess1,    'v2': sess2,    'pct': pct(sess1,    sess2)},
+            'attendance':     {'v1': att1,     'v2': att2,     'pct': pct(att1,     att2)},
+            'cards':          {'v1': cards1,   'v2': cards2,   'pct': pct(cards1,   cards2)},
+            'pc_reservations': {'v1': pc_res1, 'v2': pc_res2,  'pct': pct(pc_res1,  pc_res2)},
+            'children_sess':  {'v1': child1,   'v2': child2,   'pct': pct(child1,   child2)},
+            'ya_sess':        {'v1': ya1,      'v2': ya2,      'pct': pct(ya1,      ya2)},
+        }
+
+    return render_template('reports/impact.html',
+                           selectable_years=selectable_years,
+                           sel_fy=sel_fy,
+                           fy1=fy1, fy2=fy2,
+                           data=data)
+
+
+@app.route('/reports/impact.pdf')
+@admin_required
+def report_impact_pdf():
+    bs_cat = Category.query.filter_by(name='Branch Stats').first()
+
+    fy1, fy2 = 2023, 2024
+
+    def fy_totals(fy_year):
+        entries = Entry.query.options(joinedload(Entry.values)).filter_by(
+            category_id=bs_cat.id
+        ).filter(
+            or_(
+                and_(Entry.year == fy_year - 1, Entry.month >= 7),
+                and_(Entry.year == fy_year, Entry.month <= 6)
+            )
+        ).all()
+        id_to_name = {m.id: m.name for m in bs_cat.metrics}
+        totals = {}
+        for e in entries:
+            bname = e.branch.name if e.branch else ''
+            if bname == 'YCL (System Wide)' or 'Lockers' in bname or bname == 'Administration':
+                continue
+            for ev in e.values:
+                n = id_to_name.get(ev.metric_id)
+                if n and ev.value_number is not None:
+                    totals[n] = totals.get(n, 0) + ev.value_number
+        return totals
+
+    d1 = fy_totals(fy1)
+    d2 = fy_totals(fy2)
+    AGE   = AGE_GROUPS
+    TYPES = PROG_TYPES
+
+    def iv(d, key):
+        val = d.get(key)
+        if val is None:
+            return None
+        return int(val) if val == int(val) else round(val, 1)
+
+    def pct(old, new):
+        if not old or not new:
+            return None
+        return round((new - old) / old * 100, 1)
+
+    # Annual Comparables: physical + digital from system-wide annual entries
+    eres_cat = Category.query.filter_by(name='eResources').first()
+
+    def ac_totals(fy_year):
+        sw = Branch.query.filter(Branch.name == 'YCL (System Wide)').first()
+        if not sw:
+            return None, None
+        phys = None
+        bs_e = Entry.query.options(joinedload(Entry.values)).filter_by(
+            category_id=bs_cat.id, branch_id=sw.id, year=fy_year, month=None
+        ).first()
+        if bs_e:
+            circ_m = next((m for m in bs_cat.metrics if m.name == 'Total Branch Circulation'), None)
+            if circ_m:
+                ev = next((v for v in bs_e.values if v.metric_id == circ_m.id), None)
+                if ev and ev.value_number is not None:
+                    phys = int(ev.value_number)
+        dig = None
+        if eres_cat:
+            er_e = Entry.query.options(joinedload(Entry.values)).filter_by(
+                category_id=eres_cat.id, branch_id=sw.id, year=fy_year, month=None
+            ).first()
+            if er_e:
+                total = sum(v.value_number for v in er_e.values if v.value_number is not None)
+                if total > 0:
+                    dig = int(total)
+        return phys, dig
+
+    ac_phys1, digital1 = ac_totals(fy1)
+    ac_phys2, digital2 = ac_totals(fy2)
+
+    circ1   = ac_phys1 if ac_phys1 is not None else iv(d1, 'Total Branch Circulation')
+    circ2   = ac_phys2 if ac_phys2 is not None else iv(d2, 'Total Branch Circulation')
+    hot1    = iv(d1, 'Hotspots Circulation')
+    hot2    = iv(d2, 'Hotspots Circulation')
+    gate1   = iv(d1, 'Gate Count')
+    gate2   = iv(d2, 'Gate Count')
+    CHILD_AGES = ['0-5', '6-11']
+    YA_AGES    = ['12-18']
+    sess1   = sum((iv(d1, f'{t} Sessions {a}') or 0) for t in TYPES for a in AGE) or None
+    sess2   = sum((iv(d2, f'{t} Sessions {a}') or 0) for t in TYPES for a in AGE) or None
+    att1    = sum((iv(d1, f'{t} Attendance {a}') or 0) for t in TYPES for a in AGE) or None
+    att2    = sum((iv(d2, f'{t} Attendance {a}') or 0) for t in TYPES for a in AGE) or None
+    child1  = sum((iv(d1, f'{t} Sessions {a}') or 0) for t in TYPES for a in CHILD_AGES) or None
+    child2  = sum((iv(d2, f'{t} Sessions {a}') or 0) for t in TYPES for a in CHILD_AGES) or None
+    ya1     = sum((iv(d1, f'{t} Sessions {a}') or 0) for t in TYPES for a in YA_AGES) or None
+    ya2     = sum((iv(d2, f'{t} Sessions {a}') or 0) for t in TYPES for a in YA_AGES) or None
+    cards1  = (iv(d1, 'New Library Card Registrations, Adult') or 0) + \
+              (iv(d1, 'New Library Card Registrations, Juvenile') or 0) or None
+    cards2  = (iv(d2, 'New Library Card Registrations, Adult') or 0) + \
+              (iv(d2, 'New Library Card Registrations, Juvenile') or 0) or None
+    pc_res1 = iv(d1, 'PC Reservations')
+    pc_res2 = iv(d2, 'PC Reservations')
+
+    # Only show physical/total % change when both years come from Annual Comparables
+    phys_pct  = pct(circ1, circ2) if (ac_phys1 is not None and ac_phys2 is not None) else None
+    total1    = (circ1 + digital1) if (ac_phys1 is not None and digital1 is not None) else None
+    total2    = (circ2 + digital2) if (ac_phys2 is not None and digital2 is not None) else None
+    total_pct = pct(total1, total2) if (total1 is not None and total2 is not None) else None
+
+    data = {
+        'circulation':    {'v1': circ1,    'v2': circ2,    'pct': phys_pct},
+        'digital':        {'v1': digital1, 'v2': digital2, 'pct': pct(digital1, digital2)},
+        'total_checkout': {'v1': total1,   'v2': total2,   'pct': total_pct},
+        'hotspots':       {'v1': hot1,     'v2': hot2,     'pct': pct(hot1,     hot2)},
+        'gate':           {'v1': gate1,    'v2': gate2,    'pct': pct(gate1,    gate2)},
+        'sessions':       {'v1': sess1,    'v2': sess2,    'pct': pct(sess1,    sess2)},
+        'attendance':     {'v1': att1,     'v2': att2,     'pct': pct(att1,     att2)},
+        'cards':          {'v1': cards1,   'v2': cards2,   'pct': pct(cards1,   cards2)},
+        'pc_reservations': {'v1': pc_res1, 'v2': pc_res2,  'pct': pct(pc_res1,  pc_res2)},
+        'children_sess':  {'v1': child1,   'v2': child2,   'pct': pct(child1,   child2)},
+        'ya_sess':        {'v1': ya1,      'v2': ya2,      'pct': pct(ya1,      ya2)},
+    }
+
+    import traceback
+    try:
+        from weasyprint import HTML as WeasyprintHTML
+        html_str = render_template('reports/impact.html',
+                                   fy1=fy1, fy2=fy2, data=data,
+                                   selectable_years=[], sel_fy=fy2)
+        pdf_bytes = WeasyprintHTML(string=html_str, base_url=request.url_root).write_pdf()
+    except Exception:
+        tb = traceback.format_exc()
+        app.logger.error('PDF generation failed:\n%s', tb)
+        return f'<pre style="white-space:pre-wrap">PDF generation error — please send this to your admin:\n\n{tb}</pre>', 500
+
+    filename = f'YCL_Impact_Report_FY{fy1}-FY{fy2}.pdf'
+    return send_file(io.BytesIO(pdf_bytes), mimetype='application/pdf',
+                     as_attachment=True, download_name=filename)
+
+
+@app.route('/reports/impact.docx')
+@admin_required
+def report_impact_docx():
+    from docx import Document
+    from docx.shared import Pt, RGBColor, Inches
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    bs_cat   = Category.query.filter_by(name='Branch Stats').first()
+    eres_cat = Category.query.filter_by(name='eResources').first()
+    fy1, fy2 = 2023, 2024
+
+    def _fy_totals(fy_year):
+        entries = Entry.query.options(joinedload(Entry.values)).filter_by(
+            category_id=bs_cat.id
+        ).filter(
+            or_(
+                and_(Entry.year == fy_year - 1, Entry.month >= 7),
+                and_(Entry.year == fy_year, Entry.month <= 6)
+            )
+        ).all()
+        id_to_name = {m.id: m.name for m in bs_cat.metrics}
+        totals = {}
+        for e in entries:
+            bname = e.branch.name if e.branch else ''
+            if bname == 'YCL (System Wide)' or 'Lockers' in bname or bname == 'Administration':
+                continue
+            for ev in e.values:
+                n = id_to_name.get(ev.metric_id)
+                if n and ev.value_number is not None:
+                    totals[n] = totals.get(n, 0) + ev.value_number
+        return totals
+
+    def _iv(d, key):
+        val = d.get(key)
+        if val is None:
+            return None
+        return int(val) if val == int(val) else round(val, 1)
+
+    def _ac_totals(fy_year):
+        sw = Branch.query.filter(Branch.name == 'YCL (System Wide)').first()
+        if not sw:
+            return None, None
+        phys = None
+        bs_e = Entry.query.options(joinedload(Entry.values)).filter_by(
+            category_id=bs_cat.id, branch_id=sw.id, year=fy_year, month=None
+        ).first()
+        if bs_e:
+            circ_m = next((m for m in bs_cat.metrics if m.name == 'Total Branch Circulation'), None)
+            if circ_m:
+                ev = next((v for v in bs_e.values if v.metric_id == circ_m.id), None)
+                if ev and ev.value_number is not None:
+                    phys = int(ev.value_number)
+        dig = None
+        if eres_cat:
+            er_e = Entry.query.options(joinedload(Entry.values)).filter_by(
+                category_id=eres_cat.id, branch_id=sw.id, year=fy_year, month=None
+            ).first()
+            if er_e:
+                total = sum(v.value_number for v in er_e.values if v.value_number is not None)
+                if total > 0:
+                    dig = int(total)
+        return phys, dig
+
+    d2 = _fy_totals(fy2)
+    AGE   = AGE_GROUPS
+    TYPES = PROG_TYPES
+
+    ac_phys2, digital2 = _ac_totals(fy2)
+    circ2   = ac_phys2 if ac_phys2 is not None else _iv(d2, 'Total Branch Circulation')
+    hot2    = _iv(d2, 'Hotspots Circulation')
+    gate2   = _iv(d2, 'Gate Count')
+    sess2   = sum((_iv(d2, f'{t} Sessions {a}') or 0) for t in TYPES for a in AGE) or None
+    att2    = sum((_iv(d2, f'{t} Attendance {a}') or 0) for t in TYPES for a in AGE) or None
+    cards2  = (_iv(d2, 'New Library Card Registrations, Adult') or 0) + \
+              (_iv(d2, 'New Library Card Registrations, Juvenile') or 0) or None
+    pc_res2 = _iv(d2, 'PC Reservations')
+    total2  = (circ2 + digital2) if (ac_phys2 is not None and digital2 is not None) else None
+
+    def fmt(v):
+        return f'{int(v):,}' if v is not None else '—'
+
+    # ── Build document ──
+    doc = Document()
+    sec = doc.sections[0]
+    sec.top_margin    = Inches(0.75)
+    sec.bottom_margin = Inches(0.75)
+    sec.left_margin   = Inches(1.0)
+    sec.right_margin  = Inches(1.0)
+
+    BLUE   = RGBColor(0x1a, 0x4f, 0x9e)
+    GREEN  = RGBColor(0x1e, 0x84, 0x49)
+    PURPLE = RGBColor(0x6c, 0x34, 0x83)
+    TEAL   = RGBColor(0x11, 0x7a, 0x65)
+    BROWN  = RGBColor(0x78, 0x42, 0x12)
+    DKBLUE = RGBColor(0x1a, 0x52, 0x76)
+    GREY   = RGBColor(0x55, 0x55, 0x55)
+    LGREY  = RGBColor(0x88, 0x88, 0x88)
+
+    def shade_cell(cell, hex_color):
+        tc   = cell._tc
+        tcPr = tc.get_or_add_tcPr()
+        shd  = OxmlElement('w:shd')
+        shd.set(qn('w:val'),   'clear')
+        shd.set(qn('w:color'), 'auto')
+        shd.set(qn('w:fill'),  hex_color)
+        tcPr.append(shd)
+
+    def add_heading2(text, color):
+        h = doc.add_heading(text, level=2)
+        for run in h.runs:
+            run.font.color.rgb = color
+
+    def add_body(parts):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(6)
+        for text, bold in parts:
+            r = p.add_run(text)
+            r.bold       = bold
+            r.font.size  = Pt(10)
+        return p
+
+    def add_quote(text, source):
+        p = doc.add_paragraph(style='No Spacing')
+        p.paragraph_format.left_indent  = Inches(0.4)
+        p.paragraph_format.right_indent = Inches(0.4)
+        p.paragraph_format.space_before = Pt(6)
+        p.paragraph_format.space_after  = Pt(2)
+        pPr  = p._p.get_or_add_pPr()
+        pBdr = OxmlElement('w:pBdr')
+        lel  = OxmlElement('w:left')
+        lel.set(qn('w:val'),   'single')
+        lel.set(qn('w:sz'),    '18')
+        lel.set(qn('w:space'), '6')
+        lel.set(qn('w:color'), '4a7fce')
+        pBdr.append(lel)
+        pPr.append(pBdr)
+        r = p.add_run(f'“{text}”')
+        r.italic     = True
+        r.font.size  = Pt(10)
+        r.font.color.rgb = RGBColor(0x33, 0x33, 0x33)
+        sp = doc.add_paragraph(style='No Spacing')
+        sp.paragraph_format.left_indent = Inches(0.4)
+        sp.paragraph_format.space_after = Pt(10)
+        sr = sp.add_run(source)
+        sr.font.size      = Pt(9)
+        sr.font.color.rgb = LGREY
+
+    # Title
+    tp = doc.add_paragraph()
+    tp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    tp.paragraph_format.space_after = Pt(2)
+    tr = tp.add_run('Community Impact Report')
+    tr.bold = True; tr.font.size = Pt(22); tr.font.color.rgb = BLUE
+
+    sp = doc.add_paragraph()
+    sp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    sp.paragraph_format.space_after = Pt(12)
+    sr = sp.add_run(f'York County Library  ·  FY{fy2} (Jul {fy2 - 1}–Jun {fy2})')
+    sr.font.size = Pt(11); sr.font.color.rgb = GREY
+
+    # Survey intro
+    bp = doc.add_paragraph()
+    bp.paragraph_format.space_after = Pt(10)
+    br = bp.add_run(
+        'In our 2026 patron survey, 544 community members shared what the library means to them. '
+        '92.3% had visited in the past year — and their responses, shown throughout this report, '
+        'tell the story behind the numbers.'
+    )
+    br.italic = True; br.font.size = Pt(10)
+
+    # At a Glance table
+    add_heading2(f'At a Glance — FY{fy2}', BLUE)
+    at_a_glance = [
+        ('Total Physical Checkouts', circ2),
+        ('Digital Checkouts',        digital2),
+        ('Visits (Gate Count)',      gate2),
+        ('Program Attendance',       att2),
+        ('New Library Cards',        cards2),
+        ('PC Reservations',          pc_res2),
+        ('Program Sessions',         sess2),
+        ('Hotspot Circulation',      hot2),
+    ]
+    tbl = doc.add_table(rows=2, cols=4)
+    tbl.style = 'Table Grid'
+    for i, (label, val) in enumerate(at_a_glance):
+        cell = tbl.cell(i // 4, i % 4)
+        shade_cell(cell, 'e8f0ff')
+        cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        nr = cell.paragraphs[0].add_run(fmt(val) + '\n')
+        nr.bold = True; nr.font.size = Pt(14); nr.font.color.rgb = BLUE
+        lr = cell.paragraphs[0].add_run(label)
+        lr.font.size = Pt(8); lr.font.color.rgb = GREY
+    doc.add_paragraph()
+
+    # Section 1: You Keep Coming Back
+    add_heading2('You Keep Coming Back', GREEN)
+    add_body([
+        ('The library recorded ', False), (f'{fmt(gate2)} visits', True),
+        (f' in FY{fy2}. Our survey confirms the pattern: ', False),
+        ('92.3% of respondents had visited in the past year', True),
+        (', with teens leading the way — ', False), ('57.1% visit every week', True),
+        (', and nearly half of 25–40 year-olds (49.7%) do the same.', False),
+    ])
+    add_body([
+        (f'{fmt(pc_res2)} PC reservation sessions', True),
+        (' show that for many patrons, the library is their primary point of internet and computer '
+         'access — a function that survey respondents consistently rated among our most valued services.', False),
+    ])
+    add_body([
+        ('Even patrons who visit less frequently stay connected: ', False),
+        ('86–93% use our website', True),
+        (' across all age groups, and ', False), ('50–64% use the YCL mobile app', True),
+        (' — including 59% of seniors aged 65 and older.', False),
+    ])
+    add_quote(
+        'Western York County needs another library. It doesn’t have to have all the programs… '
+        'but a location with computers, books, and a hold shelf so people in Hickory Grove don’t '
+        'have to plan their trips based on when they’re running to York.',
+        '— Survey respondent'
+    )
+
+    # Section 2: Connecting You to Stories
+    add_heading2('Connecting You to Stories & Ideas', DKBLUE)
+    add_body([
+        ('Borrowing books', True),
+        (' is the single highest-rated service across every age group in our survey — averaging ', False),
+        ('3.79 to 4.00 out of 5', True), (' (“Very Important”). That demand shows in the numbers:', False),
+    ])
+    for label, val in [('Physical checkouts', circ2), ('Digital checkouts', digital2)]:
+        pb = doc.add_paragraph(style='List Bullet')
+        pb.paragraph_format.space_after = Pt(2)
+        pb.add_run(f'{label}: ').font.size = Pt(10)
+        vr = pb.add_run(fmt(val)); vr.bold = True; vr.font.size = Pt(10)
+    if total2 is not None:
+        pb = doc.add_paragraph(style='List Bullet')
+        pb.paragraph_format.space_after = Pt(6)
+        pb.add_run('Combined total: ').font.size = Pt(10)
+        vr = pb.add_run(fmt(total2)); vr.bold = True; vr.font.size = Pt(10)
+    add_body([
+        ('Patron feedback points to clear growth opportunities: more physical copies at smaller branches, '
+         'complete series in digital collections, and reduced hold wait times for new releases on '
+         'Libby and Hoopla. These are gaps the library is actively working to address.', False),
+    ])
+    add_quote(
+        'It is hard to browse books as the selection is small in person. I do appreciate being able to '
+        'get them online, but I love spontaneously getting books.',
+        '— Survey respondent'
+    )
+
+    # Section 3: Learning Together
+    add_heading2('Learning Together', PURPLE)
+    add_body([
+        ('YCL offered ', False), (f'{fmt(sess2)} program sessions', True),
+        (f' in FY{fy2}, drawing ', False), (f'{fmt(att2)} participants', True),
+        ('. Our survey found that ', False),
+        ('61.2% of patrons attended at least one YCL signature event', True),
+        (', with teens and young adults leading at 71.4%.', False),
+    ])
+    add_body([
+        ('Signature events were a particular strength: the ', False),
+        ('Summer Learning Challenge', True), (' received 272 selections and the ', False),
+        ('Winter Reading Challenge', True),
+        (' 218 — showing that structured reading programs resonate across age groups.', False),
+    ])
+    add_body([
+        ('Lifelong learning programs', True),
+        (' topped the list of what patrons want more of, chosen by ', False),
+        ('53% of respondents', True),
+        (' (288 selections). But a clear barrier emerged: the majority of employed adults simply cannot '
+         'attend programs held during working hours. Evening (after 5 p.m.) and Saturday programming '
+         'were among the most-requested changes.', False),
+    ])
+    add_body([
+        ('Equity note: ', True),
+        ('Fort Mill-only patrons attended signature events at a rate of 51.6% — nearly 20 points '
+         'below Rock Hill patrons (71.5%). Capacity and space constraints at Fort Mill are a key driver '
+         'of this gap.', False),
+    ])
+    add_quote(
+        'The majority of the programs I am interested in are held during working hours. I’m only '
+        'in my 40s and work full time but would love to connect with other people through these clubs '
+        '— and it’s just not possible during the week. Why are there no weekend clubs?',
+        '— Survey respondent'
+    )
+    add_quote(
+        'More events for kids aged 8–13. More science programs. I would love to see more Tween '
+        'programming — my 10-year-old feels stuck between little kid programs and teen programs.',
+        '— Survey respondent (composite)'
+    )
+
+    # Section 4: Growing Our Community
+    add_heading2('Growing Our Community', TEAL)
+    add_body([
+        ('YCL issued ', False), (f'{fmt(cards2)} new library cards', True),
+        (f' in FY{fy2}. New cardholders represent fresh connections to the community — and an '
+         'opportunity to retain them through the services they value most.', False),
+    ])
+    add_body([
+        ('Our survey skews toward established users (92.3% had visited in the past year), which means '
+         'the 7.7% of respondents who are non-users or lapsed visitors are a window into who we’re '
+         'not yet reaching. Among non-users, ', False),
+        ('17 of 42 cited being too busy', True),
+        (' — pointing again to scheduling and convenience as the primary barrier.', False),
+    ])
+    add_body([
+        ('Young adults aged 19–24 show the most untapped potential: only ', False),
+        ('15.4% visit weekly', True),
+        (' (vs. 57.1% of teens), suggesting that the transition out of school-age programming '
+         'leaves a gap the library can fill with targeted young adult services.', False),
+    ])
+    add_quote(
+        'Events for 20–30 somethings looking to make friends. Young adult activities (18–28)? '
+        'More programs for the 18–22 college age range.',
+        '— Survey respondents'
+    )
+
+    # Section 5: Expanding Access
+    add_heading2('Expanding Access Beyond Our Walls', BROWN)
+    add_body([
+        (f'{fmt(hot2)} hotspot checkouts', True),
+        (' put internet access in the hands of patrons who need it most — at home, at work, and '
+         'in transit. For many families, a YCL hotspot is the difference between connected and left behind.', False),
+    ])
+    add_body([
+        ('In-branch, ', False), (f'{fmt(pc_res2)} PC reservation sessions', True),
+        (' reflect the library’s role as a technology access point. Help from librarians — '
+         'rated ', False), ('3.62 to 3.93 out of 5', True),
+        (' across all age groups — is the trusted guide that makes that access meaningful.', False),
+    ])
+    add_quote(
+        'Having a tool rental/makerspace or woodshop area would be incredible! The Richland library '
+        'in Columbia has a great makerspace that creates accessibility for a lot of people.',
+        '— Survey respondent'
+    )
+
+    # Section 6: What You're Asking For Next
+    add_heading2('What You’re Asking For Next', BLUE)
+    add_body([
+        ('When asked what they want added or improved, ', False),
+        ('430 patrons wrote detailed open-ended responses', True),
+        (' (a 99.4% response rate). Their top strategic priorities, by selection:', False),
+    ])
+    for label, count, pct_val in [
+        ('Lifelong Learning Programs',     '288 selections', '53%'),
+        ('Library of Things',              '273 selections', '50%'),
+        ('Makerspace',                     '230 selections', '42%'),
+        ('Meeting Spaces',                 '183 selections', '34%'),
+        ('Career & Workforce Development', '176 selections', '32%'),
+    ]:
+        pb = doc.add_paragraph(style='List Bullet')
+        pb.paragraph_format.space_after = Pt(2)
+        br2 = pb.add_run(label); br2.bold = True; br2.font.size = Pt(10)
+        nr2 = pb.add_run(f' — {count} ({pct_val} of respondents)')
+        nr2.font.size = Pt(10)
+    doc.add_paragraph()
+    add_body([
+        ('The Fort Mill branch came up repeatedly — patrons called it “too small” and '
+         '“cramped,” and multiple respondents specifically requested a second location or major '
+         'expansion. Fort Mill patrons’ event attendance gap (51.6% vs. 71.5% system-wide) is a '
+         'measurable consequence of those space constraints.', False),
+    ])
+    add_quote(
+        'Fort Mill library is too small!!! We need a bigger location or another branch in Fort Mill desperately!',
+        '— Survey respondent'
+    )
+    add_quote(
+        'Heavy emphasis on Library of Things and Makerspaces. These spaces will encourage creativity '
+        'and provide community support by making it more accessible.',
+        '— Survey respondent'
+    )
+
+    # Full data table
+    add_heading2(f'Full Data — FY{fy2}', BLUE)
+    data_rows = [
+        ('Total Physical Checkouts',             circ2),
+        ('Digital Checkouts',                    digital2),
+        ('Total Checkouts (Physical + Digital)',  total2),
+        ('Hotspot Circulation',                  hot2),
+        ('Gate Count',                           gate2),
+        ('Program Sessions',                     sess2),
+        ('Program Attendance',                   att2),
+        ('New Library Cards',                    cards2),
+        ('PC Reservations',                      pc_res2),
+    ]
+    dtbl = doc.add_table(rows=len(data_rows) + 1, cols=2)
+    dtbl.style = 'Table Grid'
+    hdr_row = dtbl.rows[0]
+    for cell in hdr_row.cells:
+        shade_cell(cell, 'dce6f1')
+    hr0 = hdr_row.cells[0].paragraphs[0].add_run('Metric')
+    hr0.bold = True; hr0.font.size = Pt(10)
+    hr1 = hdr_row.cells[1].paragraphs[0].add_run(f'FY{fy2}')
+    hr1.bold = True; hr1.font.size = Pt(10)
+    hdr_row.cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    for i, (label, val) in enumerate(data_rows):
+        row = dtbl.rows[i + 1]
+        row.cells[0].paragraphs[0].add_run(label).font.size = Pt(10)
+        vr = row.cells[1].paragraphs[0].add_run(fmt(val))
+        vr.bold = True; vr.font.size = Pt(10)
+        row.cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    filename = f'YCL_Impact_Report_FY{fy2}.docx'
+    return send_file(buf,
+                     mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                     as_attachment=True,
+                     download_name=filename)
 
 
 if __name__ == '__main__':

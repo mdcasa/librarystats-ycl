@@ -5,9 +5,15 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h1 class="h4 fw-bold mb-0"><i class="bi bi-speedometer me-2 text-primary"></i>Director's Dashboard</h1>
   {% if stats %}
-  <button class="btn btn-outline-secondary btn-sm d-print-none" onclick="window.print()">
-    <i class="bi bi-printer me-1"></i>Print / Save as PDF
-  </button>
+  <div class="d-flex gap-2 d-print-none">
+    <a href="{{ url_for('director_dashboard', fy_year=sel_fy, format='xlsx') }}"
+       class="btn btn-outline-success btn-sm">
+      <i class="bi bi-file-earmark-excel me-1"></i>Download Excel
+    </a>
+    <button class="btn btn-outline-secondary btn-sm" onclick="window.print()">
+      <i class="bi bi-printer me-1"></i>Print / Save as PDF
+    </button>
+  </div>
   {% endif %}
 </div>
 
@@ -212,6 +218,67 @@
         </tr>
         {% endfor %}
       </tbody>
+    </table>
+  </div>
+</div>
+
+{# ── OUTLETS ── #}
+<div class="card mb-3">
+  <div class="card-header-custom fw-bold" style="color:#b9770e">
+    <i class="bi bi-door-closed me-2"></i>Outlets
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered mb-0" style="font-size:.88rem">
+      <thead class="table-light">
+        <tr><th style="width:60px">Code</th><th>Metric</th><th class="text-end" style="width:120px">FY Total</th></tr>
+      </thead>
+      <tbody>
+        {% for code, label, val in stats.outlets %}
+        <tr>
+          <td class="text-muted">{{ code }}</td>
+          <td>{{ label }}</td>
+          <td class="text-end fw-semibold {{ 'text-muted' if not val }}">{{ '{:,}'.format(val|int) if val else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="table-secondary fw-bold">
+        {% for code, label, val in stats.outlet_hours_totals %}
+        <tr>
+          <td class="text-muted">{{ code }}</td>
+          <td>{{ label }}</td>
+          <td class="text-end">{{ '{:,}'.format(val|int) if val else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+{# ── OUTLETS: MEETING ROOM USE (J15) ── #}
+<div class="card mb-4">
+  <div class="card-header-custom fw-bold" style="color:#b9770e">
+    <i class="bi bi-door-closed me-2"></i>Outlets — External Party Meeting Room Use
+    <span class="badge bg-light text-dark border ms-2" style="font-size:.75rem">J15</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered mb-0" style="font-size:.88rem">
+      <thead class="table-light">
+        <tr><th>Branch / Outlet</th><th class="text-end" style="width:120px">FY Total</th></tr>
+      </thead>
+      <tbody>
+        {% for branch_name, val in stats.outlet_meeting_rooms %}
+        <tr>
+          <td>{{ branch_name }}</td>
+          <td class="text-end fw-semibold {{ 'text-muted' if not val }}">{{ '{:,}'.format(val|int) if val else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="table-secondary fw-bold">
+        <tr>
+          <td>All Branches Total</td>
+          <td class="text-end">{{ '{:,}'.format(stats.outlet_meeting_total|int) if stats.outlet_meeting_total else '—' }}</td>
+        </tr>
+      </tfoot>
     </table>
   </div>
 </div>

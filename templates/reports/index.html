@@ -1,125 +1,88 @@
 {% extends 'base.html' %}
-{% block title %}Reports – Library Stats{% endblock %}
+{% block title %}Reports{% endblock %}
+
 {% block content %}
-<h1 class="h4 fw-bold mb-4"><i class="bi bi-bar-chart-line me-2 text-primary"></i>Reports</h1>
-
-<div class="mb-3 sidebar-label">Standard Reports</div>
-<div class="row g-3 mb-4">
-
-  <div class="col-md-4">
-    <a href="{{ url_for('report_monthly_stats') }}" class="text-decoration-none">
-      <div class="card h-100 p-3">
-        <div class="fs-2 text-primary mb-2"><i class="bi bi-bar-chart-fill"></i></div>
-        <h5 class="fw-bold">Monthly Board Report</h5>
-        <p class="text-muted small mb-0">Key system-wide stats with prior-year comparison — formatted for board presentations.</p>
-      </div>
-    </a>
-  </div>
-
-  <div class="col-md-4">
-    <a href="{{ url_for('report_monthly') }}" class="text-decoration-none">
-      <div class="card h-100 p-3">
-        <div class="fs-2 text-primary mb-2"><i class="bi bi-calendar3"></i></div>
-        <h5 class="fw-bold">Monthly Summary</h5>
-        <p class="text-muted small mb-0">All branches side-by-side for a selected month and category.</p>
-      </div>
-    </a>
-  </div>
-
-  <div class="col-md-4">
-    <a href="{{ url_for('report_fiscal') }}" class="text-decoration-none">
-      <div class="card h-100 p-3">
-        <div class="fs-2 text-warning mb-2"><i class="bi bi-calendar2-check"></i></div>
-        <h5 class="fw-bold">Fiscal Year Totals</h5>
-        <p class="text-muted small mb-0">Full fiscal-year totals (Jul–Jun) for any category by branch.</p>
-      </div>
-    </a>
-  </div>
-
-  <div class="col-md-4">
-    <a href="{{ url_for('report_trend') }}" class="text-decoration-none">
-      <div class="card h-100 p-3">
-        <div class="fs-2 text-info mb-2"><i class="bi bi-graph-up"></i></div>
-        <h5 class="fw-bold">Trend Over Time</h5>
-        <p class="text-muted small mb-0">Line chart showing a single metric month-by-month. Compare branches on one chart.</p>
-      </div>
-    </a>
-  </div>
-
-  <div class="col-md-4">
-    <a href="{{ url_for('report_yoy') }}" class="text-decoration-none">
-      <div class="card h-100 p-3">
-        <div class="fs-2 text-info mb-2"><i class="bi bi-arrow-left-right"></i></div>
-        <h5 class="fw-bold">Year-over-Year</h5>
-        <p class="text-muted small mb-0">Compare two or more calendar years side-by-side, with % change columns.</p>
-      </div>
-    </a>
-  </div>
-
-  <div class="col-md-4">
-    <a href="{{ url_for('report_quarterly_ref') }}" class="text-decoration-none">
-      <div class="card h-100 p-3">
-        <div class="fs-2 text-primary mb-2"><i class="bi bi-clipboard2-data"></i></div>
-        <h5 class="fw-bold">Quarterly Reference Stats</h5>
-        <p class="text-muted small mb-0">Annual reference transaction estimate from quarterly sample weeks, adjusted for closures.</p>
-      </div>
-    </a>
-  </div>
-
+<div class="mb-4">
+  <h1 class="h4 fw-bold mb-1"><i class="bi bi-bar-chart-line me-2 text-primary"></i>Reports</h1>
+  <p class="text-muted mb-0">Choose a report below. Each card explains what it shows and when to use it.</p>
 </div>
 
-<div class="mb-3 sidebar-label">Cross-tab &amp; Analysis Reports</div>
-<div class="row g-3">
-
-  <div class="col-md-4">
-    <a href="{{ url_for('report_annual') }}" class="text-decoration-none">
-      <div class="card h-100 p-3" style="border-top: 3px solid #f39c12">
-        <div class="fs-2 text-warning mb-2"><i class="bi bi-trophy"></i></div>
-        <h5 class="fw-bold">Branch Scorecard</h5>
-        <p class="text-muted small mb-0">All branches &times; all key metrics in one table. Shading highlights the top performer per column. Choose a month or full year.</p>
+{% macro report_card(endpoint, icon, color, title, description, use_when) %}
+<div class="col-md-6 col-xl-4">
+  <a href="{{ url_for(endpoint) }}" class="text-decoration-none">
+    <div class="card h-100">
+      <div class="card-body">
+        <div class="d-flex align-items-start mb-2">
+          <i class="bi {{ icon }} fs-3 me-3" style="color: {{ color }};"></i>
+          <h2 class="h6 fw-bold mb-0 mt-1">{{ title }}</h2>
+        </div>
+        <p class="text-body-secondary small mb-2">{{ description }}</p>
+        <p class="small mb-0"><span class="fw-semibold text-muted">Use when:</span> {{ use_when }}</p>
       </div>
-    </a>
-  </div>
+    </div>
+  </a>
+</div>
+{% endmacro %}
 
-  <div class="col-md-4">
-    <a href="{{ url_for('report_crosstab') }}" class="text-decoration-none">
-      <div class="card h-100 p-3" style="border-top: 3px solid #2c6e8a">
-        <div class="fs-2 text-primary mb-2"><i class="bi bi-grid-3x3-gap"></i></div>
-        <h5 class="fw-bold">Cross-tab Heat Map</h5>
-        <p class="text-muted small mb-0">Any single metric &times; all months &times; all branches. Color intensity shows where values are highest across the year.</p>
-      </div>
-    </a>
-  </div>
+<div class="row g-3 mb-3">
+  {{ report_card('report_overview', 'bi-bar-chart-fill', '#1a4f9e',
+      'Annual Overview',
+      'A high-level snapshot comparing the two most recently completed fiscal years side by side.',
+      'you want a quick year-over-year headline view for leadership.') }}
 
-  <div class="col-md-4">
-    <a href="{{ url_for('report_programming_age') }}" class="text-decoration-none">
-      <div class="card h-100 p-3" style="border-top: 3px solid #6c3483">
-        <div class="fs-2 mb-2" style="color:#6c3483"><i class="bi bi-people-fill"></i></div>
-        <h5 class="fw-bold">Programming Cross-tab</h5>
-        <p class="text-muted small mb-0">Sessions and attendance pivoted by age group <em>or</em> delivery type (Onsite / Offsite / Virtual), by branch.</p>
-      </div>
-    </a>
-  </div>
+  {{ report_card('report_monthly_stats', 'bi-bar-chart-fill', '#1a4f9e',
+      'Monthly Board Report',
+      'System-wide totals across all categories for one month, compared to the same month last year.',
+      'preparing a board report for a specific month.') }}
 
-  <div class="col-md-4">
-    <a href="{{ url_for('report_programming') }}" class="text-decoration-none">
-      <div class="card h-100 p-3" style="border-top: 3px solid #e74c3c">
-        <div class="fs-2 text-danger mb-2"><i class="bi bi-people"></i></div>
-        <h5 class="fw-bold">Programming Summary</h5>
-        <p class="text-muted small mb-0">System-wide program totals by age group and type for a selected period.</p>
-      </div>
-    </a>
-  </div>
+  {{ report_card('report_monthly', 'bi-calendar3', '#1a4f9e',
+      'Monthly Summary',
+      "Every branch's numbers for one category, for a single month, in a table.",
+      'you need the raw branch-by-branch figures for one category in one month.') }}
 
-  <div class="col-md-4">
-    <a href="{{ url_for('report_online') }}" class="text-decoration-none">
-      <div class="card h-100 p-3" style="border-top: 3px solid #117a65">
-        <div class="fs-2 mb-2" style="color:#117a65"><i class="bi bi-globe"></i></div>
-        <h5 class="fw-bold">Online Stats</h5>
-        <p class="text-muted small mb-0">Website, app, and social media metrics with month-over-month change indicators.</p>
-      </div>
-    </a>
-  </div>
+  {{ report_card('report_fiscal', 'bi-calendar2-check', '#f39c12',
+      'Fiscal Year Totals',
+      'One category, one fiscal year (Jul–Jun). Sums every metric across the year, per branch.',
+      'you want annual totals per branch instead of a month-by-month breakdown.') }}
 
+  {{ report_card('report_trend', 'bi-graph-up', '#1a4f9e',
+      'Trend Over Time',
+      'One category and metric, plotted as a continuous month-by-month line across one or more fiscal years.',
+      'you want to see the pattern over time — seasonality, growth, decline.') }}
+
+  {{ report_card('report_yoy', 'bi-arrow-left-right', '#117a65',
+      'Year-over-Year',
+      'One category, metric, and branch — compare 2 or more fiscal years side by side, month-by-month or as annual totals.',
+      'you want to directly compare the same period across different years, not one continuous timeline.') }}
+
+  {{ report_card('report_quarterly_ref', 'bi-clipboard2-data', '#1a4f9e',
+      'Quarterly Ref',
+      'Quarterly Reference Stats (desk transactions per week) plus open days/hours for a fiscal year.',
+      'reviewing reference desk transaction volume and library open-hours data.') }}
+
+  {{ report_card('report_online', 'bi-globe', '#117a65',
+      'Online Stats',
+      'Online Stats category for one month, compared to the prior month with change and percent change.',
+      'tracking month-over-month movement in website/digital metrics.') }}
+
+  {{ report_card('report_branch_summary', 'bi-building', '#1a4f9e',
+      'Branch Summary',
+      'Every category rolled up onto one page for a single branch and fiscal year.',
+      'you want a complete annual picture for one specific branch.') }}
+
+  {{ report_card('report_programming', 'bi-people', '#c0392b',
+      'Programming Summary',
+      'Sessions and attendance by ONSITE/OFFSITE/VIRTUAL and age group, for a selected year.',
+      'reporting on programming totals by delivery mode and age group.') }}
+
+  {{ report_card('report_programs', 'bi-calendar-event', '#c0392b',
+      'Programs by Topic',
+      'Browse every individual program from the monthly Communico import, grouped by Program Type, with attendance.',
+      'you need the raw list of programs for a month or year, organized by topic.') }}
+
+  {{ report_card('report_programs_summary', 'bi-calendar-range', '#c0392b',
+      'Programs Summary',
+      'Month-by-month program counts and attendance by age group (0-11, 12-18, 18+, General Interest), for a fiscal year.',
+      'you want to see the monthly shape of programming activity across a fiscal year, broken out by age group.') }}
 </div>
 {% endblock %}

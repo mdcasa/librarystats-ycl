@@ -172,13 +172,23 @@ Tracks how much each of YCL's ~90–104 subscription databases (EBSCO, Gale, Hoo
 
 **How they'll eventually connect:** Once a full year of monthly numbers exists, summing `usage_count` by `bucket` per year should reproduce the same four totals the `eResources` category tracks — meaning the annual state-survey numbers could eventually be calculated from this data instead of retyped from the export each year. That aggregation isn't built yet.
 
-**Database seed data (`seed_eresource_databases` in `seed_data.py`):** 86 `databases` rows, worked out vendor-by-vendor against the director's monthly tracking workbook (`Monthly Stats 2025-2026.xlsx`, 2026-07-30):
+**Database seed data (`seed_eresource_databases` in `seed_data.py`):** 89 `databases` rows, worked out vendor-by-vendor against the director's monthly tracking workbook (`Monthly Stats 2025-2026.xlsx`, 2026-07-30):
 - 53 rows across 20 single/multi-metric vendors (ABC Mouse, Ask a Librarian, BiblioBoard, Brainfuse, Data Axle/Reference USA, DigitalLearn, EBSCO Flipster, Gale eBooks, Gale Presents Udemy, Infobase: The Mailbox, Kanopy, LibraryAware Newsletters, Lote4Kids, Mango, Newsbank, Salem Press, Tutor.com, Value Line, Weiss Financial Services, and the 3 Proquest products)
-- 9 rows for Hoopla (`vendor='Hoopla'`), split by content type since one vendor tab feeds all four state buckets (eBooks Instant/Flex, Comics → ebook; eAudio Instant/Flex, Music → eaudio; TV, Movies → evideo; BingePasses → unbucketed, since its annual 4-way split is derived by hand from a separate Hoopla report not present in the monthly tab)
+- 12 rows for Hoopla (`vendor='Hoopla'`), split by content type since one vendor tab feeds all four state buckets (eBooks Instant/Flex, Comics → ebook; eAudio Instant/Flex, Music → eaudio; TV, Movies → evideo). BingePasses has its own monthly breakdown table further down the sheet (separate from the combined 'BingePasses' column in the main table), so it's tracked as 4 bucketed rows too (comics & eBooks → ebook, audio → eaudio, courses & videos → evideo, magazines → eserial) rather than one combined figure.
 - 5 rows for Overdrive/Libby (`vendor='Overdrive/Libby'`) — eBooks/eAudio/Streaming/Magazines from the Libby side (bucketed), plus a combined Sora - Total (unbucketed)
 - 19 `DISCUS - *` rows (`vendor='DISCUS'`), seeded `is_active=False` — the DISCUS tab in the workbook is entirely blank, so these are placeholders until staff start entering data. Planned metric once populated: Views / Hits.
 
-Each entry's source sheet/column in the workbook is recorded as an inline comment in `seed_eresource_databases` for the eventual import script — that script isn't built yet.
+**Import script (`import_eresources.py`):** Reads the director's tracking workbook and upserts `usage_monthly` rows. Each vendor tab has its own layout — headers vary, some tabs have a second table further down (Hoopla's BingePass breakdown), Overdrive/Libby has two side-by-side tables (Libby, Sora) — so sheets are read by explicit `(row, column)` position via a `SHEET_BLOCKS` list, not by column-name lookup. The vendor → database mapping mirrors the comments in `seed_eresource_databases`.
+
+Not wired into the `/upload` page — like `non-SIRSI423.xlsx`, this is a one-time/periodic script run manually since the source is a hand-maintained spreadsheet, not a per-month export:
+
+```bash
+python import_eresources.py "Data files/manual/Monthly Stats 2025-2026.xlsx" 2025
+```
+
+The second argument is the fiscal year's start year (2025 = FY2026, Jul 2025 – Jun 2026); if omitted, it's parsed from a `YYYY-YYYY` pattern in the filename. Each vendor sheet's month column is scanned starting at its data row and stops as soon as it hits a "Totals"/"Average" row — safe to re-run, it upserts by `(database_id, year, month)`.
+
+DISCUS is not handled by this script — that tab is blank in the source workbook (its 19 databases are seeded `is_active=False` placeholders).
 
 ---
 

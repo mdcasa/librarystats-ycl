@@ -260,10 +260,13 @@ def seed_eresource_databases(db):
         ('Hoopla - Music',          'Hoopla', 'eaudio'),  # col: Music
         ('Hoopla - TV',             'Hoopla', 'evideo'),  # col: TV
         ('Hoopla - Movies',         'Hoopla', 'evideo'),  # col: Movies
-        # BingePasses' annual state total is split 4 ways by hand from a separate
-        # Hoopla report; the monthly tab only has one combined column, so no
-        # bucket is set here — the annual split stays a once-a-year manual entry.
-        ('Hoopla - BingePasses', 'Hoopla', None),  # col: BingePasses
+        # BingePasses has its own monthly breakdown table further down the sheet
+        # (Month | Bingepass (comics & ebooks) | (audio) | (courses & videos) | (magazines)),
+        # separate from the combined 'BingePasses' column in the main table.
+        ('Hoopla - BingePass (Comics & eBooks)',    'Hoopla', 'ebook'),    # col: Bingepass (comics & ebooks)
+        ('Hoopla - BingePass (Audio)',              'Hoopla', 'eaudio'),  # col: Bingepass (audio)
+        ('Hoopla - BingePass (Courses & Videos)',   'Hoopla', 'evideo'),  # col: Bingepass (courses & videos)
+        ('Hoopla - BingePass (Magazines)',          'Hoopla', 'eserial'), # col: Bingepass (magazines)
 
         # Overdrive/Libby — sheet 'OverdriveLibby', Libby side
         ('Overdrive/Libby - eBooks',     'Overdrive/Libby', 'ebook'),    # col: E-Book (Libby)

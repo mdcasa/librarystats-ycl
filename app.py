@@ -1,8 +1,11 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, session
-from models import db, Category, Metric, Branch, Entry, EntryValue, EresourceDatabase
+from models import db, Category, Metric, Branch, Entry, EntryValue, EresourceDatabase, UsageMonthly
 from datetime import datetime
 import hmac
 import os
+
+from dotenv import load_dotenv
+load_dotenv()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'library-stats-dev-key')
@@ -824,6 +827,73 @@ def report_online():
                            sel_year=year, sel_month=month, stats=stats,
                            stats_by_id={s['metric'].id: s for s in stats} if stats else {},
                            groups=groups)
+
+
+ERES_BUCKET_LABELS = [
+    ('ebook',   'E-Books',   'bi-book',           '#1a5276'),
+    ('eaudio',  'E-Audio',   'bi-headphones',     '#1e8449'),
+    ('evideo',  'E-Video',   'bi-play-circle',    '#6c3483'),
+    ('eserial', 'E-Serials', 'bi-newspaper',      '#922b21'),
+]
+ERES_MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+ERES_FY_MONTHS = list(range(7, 13)) + list(range(1, 7))
+
+
+@app.route('/reports/eresources')
+def report_eresources():
+    fy_year = request.args.get('fy_year', type=int)
+
+    fy_set = set()
+    for (y, m) in db.session.query(UsageMonthly.year, UsageMonthly.month).distinct():
+        fy_set.add(y + 1 if m >= 7 else y)
+    available_fy = sorted(fy_set, reverse=True)
+
+    if not fy_year and available_fy:
+        fy_year = available_fy[0]
+
+    bucket_totals = vendor_groups = fy_label = None
+
+    if fy_year:
+        from sqlalchemy import or_, and_
+        fy_label = f'FY{fy_year}  (Jul {fy_year - 1} – Jun {fy_year})'
+
+        usage_rows = (UsageMonthly.query
+                      .join(EresourceDatabase)
+                      .filter(EresourceDatabase.is_active == True)
+                      .filter(or_(
+                          and_(UsageMonthly.year == fy_year - 1, UsageMonthly.month >= 7),
+                          and_(UsageMonthly.year == fy_year,     UsageMonthly.month <= 6),
+                      ))
+                      .all())
+
+        bucket_totals = {code: 0 for code, *_ in ERES_BUCKET_LABELS}
+        by_db = {}  # database_id -> {'database': .., 'months': {month: val}, 'total': val}
+        for u in usage_rows:
+            if u.usage_count is None:
+                continue
+            if u.database.bucket in bucket_totals:
+                bucket_totals[u.database.bucket] += u.usage_count
+            entry = by_db.setdefault(u.database_id,
+                                     {'database': u.database, 'months': {}, 'total': 0})
+            entry['months'][u.month] = u.usage_count
+            entry['total'] += u.usage_count
+
+        vendor_map = {}
+        for entry in by_db.values():
+            vendor_map.setdefault(entry['database'].vendor or '(No vendor)', []).append(entry)
+
+        vendor_groups = []
+        for vendor, rows in vendor_map.items():
+            rows.sort(key=lambda e: e['database'].sort_order)
+            vendor_groups.append({'vendor': vendor, 'rows': rows,
+                                  'total': sum(r['total'] for r in rows)})
+        vendor_groups.sort(key=lambda g: g['vendor'])
+
+    return render_template('reports/eresources.html',
+                           available_fy=available_fy, sel_fy=fy_year, fy_label=fy_label,
+                           bucket_labels=ERES_BUCKET_LABELS, bucket_totals=bucket_totals,
+                           vendor_groups=vendor_groups,
+                           fy_months=ERES_FY_MONTHS, month_abbr=ERES_MONTH_ABBR)
 
 
 @app.route('/reports/yearoveryear')

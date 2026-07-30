@@ -127,6 +127,12 @@
           </a>
         </li>
 
+        <li class="nav-item">
+          <a class="nav-link {% if ep == 'data_pipeline' %}active{% endif %}" href="{{ url_for('data_pipeline') }}">
+            <i class="bi bi-diagram-3 me-1"></i>Data Pipeline
+          </a>
+        </li>
+
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle {% if ep in _enter %}active-parent{% endif %}"
              href="#" data-bs-toggle="dropdown">

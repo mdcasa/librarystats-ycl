@@ -991,6 +991,11 @@ REPORT_CATEGORIES = {
 }
 
 
+@app.route('/data-pipeline')
+def data_pipeline():
+    return render_template('data_pipeline.html')
+
+
 @app.route('/reports/category/<slug>')
 def report_category_landing(slug):
     info = REPORT_CATEGORIES.get(slug)

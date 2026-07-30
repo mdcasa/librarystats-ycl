@@ -1,0 +1,690 @@
+{% extends "base.html" %}
+{% block title %}Data Pipeline — YCL Statistics{% endblock %}
+
+{% block content %}
+<div class="pipeline-page">
+<style>
+  .pipeline-page {
+    --pp-blue:      #1a5276;
+    --pp-blue-mid:  #2471a3;
+    --pp-blue-light:#aed6f1;
+    --pp-blue-pale: #eaf4fb;
+    --pp-green:     #1e8449;
+    --pp-green-pale:#eafaf1;
+    --pp-orange:    #d35400;
+    --pp-orange-pale:#fef5e7;
+    --pp-purple:    #6c3483;
+    --pp-purple-pale:#f4ecf7;
+    --pp-grey:      #566573;
+    --pp-grey-pale: #f2f3f4;
+    --pp-border:    #d5d8dc;
+    --pp-text:      #1a252f;
+    font-size: 13px; color: var(--pp-text); line-height: 1.5;
+  }
+  .pipeline-page .pp-intro { margin-bottom: 20px; }
+  .pipeline-page .pp-intro h1 { font-size: 1.35rem; font-weight: 700; color: var(--pp-blue); }
+  .pipeline-page .pp-intro p { font-size: .85rem; color: var(--pp-grey); margin-top: 3px; }
+
+  .pipeline-page .section-title {
+    font-size: .7rem; font-weight: 700; letter-spacing: 1.2px;
+    text-transform: uppercase; color: var(--pp-grey);
+    margin: 32px 0 12px; padding-bottom: 5px;
+    border-bottom: 2px solid var(--pp-border);
+  }
+
+  .pipeline-page .pp-card {
+    background: #fff; border: 1px solid var(--pp-border);
+    border-radius: 8px; overflow: hidden;
+  }
+  .pipeline-page .pp-card-head {
+    padding: 8px 14px; font-weight: 700; font-size: .78rem;
+    display: flex; align-items: center; gap: 7px;
+    border-bottom: 1px solid var(--pp-border);
+  }
+  .pipeline-page .pp-card-body { padding: 10px 14px; }
+
+  .pipeline-page .src-excel   .pp-card-head { background: #e8f5e9; color: #1b5e20; }
+  .pipeline-page .src-manual  .pp-card-head { background: #fff3e0; color: #e65100; }
+  .pipeline-page .src-patch   .pp-card-head { background: #f3e5f5; color: var(--pp-purple); }
+  .pipeline-page .src-annual  .pp-card-head { background: #e3f2fd; color: #0d47a1; }
+
+  .pipeline-page .imp-card .pp-card-head { background: var(--pp-blue-pale); color: var(--pp-blue); }
+
+  .pipeline-page .dest-bs     .pp-card-head { background: #e8f5e9; color: #1b5e20; }
+  .pipeline-page .dest-online .pp-card-head { background: #fff3e0; color: #e65100; }
+  .pipeline-page .dest-qrs    .pp-card-head { background: var(--pp-blue-pale); color: var(--pp-blue); }
+  .pipeline-page .dest-eres   .pp-card-head { background: #f3e5f5; color: var(--pp-purple); }
+  .pipeline-page .dest-annual .pp-card-head { background: #e3f2fd; color: #0d47a1; }
+
+  .pipeline-page .flow-grid {
+    display: grid;
+    grid-template-columns: 280px 28px 1fr 28px 1fr;
+    gap: 0;
+    align-items: start;
+  }
+  .pipeline-page .flow-col { display: flex; flex-direction: column; gap: 10px; }
+  .pipeline-page .arrow-col { display: flex; flex-direction: column; align-items: center;
+               justify-content: center; padding-top: 28px; font-size: 1.2rem;
+               color: var(--pp-blue-mid); gap: 10px; }
+
+  .pipeline-page .pp-pill {
+    display: inline-block; padding: 1px 7px; border-radius: 20px;
+    font-size: .68rem; font-weight: 600; line-height: 1.6;
+    white-space: nowrap; margin: 1px 2px;
+  }
+  .pipeline-page .pp-pill-green  { background: #e8f5e9; color: #1b5e20; }
+  .pipeline-page .pp-pill-orange { background: #fff3e0; color: #e65100; }
+  .pipeline-page .pp-pill-blue   { background: var(--pp-blue-pale); color: var(--pp-blue); }
+  .pipeline-page .pp-pill-purple { background: #f3e5f5; color: var(--pp-purple); }
+  .pipeline-page .pp-pill-grey   { background: var(--pp-grey-pale); color: var(--pp-grey); }
+  .pipeline-page .pp-pill-red    { background: #fce4ec; color: #b71c1c; }
+
+  .pipeline-page .pp-arrow { font-size: 1.4rem; color: #999; line-height: 1; }
+
+  .pipeline-page .ref-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+  }
+  .pipeline-page .metric-list { list-style: none; padding: 0; margin: 0; }
+  .pipeline-page .metric-list li {
+    padding: 2px 0; font-size: .76rem; border-bottom: 1px solid #f0f0f0;
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 6px;
+  }
+  .pipeline-page .metric-list li:last-child { border-bottom: none; }
+  .pipeline-page .metric-name { flex: 1; }
+  .pipeline-page .upload-only { color: #9e9e9e; font-style: italic; font-size: .68rem; }
+  .pipeline-page .tag-red { background:#fce4ec;color:#b71c1c;padding:1px 5px;border-radius:3px;font-size:.65rem;font-weight:600; }
+  .pipeline-page .tag-orange { background:#fff3e0;color:#e65100;padding:1px 5px;border-radius:3px;font-size:.65rem;font-weight:600; }
+
+  .pipeline-page .schema-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 16px;
+  }
+  .pipeline-page .db-table .pp-card-head { background: #263238; color: #fff; }
+  .pipeline-page .field-list { list-style: none; font-size: .76rem; padding: 0; margin: 0; }
+  .pipeline-page .field-list li { padding: 3px 0; border-bottom: 1px solid #f0f0f0;
+                   display: flex; gap: 6px; }
+  .pipeline-page .field-list li:last-child { border-bottom: none; }
+  .pipeline-page .field-name { font-weight: 600; min-width: 120px; }
+  .pipeline-page .field-type { color: #7f8c8d; font-size: .68rem; align-self: center; }
+  .pipeline-page .field-pk   { color: #e74c3c; font-size: .65rem; font-weight: 700; }
+  .pipeline-page .field-fk   { color: #2980b9; font-size: .65rem; font-weight: 700; }
+
+  @media (max-width: 900px) {
+    .pipeline-page .flow-grid { grid-template-columns: 1fr; }
+    .pipeline-page .arrow-col { display: none; }
+  }
+</style>
+
+<div class="pp-intro">
+  <h1><i class="bi bi-diagram-3 me-1"></i>Data Pipeline</h1>
+  <p>How data flows from source files and manual forms into the database. Reference view for staff — nothing here is editable.</p>
+</div>
+
+<!-- SECTION 1 — PIPELINE OVERVIEW -->
+<p class="section-title">1 &middot; Data Pipeline Overview</p>
+
+<div class="flow-grid">
+
+  <div class="flow-col">
+    <div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--pp-grey);margin-bottom:4px;">Sources</div>
+
+    <div class="pp-card src-excel">
+      <div class="pp-card-head">Excel File Upload <span class="pp-pill pp-pill-grey" style="margin-left:auto">Admin &rarr; Import</span></div>
+      <div class="pp-card-body">
+        <div style="display:flex;flex-direction:column;gap:4px;font-size:.75rem;">
+          <div><strong>Branch Stats sheet</strong> — monthly multi-metric grid</div>
+          <div><strong>Online Stats sheet</strong> — system-wide digital stats</div>
+          <div><strong>Qrtly Ref Stats / Sheet1</strong> — QRS weekly samples</div>
+          <div><strong>SIRSI CIRC report</strong> — checkouts + renewals by branch</div>
+          <div><strong>SIRSI Registrations</strong> — new card registrations by branch</div>
+          <div><strong>Door counter export</strong> — daily in/out counts</div>
+          <div><strong>Princh print export</strong> — pages printed by branch</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pp-card src-manual">
+      <div class="pp-card-head">Manual Entry Forms</div>
+      <div class="pp-card-body">
+        <div style="display:flex;flex-direction:column;gap:4px;font-size:.75rem;">
+          <div><strong>/entries/new</strong> — any category, monthly or quarterly</div>
+          <div><strong>/enter/ill</strong> — ILL sent/received (Rock Hill only)</div>
+          <div><strong>/enter/icl</strong> — ICL sent/received (Rock Hill only)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pp-card src-annual">
+      <div class="pp-card-head">Annual Survey Form <span class="pp-pill pp-pill-blue" style="margin-left:auto">/annual-survey</span></div>
+      <div class="pp-card-body" style="font-size:.75rem;">
+        <div>Entered once per fiscal year via <strong>/annual-survey/&lt;year&gt;/enter</strong></div>
+        <div style="margin-top:4px;">Auto-calculate pulls from Branch Stats + Online Stats FY totals</div>
+      </div>
+    </div>
+
+    <div class="pp-card src-patch">
+      <div class="pp-card-head">Patch Scripts</div>
+      <div class="pp-card-body">
+        <div style="display:flex;flex-direction:column;gap:4px;font-size:.75rem;">
+          <div><code>patch_fy2223_programming.py</code> — 22-23 Annual Stats.xls</div>
+          <div><code>patch_fy2324_programming.py</code> — 23-24 Annual Stats.xls</div>
+          <div><code>import_qrs_fy2526.py</code> — qrsfinal2025.xlsx</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-col">
+    <span class="pp-arrow">&rarr;</span>
+    <span class="pp-arrow">&rarr;</span>
+    <span class="pp-arrow">&rarr;</span>
+    <span class="pp-arrow">&rarr;</span>
+  </div>
+
+  <div class="flow-col">
+    <div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--pp-grey);margin-bottom:4px;">Importer / Route</div>
+
+    <div class="pp-card imp-card">
+      <div class="pp-card-head"><code>import_branch_stats()</code></div>
+      <div class="pp-card-body" style="font-size:.75rem;">
+        Reads Year, Month, BRANCH + 54 column headers via <code>BRANCH_STATS_MAP</code>.
+        Upserts — safe to re-upload same file.
+        Skips desk branches and locker branches.
+      </div>
+    </div>
+
+    <div class="pp-card imp-card">
+      <div class="pp-card-head"><code>import_online_stats()</code></div>
+      <div class="pp-card-body" style="font-size:.75rem;">
+        Reads Year, Month + 24 column headers via <code>ONLINE_STATS_MAP</code>.
+        No branch dimension — system-wide entries only.
+      </div>
+    </div>
+
+    <div class="pp-card imp-card">
+      <div class="pp-card-head"><code>import_quarterly_ref()</code></div>
+      <div class="pp-card-body" style="font-size:.75rem;">
+        Reads Year, Quarter, Branch, value.
+        Sums multiple rows for same branch/quarter.
+        Skips if entry already exists.
+      </div>
+    </div>
+
+    <div class="pp-card imp-card">
+      <div class="pp-card-head"><code>import_sirsi_checkouts()</code></div>
+      <div class="pp-card-body" style="font-size:.75rem;">
+        Auto-detected from sheet header. Parses year/month from report title.
+        Sums Charge Item + Renew Item per branch &rarr; circulation total.
+        A-HOTSPOT shelving location &rarr; hotspot circulation.
+        Also writes raw rows to <code>SirsiCheckout</code> table.
+      </div>
+    </div>
+
+    <div class="pp-card imp-card">
+      <div class="pp-card-head"><code>import_new_library_users()</code></div>
+      <div class="pp-card-body" style="font-size:.75rem;">
+        Auto-detected from sheet header. Maps patron profiles to Adult / Juvenile.
+        Writes Adult, Juvenile, and Total registration counts.
+      </div>
+    </div>
+
+    <div class="pp-card imp-card">
+      <div class="pp-card-head"><code>import_door_count()</code></div>
+      <div class="pp-card-body" style="font-size:.75rem;">
+        Reads daily Ins per location. Aggregates to monthly Gate Count per branch.
+        Branch mapped via <code>DOOR_COUNT_BRANCH_MAP</code>.
+      </div>
+    </div>
+
+    <div class="pp-card imp-card">
+      <div class="pp-card-head"><code>import_princh()</code></div>
+      <div class="pp-card-body" style="font-size:.75rem;">
+        Reads per-document page counts. Sums all paper sizes per branch per month
+        &rarr; Total Prints per Month.
+      </div>
+    </div>
+
+    <div class="pp-card imp-card">
+      <div class="pp-card-head">Manual entry routes</div>
+      <div class="pp-card-body" style="font-size:.75rem;">
+        <code>/entries/new</code> and <code>/entries/&lt;id&gt;/edit</code> write to any category.
+        Upload-sourced metrics hidden from form (circulation, prints, new cards).
+      </div>
+    </div>
+
+    <div class="pp-card imp-card">
+      <div class="pp-card-head">Annual survey routes</div>
+      <div class="pp-card-body" style="font-size:.75rem;">
+        <code>/annual-survey/&lt;year&gt;/enter</code> writes AnnualSurveyValue rows.
+        <code>/annual-survey/&lt;year&gt;/calculate</code> auto-fills ~40 metrics from Branch Stats + Online Stats FY aggregates.
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-col">
+    <span class="pp-arrow">&rarr;</span>
+    <span class="pp-arrow">&rarr;</span>
+    <span class="pp-arrow">&rarr;</span>
+    <span class="pp-arrow">&rarr;</span>
+    <span class="pp-arrow">&rarr;</span>
+    <span class="pp-arrow">&rarr;</span>
+    <span class="pp-arrow">&rarr;</span>
+  </div>
+
+  <div class="flow-col">
+    <div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--pp-grey);margin-bottom:4px;">Database Destination</div>
+
+    <div class="pp-card dest-bs">
+      <div class="pp-card-head">Branch Stats <span class="pp-pill pp-pill-grey" style="margin-left:auto">Entry + EntryValue</span></div>
+      <div class="pp-card-body">
+        <div style="font-size:.73rem;margin-bottom:6px;color:var(--pp-grey);">Per-branch &middot; Monthly &middot; 75 metrics</div>
+        <div style="display:flex;flex-wrap:wrap;gap:3px;">
+          <span class="pp-pill pp-pill-orange">Gate Count</span>
+          <span class="pp-pill pp-pill-red">Total Branch Circulation &#9733;</span>
+          <span class="pp-pill pp-pill-red">Hotspots Circulation &#9733;</span>
+          <span class="pp-pill pp-pill-red">Total Prints per Month &#9733;</span>
+          <span class="pp-pill pp-pill-red">New Card Reg. Adult &#9733;</span>
+          <span class="pp-pill pp-pill-red">New Card Reg. Juvenile &#9733;</span>
+          <span class="pp-pill pp-pill-blue">ONSITE Sessions / Attendance (&times;10)</span>
+          <span class="pp-pill pp-pill-blue">OFFSITE Sessions / Attendance (&times;10)</span>
+          <span class="pp-pill pp-pill-blue">VIRTUAL Sessions / Attendance (&times;10)</span>
+          <span class="pp-pill pp-pill-green">WiFi Sessions</span>
+          <span class="pp-pill pp-pill-green">PC Reservations</span>
+          <span class="pp-pill pp-pill-green">ILL / ICL Sent + Received</span>
+          <span class="pp-pill pp-pill-green">Outreach Activities + Attendance</span>
+          <span class="pp-pill pp-pill-green">Passive Program Participants</span>
+          <span class="pp-pill pp-pill-grey">Staff Training #, Hours</span>
+          <span class="pp-pill pp-pill-grey">1-on-1 Total</span>
+        </div>
+        <div style="margin-top:6px;font-size:.68rem;color:#c0392b;">&#9733; upload-only — hidden from manual entry form</div>
+      </div>
+    </div>
+
+    <div class="pp-card dest-online">
+      <div class="pp-card-head">Online Stats <span class="pp-pill pp-pill-grey" style="margin-left:auto">Entry + EntryValue</span></div>
+      <div class="pp-card-body">
+        <div style="font-size:.73rem;margin-bottom:6px;color:var(--pp-grey);">System-wide &middot; Monthly &middot; 25 metrics</div>
+        <div style="display:flex;flex-wrap:wrap;gap:3px;">
+          <span class="pp-pill pp-pill-orange">yclibrary.org Sessions</span>
+          <span class="pp-pill pp-pill-orange">ychistory.org Views</span>
+          <span class="pp-pill pp-pill-orange">patchworktales.org Views</span>
+          <span class="pp-pill pp-pill-blue">Dial-A-Story Calls / Views</span>
+          <span class="pp-pill pp-pill-green">Beanstack / LibGuides / LibCal Sessions</span>
+          <span class="pp-pill pp-pill-green">DigitalLearn Sessions + Completions</span>
+          <span class="pp-pill pp-pill-green">LOTE4Kids Stories / Activities / Logins</span>
+          <span class="pp-pill pp-pill-purple">YouTube Subscribers / Views / Hours</span>
+          <span class="pp-pill pp-pill-purple">Facebook / Instagram Followers</span>
+          <span class="pp-pill pp-pill-grey">YCL News Subscribers</span>
+          <span class="pp-pill pp-pill-grey">YCL App Users + Sessions</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="pp-card dest-eres">
+      <div class="pp-card-head">Annual eResources <span class="pp-pill pp-pill-grey" style="margin-left:auto">Entry + EntryValue</span></div>
+      <div class="pp-card-body">
+        <div style="font-size:.73rem;margin-bottom:6px;color:var(--pp-grey);">System-wide &middot; Annual &middot; 4 metrics</div>
+        <div style="display:flex;flex-wrap:wrap;gap:3px;">
+          <span class="pp-pill pp-pill-purple">E-Book Circulation</span>
+          <span class="pp-pill pp-pill-purple">E-Audio Circulation</span>
+          <span class="pp-pill pp-pill-purple">E-Video Circulation</span>
+          <span class="pp-pill pp-pill-purple">E-Serials Circulation</span>
+        </div>
+        <div style="margin-top:6px;font-size:.68rem;color:var(--pp-grey);">Manual entry only, once per fiscal year. Intentionally shows "No data" until loaded — visible reminder.</div>
+      </div>
+    </div>
+
+    <div class="pp-card" style="border: 1px dashed var(--pp-border);">
+      <div class="pp-card-head" style="background:var(--pp-purple-pale);color:var(--pp-purple);">Monthly eResources <span class="pp-pill pp-pill-grey" style="margin-left:auto">Planned — not built</span></div>
+      <div class="pp-card-body" style="font-size:.75rem;">
+        Vendor-reported database usage (logins, searches, sessions) for ~90-104 subscription databases via COUNTER 5/SUSHI or manual CSV. Separate from Annual eResources above — different dataset, different tables (<code>databases</code>, <code>usage_monthly</code>, <code>harvest_log</code>), not yet in the schema. Design docs in the <code>eResources/</code> folder.
+      </div>
+    </div>
+
+    <div class="pp-card dest-qrs">
+      <div class="pp-card-head">Quarterly Reference Stats <span class="pp-pill pp-pill-grey" style="margin-left:auto">Entry + EntryValue</span></div>
+      <div class="pp-card-body">
+        <div style="font-size:.73rem;margin-bottom:6px;color:var(--pp-grey);">Per-branch (incl. desk sub-locations) &middot; Quarterly &middot; 1 metric</div>
+        <div style="display:flex;flex-wrap:wrap;gap:3px;">
+          <span class="pp-pill pp-pill-blue">Total Transactions for the Week</span>
+        </div>
+        <div style="margin-top:6px;font-size:.68rem;color:var(--pp-grey);">FY spans two calendar years: Q1+Q2 stored under year N-1, Q3+Q4 under year N.</div>
+      </div>
+    </div>
+
+    <div class="pp-card dest-annual">
+      <div class="pp-card-head">Annual Survey <span class="pp-pill pp-pill-grey" style="margin-left:auto">AnnualSurveyValue</span></div>
+      <div class="pp-card-body">
+        <div style="font-size:.73rem;margin-bottom:6px;color:var(--pp-grey);">System-wide &middot; Annual &middot; ~100 metrics across 16 sections</div>
+        <div style="display:flex;flex-wrap:wrap;gap:3px;">
+          <span class="pp-pill pp-pill-blue">Gate Count, Circulation, Programming</span>
+          <span class="pp-pill pp-pill-green">Staffing, Revenue, Expenses</span>
+          <span class="pp-pill pp-pill-orange">Collection Size</span>
+          <span class="pp-pill pp-pill-grey">~40 auto-calculated from monthly data</span>
+        </div>
+        <div style="margin-top:6px;font-size:.68rem;color:var(--pp-grey);">Separate from Entry/EntryValue system. Stored in AnnualSurveyValue table.</div>
+      </div>
+    </div>
+  </div>
+</div><!-- /flow-grid -->
+
+
+<!-- SECTION 2 — DATABASE SCHEMA -->
+<p class="section-title">2 &middot; Database Schema (Core Tables)</p>
+
+<div class="schema-grid">
+
+  <div class="pp-card db-table">
+    <div class="pp-card-head">Entry</div>
+    <div class="pp-card-body">
+      <ul class="field-list">
+        <li><span class="field-name">id</span><span class="field-type">integer</span><span class="field-pk">PK</span></li>
+        <li><span class="field-name">category_id</span><span class="field-type">integer</span><span class="field-fk">FK &rarr; Category</span></li>
+        <li><span class="field-name">branch_id</span><span class="field-type">integer</span><span class="field-fk">FK &rarr; Branch (nullable)</span></li>
+        <li><span class="field-name">year</span><span class="field-type">integer</span></li>
+        <li><span class="field-name">month</span><span class="field-type">integer 1-12 (nullable)</span></li>
+        <li><span class="field-name">quarter</span><span class="field-type">integer 1-4 (nullable)</span></li>
+        <li><span class="field-name">submitted_by</span><span class="field-type">string</span></li>
+        <li><span class="field-name">submitted_at</span><span class="field-type">datetime</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="pp-card db-table">
+    <div class="pp-card-head">EntryValue</div>
+    <div class="pp-card-body">
+      <ul class="field-list">
+        <li><span class="field-name">id</span><span class="field-type">integer</span><span class="field-pk">PK</span></li>
+        <li><span class="field-name">entry_id</span><span class="field-type">integer</span><span class="field-fk">FK &rarr; Entry</span></li>
+        <li><span class="field-name">metric_id</span><span class="field-type">integer</span><span class="field-fk">FK &rarr; Metric</span></li>
+        <li><span class="field-name">value_number</span><span class="field-type">decimal (nullable)</span></li>
+        <li><span class="field-name">value_text</span><span class="field-type">text (nullable)</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="pp-card db-table">
+    <div class="pp-card-head">Category</div>
+    <div class="pp-card-body">
+      <ul class="field-list">
+        <li><span class="field-name">id</span><span class="field-type">integer</span><span class="field-pk">PK</span></li>
+        <li><span class="field-name">name</span><span class="field-type">string</span></li>
+        <li><span class="field-name">frequency</span><span class="field-type">monthly / quarterly</span></li>
+        <li><span class="field-name">has_branch</span><span class="field-type">boolean</span></li>
+        <li><span class="field-name">is_active</span><span class="field-type">boolean</span></li>
+        <li><span class="field-name">sort_order</span><span class="field-type">integer</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="pp-card db-table">
+    <div class="pp-card-head">Metric</div>
+    <div class="pp-card-body">
+      <ul class="field-list">
+        <li><span class="field-name">id</span><span class="field-type">integer</span><span class="field-pk">PK</span></li>
+        <li><span class="field-name">category_id</span><span class="field-type">integer</span><span class="field-fk">FK &rarr; Category</span></li>
+        <li><span class="field-name">name</span><span class="field-type">string</span></li>
+        <li><span class="field-name">data_type</span><span class="field-type">integer / decimal / text</span></li>
+        <li><span class="field-name">group_name</span><span class="field-type">string (for form layout)</span></li>
+        <li><span class="field-name">sort_order</span><span class="field-type">integer</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="pp-card db-table">
+    <div class="pp-card-head">Branch</div>
+    <div class="pp-card-body">
+      <ul class="field-list">
+        <li><span class="field-name">id</span><span class="field-type">integer</span><span class="field-pk">PK</span></li>
+        <li><span class="field-name">name</span><span class="field-type">string</span></li>
+        <li><span class="field-name">ils_code</span><span class="field-type">string (e.g. YCL-RH)</span></li>
+        <li><span class="field-name">is_desk</span><span class="field-type">boolean (QRS desks)</span></li>
+        <li><span class="field-name">is_locker</span><span class="field-type">boolean (locker branches)</span></li>
+      </ul>
+      <div style="margin-top:8px;font-size:.7rem;color:var(--pp-grey);">
+        6 real locations + locker branches (excluded from forms) + desk sub-locations (QRS only) + YCL (System Wide)
+      </div>
+    </div>
+  </div>
+
+  <div class="pp-card db-table">
+    <div class="pp-card-head">SirsiCheckout</div>
+    <div class="pp-card-body">
+      <ul class="field-list">
+        <li><span class="field-name">id</span><span class="field-type">integer</span><span class="field-pk">PK</span></li>
+        <li><span class="field-name">branch_id</span><span class="field-type">integer</span><span class="field-fk">FK &rarr; Branch</span></li>
+        <li><span class="field-name">year / month</span><span class="field-type">integer</span></li>
+        <li><span class="field-name">patron_type</span><span class="field-type">string (user profile)</span></li>
+        <li><span class="field-name">shelving_location</span><span class="field-type">string</span></li>
+        <li><span class="field-name">count</span><span class="field-type">integer</span></li>
+        <li><span class="field-name">transaction_type</span><span class="field-type">charge / renew</span></li>
+      </ul>
+      <div style="margin-top:8px;font-size:.7rem;color:var(--pp-grey);">Raw ILS detail rows. Aggregated into Branch Stats circulation metrics.</div>
+    </div>
+  </div>
+
+</div>
+
+
+<!-- SECTION 3 — BRANCH STATS METRIC REFERENCE -->
+<p class="section-title">3 &middot; Branch Stats — Full Metric Reference</p>
+<div style="margin-bottom:10px;font-size:.75rem;color:var(--pp-grey);">
+  75 metrics &middot; per-branch &middot; monthly &middot; stored as EntryValue rows.
+  <span class="tag-red" style="margin-left:6px;">&#9733; upload-only</span> metrics are written by importers and hidden from the manual entry form.
+</div>
+
+<div class="ref-grid">
+
+  <div class="pp-card">
+    <div class="pp-card-head" style="background:#e8f5e9;color:#1b5e20;">Registrations</div>
+    <div class="pp-card-body">
+      <ul class="metric-list">
+        <li><span class="metric-name">New Library Card Registrations, Adult</span><span class="tag-red">&#9733; SIRSI</span></li>
+        <li><span class="metric-name">New Library Card Registrations, Juvenile</span><span class="tag-red">&#9733; SIRSI</span></li>
+        <li><span class="metric-name">New Library Card Registrations, Total</span><span class="tag-red">&#9733; SIRSI</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="pp-card">
+    <div class="pp-card-head" style="background:#e8f5e9;color:#1b5e20;">Access &amp; Usage</div>
+    <div class="pp-card-body">
+      <ul class="metric-list">
+        <li><span class="metric-name">Gate Count</span><span class="tag-orange">Door counter</span></li>
+        <li><span class="metric-name">PC Reservations</span><span class="upload-only">manual</span></li>
+        <li><span class="metric-name">WiFi - Unique Sessions</span><span class="upload-only">manual</span></li>
+        <li><span class="metric-name">External Party Library Room Use</span><span class="upload-only">manual</span></li>
+        <li><span class="metric-name">Total Prints per Month</span><span class="tag-red">&#9733; Princh</span></li>
+        <li><span class="metric-name">1-on-1 Total for Month</span><span class="upload-only">manual</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="pp-card">
+    <div class="pp-card-head" style="background:#e8f5e9;color:#1b5e20;">Circulation</div>
+    <div class="pp-card-body">
+      <ul class="metric-list">
+        <li><span class="metric-name">Total Branch Circulation</span><span class="tag-red">&#9733; SIRSI CIRC</span></li>
+        <li><span class="metric-name">Hotspots Circulation</span><span class="tag-red">&#9733; SIRSI CIRC</span></li>
+        <li><span class="metric-name">Curbside</span><span class="upload-only">manual</span></li>
+        <li><span class="metric-name">Locker Circulation</span><span class="tag-red">&#9733; SIRSI CIRC</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="pp-card">
+    <div class="pp-card-head" style="background:#e8f5e9;color:#1b5e20;">ILL / ICL (Main only)</div>
+    <div class="pp-card-body">
+      <ul class="metric-list">
+        <li><span class="metric-name">ILL - Sent (Main ONLY)</span><span class="upload-only">manual /enter/ill</span></li>
+        <li><span class="metric-name">ILL - Received (Main ONLY)</span><span class="upload-only">manual /enter/ill</span></li>
+        <li><span class="metric-name">ICLs - Sent (Main ONLY)</span><span class="upload-only">manual /enter/icl</span></li>
+        <li><span class="metric-name">ICLs - Received (Main ONLY)</span><span class="upload-only">manual /enter/icl</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="pp-card">
+    <div class="pp-card-head" style="background:#e3f2fd;color:#0d47a1;">ONSITE Programming (&times;10)</div>
+    <div class="pp-card-body">
+      <div style="font-size:.7rem;color:var(--pp-grey);margin-bottom:5px;">Sessions 0-5, 6-11, 12-18, 19+, General Interest</div>
+      <div style="font-size:.7rem;color:var(--pp-grey);">Attendance 0-5, 6-11, 12-18, 19+, General Interest</div>
+      <div style="margin-top:6px;font-size:.68rem;background:#e3f2fd;padding:4px 6px;border-radius:4px;color:#0d47a1;">
+        Source: Branch Stats sheet (Monthly Stats file) &middot; Jul-Dec 2023 patched from 23-24 Annual Stats.xls
+      </div>
+    </div>
+  </div>
+
+  <div class="pp-card">
+    <div class="pp-card-head" style="background:#f3e5f5;color:#6c3483;">OFFSITE Programming (&times;10)</div>
+    <div class="pp-card-body">
+      <div style="font-size:.7rem;color:var(--pp-grey);margin-bottom:5px;">Sessions 0-5, 6-11, 12-18, 19+, General Interest</div>
+      <div style="font-size:.7rem;color:var(--pp-grey);">Attendance 0-5, 6-11, 12-18, 19+, General Interest</div>
+      <div style="margin-top:6px;font-size:.68rem;background:#f3e5f5;padding:4px 6px;border-radius:4px;color:#6c3483;">
+        Convention: branch total stored under "6-11" age group when no age breakdown available
+      </div>
+    </div>
+  </div>
+
+  <div class="pp-card">
+    <div class="pp-card-head" style="background:var(--pp-blue-pale);color:var(--pp-blue);">VIRTUAL Programming (&times;10)</div>
+    <div class="pp-card-body">
+      <div style="font-size:.7rem;color:var(--pp-grey);margin-bottom:5px;">Sessions 0-5, 6-11, 12-18, 19+, General Interest</div>
+      <div style="font-size:.7rem;color:var(--pp-grey);">Attendance 0-5, 6-11, 12-18, 19+, General Interest</div>
+      <div style="margin-top:6px;font-size:.68rem;background:var(--pp-blue-pale);padding:4px 6px;border-radius:4px;color:var(--pp-blue);">
+        Convention: branch total stored under "General Interest" when no age breakdown available
+      </div>
+    </div>
+  </div>
+
+  <div class="pp-card">
+    <div class="pp-card-head" style="background:#e8f5e9;color:#1b5e20;">Outreach &amp; Passive Programming</div>
+    <div class="pp-card-body">
+      <ul class="metric-list">
+        <li><span class="metric-name">Number of Outreach Activities Conducted</span><span class="upload-only">manual</span></li>
+        <li><span class="metric-name">Outreach Attendance</span><span class="upload-only">manual</span></li>
+        <li><span class="metric-name">Take &amp; Makes / Other Passive Program Participants</span><span class="upload-only">manual</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="pp-card">
+    <div class="pp-card-head" style="background:var(--pp-grey-pale);color:var(--pp-grey);">Staff Training</div>
+    <div class="pp-card-body">
+      <ul class="metric-list">
+        <li><span class="metric-name">Number of Staff Taking Training</span><span class="upload-only">manual</span></li>
+        <li><span class="metric-name">Number of Hours Staff Attended Training</span><span class="upload-only">manual</span></li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+
+
+<!-- SECTION 4 — BRANCH TAXONOMY -->
+<p class="section-title">4 &middot; Branch Taxonomy</p>
+<div class="ref-grid" style="grid-template-columns:repeat(auto-fill,minmax(260px,1fr))">
+
+  <div class="pp-card">
+    <div class="pp-card-head" style="background:#e8f5e9;color:#1b5e20;">6 Real Service Locations</div>
+    <div class="pp-card-body" style="font-size:.76rem;">
+      Rock Hill &middot; Clover &middot; Fort Mill &middot; Lake Wylie &middot; York &middot; Bookmobile/Outreach<br>
+      <span style="color:var(--pp-grey);font-size:.68rem;margin-top:4px;display:block;">Appear in all forms, charts, and reports</span>
+    </div>
+  </div>
+
+  <div class="pp-card">
+    <div class="pp-card-head" style="background:#fff3e0;color:#e65100;">Locker Branches</div>
+    <div class="pp-card-body" style="font-size:.76rem;">
+      Clover Lockers &middot; Fort Mill Lockers &middot; Lake Wylie Lockers &middot; Rock Hill Lockers &middot; York Lockers<br>
+      <span style="color:var(--pp-grey);font-size:.68rem;margin-top:4px;display:block;">ILS codes YCL-XX-LOC. Excluded from forms &amp; chart lines. Summed into parent in Trend chart.</span>
+    </div>
+  </div>
+
+  <div class="pp-card">
+    <div class="pp-card-head" style="background:#e3f2fd;color:#0d47a1;">Rock Hill Desk Sub-locations</div>
+    <div class="pp-card-body" style="font-size:.76rem;">
+      Rock Hill - Circulation &middot; Rock Hill - Reference &middot; Rock Hill - YA &middot; Rock Hill - Children's<br>
+      <span style="color:var(--pp-grey);font-size:.68rem;margin-top:4px;display:block;">is_desk=True. QRS only — not in monthly Branch Stats forms.</span>
+    </div>
+  </div>
+
+  <div class="pp-card">
+    <div class="pp-card-head" style="background:var(--pp-grey-pale);color:var(--pp-grey);">System Wide</div>
+    <div class="pp-card-body" style="font-size:.76rem;">
+      YCL (System Wide)<br>
+      <span style="color:var(--pp-grey);font-size:.68rem;margin-top:4px;display:block;">Excluded from branch counts and entry forms. Used for annual Online Stats and Annual Comparables entries.</span>
+    </div>
+  </div>
+
+</div>
+
+
+<!-- SECTION 5 — IMPORTER DETECTION LOGIC -->
+<p class="section-title">5 &middot; Auto-Detection Logic (do_import / detect_and_import)</p>
+<div class="pp-card" style="max-width:860px;">
+  <div class="pp-card-body">
+    <table class="table table-sm" style="font-size:.76rem;margin-bottom:0;">
+      <thead>
+        <tr style="background:var(--pp-blue-pale);">
+          <th>Detection signal</th>
+          <th>Importer called</th>
+          <th>Writes to</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Sheet named <code>Branch Stats</code></td>
+          <td><code>import_branch_stats()</code></td>
+          <td><span class="pp-pill pp-pill-green">Branch Stats</span></td>
+        </tr>
+        <tr>
+          <td>Sheet named <code>Online Stats</code></td>
+          <td><code>import_online_stats()</code></td>
+          <td><span class="pp-pill pp-pill-orange">Online Stats</span></td>
+        </tr>
+        <tr>
+          <td>Sheet named <code>Qrtly Ref Stats</code> or <code>Sheet1</code></td>
+          <td><code>import_quarterly_ref()</code></td>
+          <td><span class="pp-pill pp-pill-blue">Quarterly Ref Stats</span></td>
+        </tr>
+        <tr>
+          <td>Sheet title contains <em>"Checkouts by Branch and Shelving Location"</em></td>
+          <td><code>import_sirsi_checkouts()</code></td>
+          <td><span class="pp-pill pp-pill-green">Branch Stats</span> Circulation + Hotspot</td>
+        </tr>
+        <tr>
+          <td>Sheet title contains <em>"Number of New Library Users"</em></td>
+          <td><code>import_new_library_users()</code></td>
+          <td><span class="pp-pill pp-pill-green">Branch Stats</span> Registrations</td>
+        </tr>
+        <tr>
+          <td>Sheet title contains <em>"Checkouts by Branch and User Profile"</em></td>
+          <td><code>import_sirsi_user_profile()</code></td>
+          <td><span class="pp-pill pp-pill-grey">SirsiCheckout</span> (raw detail only)</td>
+        </tr>
+        <tr>
+          <td>Columns include <em>Location, From date</em> + page-count headers</td>
+          <td><code>import_princh()</code></td>
+          <td><span class="pp-pill pp-pill-green">Branch Stats</span> Total Prints</td>
+        </tr>
+        <tr>
+          <td>Columns include <em>Location Name, Date, Ins, Outs</em></td>
+          <td><code>import_door_count()</code></td>
+          <td><span class="pp-pill pp-pill-green">Branch Stats</span> Gate Count</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div style="margin-top:24px;font-size:.72rem;color:var(--pp-grey);">
+  Generated from codebase: <code>import_excel.py</code>, <code>seed_data.py</code>, <code>app.py</code>, <code>models.py</code> &middot; YCL Statistics v4
+</div>
+
+</div>
+{% endblock %}

@@ -57,5 +57,6 @@ Once Phase 1 is complete this is the standard recurring workflow:
 
 ## Phase 4 — Future
 
-- **eResources** — if YCL starts tracking e-book/e-audio/e-video stats, reactivate the eResources category via Admin → Categories and begin entering data
+- **Annual eResources** — if YCL starts tracking e-book/e-audio/e-video stats, reactivate the Annual eResources category via Admin → Categories and begin entering data
+- **Monthly eResources** — separate initiative (vendor database usage via COUNTER/SUSHI); design drafted in `eResources/` folder, no code yet
 - **New library deployment** — fork repo, adapt the ILS importer for that library's system (SIRSI is YCL-specific), rebrand, spin up new Supabase + Railway instance. See `design.md → Standing Up a New Instance`.

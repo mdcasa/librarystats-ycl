@@ -109,6 +109,13 @@ with app.app_context():
             if _backfilled:
                 db.session.commit()
 
+    # Rename 'eResources' category to 'Annual eResources' to distinguish it
+    # from the new Monthly eResources (vendor database usage) tracking.
+    _er = Category.query.filter_by(name='eResources').first()
+    if _er:
+        _er.name = 'Annual eResources'
+        db.session.commit()
+
     # Remove DigitalLearn.org metrics from the Online Stats entry form.
     # Deactivate if they hold recorded data (preserves history), else delete.
     _os = Category.query.filter_by(name='Online Stats').first()
@@ -973,11 +980,11 @@ REPORT_CATEGORIES = {
         'fiscal_anchor': None,
     },
     'eresources': {
-        'title': 'eResources',
+        'title': 'Annual eResources',
         'icon': 'bi-book',
         'color': '#8e44ad',
-        'description': 'E-book, e-audio, e-video, and e-serials circulation.',
-        'category_name': 'eResources',
+        'description': 'E-book, e-audio, e-video, and e-serials circulation (reported annually).',
+        'category_name': 'Annual eResources',
         'groups': [],
         'fiscal_anchor': None,
     },
@@ -3651,7 +3658,7 @@ def report_impact():
             return sum((iv(d, f'{t} Attendance {a}') or 0) for t in TYPES for a in AGE) or None
 
         # Annual Comparables: physical + digital from system-wide annual entries
-        eres_cat = Category.query.filter_by(name='eResources').first()
+        eres_cat = Category.query.filter_by(name='Annual eResources').first()
 
         def ac_totals(fy_year):
             sw = Branch.query.filter(Branch.name == 'YCL (System Wide)').first()
@@ -3777,7 +3784,7 @@ def report_impact_pdf():
         return round((new - old) / old * 100, 1)
 
     # Annual Comparables: physical + digital from system-wide annual entries
-    eres_cat = Category.query.filter_by(name='eResources').first()
+    eres_cat = Category.query.filter_by(name='Annual eResources').first()
 
     def ac_totals(fy_year):
         sw = Branch.query.filter(Branch.name == 'YCL (System Wide)').first()
@@ -3877,7 +3884,7 @@ def report_impact_docx():
     from docx.oxml import OxmlElement
 
     bs_cat   = Category.query.filter_by(name='Branch Stats').first()
-    eres_cat = Category.query.filter_by(name='eResources').first()
+    eres_cat = Category.query.filter_by(name='Annual eResources').first()
     fy1, fy2 = 2023, 2024
 
     def _fy_totals(fy_year):

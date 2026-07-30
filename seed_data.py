@@ -80,9 +80,9 @@ def seed(db):
         db.session.add(Metric(category_id=c1.id, name=name,
                                group_name=group, data_type=dtype, sort_order=i + 1))
 
-    # ── Category 2: eResources ──────────────────────────────────────────────
-    c2 = Category(name='eResources',
-                  description='Monthly electronic resource circulation statistics (system-wide)',
+    # ── Category 2: Annual eResources ───────────────────────────────────────
+    c2 = Category(name='Annual eResources',
+                  description='Annual electronic resource circulation statistics (system-wide)',
                   frequency='monthly', has_branch=False, sort_order=2)
     db.session.add(c2)
     db.session.flush()

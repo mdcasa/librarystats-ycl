@@ -323,9 +323,22 @@ Groups: Website, Dial A Story, Other Platforms, DigitalLearn, LOTE4Kids, Social 
 
 Single metric: `Total Transactions for the Week` (integer). Branches are the desk-level branches (Rock Hill - Circulation, Rock Hill - YA) plus all standard branches.
 
-### eResources (monthly, has_branch=False)
+### Annual eResources (has_branch=False)
 
-Created by seed but not currently used. Metrics: E-Book Circulation, E-Audio Circulation, E-Video Circulation, E-Serials Circulation. **Intentionally kept active** so it appears in the dashboard Data Status widget as "No data" — a visible reminder that digital resource stats have not been loaded. If e-resource data is collected in future, enter it via the normal entry forms or upload. Physical branch circulation (Total Branch Circulation from SIRSI) is stored under Branch Stats, not here.
+**Not to be confused with Monthly eResources below — these are two different datasets, tracked in two different places.**
+
+DB category name: `Annual eResources` (renamed from `eResources`; code that looks it up by name must use the new name). Created by seed but not currently used. Metrics: E-Book Circulation, E-Audio Circulation, E-Video Circulation, E-Serials Circulation — entered once per fiscal year, system-wide (no branch breakdown), as an annual entry (`month=None`) against the `YCL (System Wide)` branch. **Intentionally kept active** so it appears in the dashboard Data Status widget as "No data" — a visible reminder that digital resource stats have not been loaded. If e-resource data is collected in future, enter it via the normal entry forms or upload. Physical branch circulation (Total Branch Circulation from SIRSI) is stored under Branch Stats, not here. Feeds the "digital" total in the Annual Comparables report (`app.py`, `ac_totals()` / `_fy_totals()` helpers, which look up `Category.query.filter_by(name='Annual eResources')`).
+
+### Monthly eResources (planned, not yet built)
+
+A separate, unrelated initiative: tracking **vendor-reported database usage** (logins, searches, sessions, item requests) for YCL's ~90-104 subscription databases (EBSCO, Gale, Mango, etc.), pulled monthly via COUNTER 5 / SUSHI where vendors support it, manual CSV where they don't. This is *not* e-book/e-audio/e-video circulation (that's Annual eResources, above) — it's usage of the subscription databases themselves.
+
+Design is drafted but no code exists yet — see the `eResources/` folder at the project root:
+- `YCL-Database-Usage-Tracking-Design.md` — architecture, data model (`databases`, `usage_monthly`, `harvest_log` tables), SUSHI harvester plan
+- `YCL-Vendor-Data-Onboarding-Plan.md` — process for validating real vendor exports before building the harvester
+- `YCL_Database_Usage_Tracking_Inventory.xlsx` — seed data: ~104 databases tagged by vendor and data-collection method
+
+This will need its own tables outside the existing Category/Metric/Entry schema (see the design doc's Data Model section) since it's per-database, per-vendor data rather than a single system-wide metric.
 
 ---
 
@@ -825,7 +838,7 @@ Shows the most recent month with circulation data as the "current" month, so it 
 
 **"Circulation" category:** A manually-created category that acts as a user-facing alias for SIRSI circulation data. Since SIRSI data is stored under Branch Stats (as "Total Branch Circulation"), the coverage query falls back to the latest Branch Stats entry with a circulation value when the Circulation category itself has no entries. This way the widget shows the correct latest SIRSI date without duplicating data or changing the import pipeline.
 
-**eResources:** Intentionally shown as "No data" — a visible reminder that digital resource stats (e-book, e-audio, etc.) have not been loaded.
+**Annual eResources:** Intentionally shown as "No data" — a visible reminder that digital resource stats (e-book, e-audio, etc.) have not been loaded. See §"eResources (monthly, has_branch=False)" below and `eResources/` folder for the *separate*, not-yet-built Monthly eResources (database usage) tracking — the two are different datasets and must not be conflated.
 
 ---
 

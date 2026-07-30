@@ -60,7 +60,9 @@ Flask 3, Flask-SQLAlchemy, Flask-Login, PostgreSQL (Supabase), gunicorn, openpyx
 
 **One-time historical loads must use `load_dotenv()`.** Inline scripts that skip this silently hit local SQLite instead of Supabase.
 
-**eResources** category is intentionally active with no data — shows "No data" in Data Status as a visible reminder that digital resource stats haven't been loaded.
+**Two separate "eResources" concepts — don't conflate them:**
+- **Annual eResources** (DB category, `models.py`/`seed_data.py`) — E-Book, E-Audio, E-Video, E-Serials Circulation, entered once a year (system-wide, no branch breakdown). Intentionally active with no data — shows "No data" in Data Status as a visible reminder that digital circulation stats haven't been loaded. Feeds the Annual Comparables report's "digital" total.
+- **Monthly eResources** (planned, not yet built — see `eResources/` folder) — vendor-reported database usage (logins, searches, sessions) for ~90 subscription databases, harvested monthly via COUNTER 5/SUSHI or manual CSV. Entirely different dataset from Annual eResources; has its own future tables (`databases`, `usage_monthly`, `harvest_log`), not part of the existing Category/Metric/Entry schema.
 
 **No email-based password reset.** Admins reset passwords directly via Admin → Users. No SMTP required.
 

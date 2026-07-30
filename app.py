@@ -1384,6 +1384,69 @@ ERES_MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','
 ERES_FY_MONTHS = list(range(7, 13)) + list(range(1, 7))
 
 
+def _eresources_available_fy():
+    fy_set = set()
+    for (y, m) in db.session.query(UsageMonthly.year, UsageMonthly.month).distinct():
+        fy_set.add(y + 1 if m >= 7 else y)
+    return sorted(fy_set, reverse=True)
+
+
+def _eresources_bucket_totals(fy_year):
+    """FY totals per Annual eResources bucket, from active databases' usage_monthly rows."""
+    usage_rows = (UsageMonthly.query
+                  .join(EresourceDatabase)
+                  .filter(EresourceDatabase.is_active == True)
+                  .filter(or_(
+                      and_(UsageMonthly.year == fy_year - 1, UsageMonthly.month >= 7),
+                      and_(UsageMonthly.year == fy_year,     UsageMonthly.month <= 6),
+                  ))
+                  .all())
+    totals = {code: 0 for code, *_ in ERES_BUCKET_LABELS}
+    for u in usage_rows:
+        if u.usage_count is not None and u.database.bucket in totals:
+            totals[u.database.bucket] += u.usage_count
+    return totals
+
+
+@app.route('/reports/eresources/overview')
+def report_eresources_overview():
+    """Monthly eResources landing page — snapshot + links out to the full
+    usage report and Annual eResources for context."""
+    available_fy = _eresources_available_fy()
+    latest_fy = available_fy[0] if available_fy else None
+    bucket_totals = _eresources_bucket_totals(latest_fy) if latest_fy else None
+    fy_label = f'FY{latest_fy}  (Jul {latest_fy - 1} – Jun {latest_fy})' if latest_fy else None
+
+    # Data status: most recent (year, month) with any usage row, and which
+    # active databases are missing a value for it.
+    latest_period = (db.session.query(UsageMonthly.year, UsageMonthly.month)
+                     .order_by(UsageMonthly.year.desc(), UsageMonthly.month.desc())
+                     .first())
+    latest_period_label = missing_count = reported_count = total_active = None
+    missing_databases = []
+
+    if latest_period:
+        ly, lm = latest_period
+        latest_period_label = f'{ERES_MONTH_ABBR[lm - 1]} {ly}'
+        active_dbs = (EresourceDatabase.query
+                     .filter_by(is_active=True)
+                     .order_by(EresourceDatabase.sort_order).all())
+        total_active = len(active_dbs)
+        reported_ids = {row.database_id for row in
+                        UsageMonthly.query.filter_by(year=ly, month=lm)
+                                          .filter(UsageMonthly.usage_count.isnot(None)).all()}
+        reported_count = len(reported_ids)
+        missing_databases = [d for d in active_dbs if d.id not in reported_ids]
+        missing_count = len(missing_databases)
+
+    return render_template('reports/eresources_overview.html',
+                           available_fy=available_fy, latest_fy=latest_fy, fy_label=fy_label,
+                           bucket_labels=ERES_BUCKET_LABELS, bucket_totals=bucket_totals,
+                           latest_period_label=latest_period_label,
+                           total_active=total_active, reported_count=reported_count,
+                           missing_count=missing_count, missing_databases=missing_databases)
+
+
 @app.route('/reports/eresources')
 def report_eresources():
     """Monthly eResources usage — per-vendor database usage rolled up to the
@@ -1391,10 +1454,7 @@ def report_eresources():
     Annual eResources differ; this report reads usage_monthly, not Entry."""
     fy_year = request.args.get('fy_year', type=int)
 
-    fy_set = set()
-    for (y, m) in db.session.query(UsageMonthly.year, UsageMonthly.month).distinct():
-        fy_set.add(y + 1 if m >= 7 else y)
-    available_fy = sorted(fy_set, reverse=True)
+    available_fy = _eresources_available_fy()
 
     if not fy_year and available_fy:
         fy_year = available_fy[0]

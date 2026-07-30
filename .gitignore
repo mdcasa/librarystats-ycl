@@ -4,6 +4,7 @@
 /survey responses/
 .env
 .env2
+env
 *.db
 instance/
 __pycache__/

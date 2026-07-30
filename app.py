@@ -116,6 +116,13 @@ with app.app_context():
         _er.name = 'Annual eResources'
         db.session.commit()
 
+    # Annual eResources is entered once per fiscal year, not monthly — fix the
+    # frequency so the entry form stops offering a Month field for it.
+    _er = Category.query.filter_by(name='Annual eResources').first()
+    if _er and _er.frequency != 'annual':
+        _er.frequency = 'annual'
+        db.session.commit()
+
     # Remove DigitalLearn.org metrics from the Online Stats entry form.
     # Deactivate if they hold recorded data (preserves history), else delete.
     _os = Category.query.filter_by(name='Online Stats').first()
@@ -2416,9 +2423,28 @@ def director_dashboard():
                         totals[n] = totals.get(n, 0) + ev.value_number
             return totals
 
+        def fy_filter_annual(cat_name):
+            """Categories with frequency='annual' store one entry per fiscal
+            year at month=None, quarter=None — no Jul-Jun straddle to match."""
+            cat = Category.query.filter_by(name=cat_name).first()
+            if not cat:
+                return {}
+            entries = Entry.query.options(joinedload(Entry.values)).filter_by(
+                category_id=cat.id, year=fy_year, month=None, quarter=None
+            ).all()
+            id_to_name = {m.id: m.name for m in cat.metrics}
+            totals = {}
+            for e in entries:
+                for ev in e.values:
+                    n = id_to_name.get(ev.metric_id)
+                    if n and ev.value_number is not None:
+                        totals[n] = totals.get(n, 0) + ev.value_number
+            return totals
+
         bs = fy_filter('Branch Stats')
         os = fy_filter('Online Stats')
         qs = fy_filter('Quarterly Reference Stats')
+        er = fy_filter_annual('Annual eResources')
 
         AGE   = AGE_GROUPS
         TYPES = PROG_TYPES
@@ -2516,10 +2542,10 @@ def director_dashboard():
                 ('H7',  'Adult Print Circ',                   None),
                 ('H8',  'Adult Non-Print Circ',               None),
                 ('H10', 'Circ of Other Physical Materials',   None),
-                ('H14', 'eBook Circ',                         None),
-                ('H15', 'eAudio Circ',                        None),
-                ('H16', 'eVideo Circ',                        None),
-                ('H17', 'eSerial Circ',                       None),
+                ('H14', 'eBook Circ',                         v(er, 'E-Book Circulation')),
+                ('H15', 'eAudio Circ',                        v(er, 'E-Audio Circulation')),
+                ('H16', 'eVideo Circ',                        v(er, 'E-Video Circulation')),
+                ('H17', 'eSerial Circ',                       v(er, 'E-Serials Circulation')),
                 ('H20', 'ILLs Sent',                          v(bs, 'ILL - Sent (Main ONLY)')),
                 ('H21', 'ILLs Received',                      v(bs, 'ILL - Received (Main ONLY)')),
                 ('',    'Locker Circulation',                  v(bs, 'Locker Circulation')),
@@ -3682,7 +3708,7 @@ def report_impact():
             dig = None
             if eres_cat:
                 er_e = Entry.query.options(joinedload(Entry.values)).filter_by(
-                    category_id=eres_cat.id, branch_id=sw.id, year=fy_year, month=None
+                    category_id=eres_cat.id, branch_id=None, year=fy_year, month=None
                 ).first()
                 if er_e:
                     total = sum(v.value_number for v in er_e.values if v.value_number is not None)
@@ -3808,7 +3834,7 @@ def report_impact_pdf():
         dig = None
         if eres_cat:
             er_e = Entry.query.options(joinedload(Entry.values)).filter_by(
-                category_id=eres_cat.id, branch_id=sw.id, year=fy_year, month=None
+                category_id=eres_cat.id, branch_id=None, year=fy_year, month=None
             ).first()
             if er_e:
                 total = sum(v.value_number for v in er_e.values if v.value_number is not None)
@@ -3936,7 +3962,7 @@ def report_impact_docx():
         dig = None
         if eres_cat:
             er_e = Entry.query.options(joinedload(Entry.values)).filter_by(
-                category_id=eres_cat.id, branch_id=sw.id, year=fy_year, month=None
+                category_id=eres_cat.id, branch_id=None, year=fy_year, month=None
             ).first()
             if er_e:
                 total = sum(v.value_number for v in er_e.values if v.value_number is not None)

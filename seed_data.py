@@ -82,8 +82,8 @@ def seed(db):
 
     # ── Category 2: Annual eResources ───────────────────────────────────────
     c2 = Category(name='Annual eResources',
-                  description='Annual electronic resource circulation statistics (system-wide)',
-                  frequency='monthly', has_branch=False, sort_order=2)
+                  description='Annual electronic resource circulation statistics (system-wide), reported once per fiscal year',
+                  frequency='annual', has_branch=False, sort_order=2)
     db.session.add(c2)
     db.session.flush()
 

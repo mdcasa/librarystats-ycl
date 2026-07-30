@@ -34,6 +34,23 @@ Vendors won't all use COUNTER's exact vocabulary even when nominally COUNTER-com
 
 This keeps `usage_monthly` consistent across vendors, which is what makes the "by subject category" and "by vendor" dashboard views actually comparable instead of mixing incompatible metrics.
 
+### 3a. Annual eResources bucket crosswalk (for FY tabulation)
+
+Beyond the COUNTER metric-name crosswalk above, once monthly per-database usage is being collected here, it also needs to roll up into the same four buckets tracked by the **Annual eResources** category (`E-Book Circulation`, `E-Audio Circulation`, `E-Video Circulation`, `E-Serials Circulation` — see `Design/design.md`), so a fiscal year of monthly data can be tabulated into the same annual totals that currently come from the manual SC State Annual Report export.
+
+The FY2025-2026 SC State export (`Monthly Stats 2025-2026.xlsx - Annual Stats for SC State.pdf`, loaded via `patch_fy2526_annual_eresources.py`) is the reference for which vendor/product maps to which bucket:
+
+| Annual eResources bucket | Vendor / product |
+|---|---|
+| **E-Book Circulation** | DataAxle / Ref USA, Biblioboard, Hoopla e-books Instant, Hoopla e-books Flex, Hoopla comics, Hoopla Bingepass (comics/ebooks), Overdrive/Libby e-books |
+| **E-Audio Circulation** | Hoopla e-audio Instant, Hoopla e-audio Flex, Hoopla music, Hoopla Bingepass (audio content), Overdrive/Libby e-audio |
+| **E-Video Circulation** | ABC Mouse, Brainfuse, Kanopy, Gale Presents Udemy, Hoopla Bingepass (courses/videos), Hoopla TV, Hoopla Movies, Lote4Kids, Mango Languages, Overdrive/Libby streaming |
+| **E-Serials Circulation** | Infobase: The Mailbox, EBSCO Flipster, Hoopla Bingepass (magazines), Newsbank, Overdrive/Libby magazines, Value Line |
+
+Grand total across all four buckets = "TOTAL USAGE ELECTRONIC" on the SC State export (640,902 for FY2025-2026).
+
+When Monthly eResources (`usage_monthly`) has a full fiscal year of data for these vendors, tabulating the next year's Annual eResources entry means: sum each vendor's FY-to-date usage metric (whichever COUNTER metric corresponds to "checkouts/uses" for that vendor — confirm per-vendor during Step 1 above), group by the bucket each vendor falls into per this table, and write the four bucket totals into an Annual eResources entry (`year` = the fiscal year's ending calendar year, `month=None`, system-wide) — the same shape `patch_fy2526_annual_eresources.py` writes by hand. This replaces the manual PDF-to-form step with a computed rollup once Monthly eResources is live.
+
 ---
 
 ## 4. Step 3 — Confirm Name-Matching Against the `databases` Table

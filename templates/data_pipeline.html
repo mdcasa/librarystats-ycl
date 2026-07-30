@@ -173,6 +173,7 @@
           <div><code>patch_fy2223_programming.py</code> — 22-23 Annual Stats.xls</div>
           <div><code>patch_fy2324_programming.py</code> — 23-24 Annual Stats.xls</div>
           <div><code>import_qrs_fy2526.py</code> — qrsfinal2025.xlsx</div>
+          <div><code>patch_fy2526_annual_eresources.py</code> — SC State Annual Report electronic usage export</div>
         </div>
       </div>
     </div>
@@ -334,7 +335,7 @@
           <span class="pp-pill pp-pill-purple">E-Video Circulation</span>
           <span class="pp-pill pp-pill-purple">E-Serials Circulation</span>
         </div>
-        <div style="margin-top:6px;font-size:.68rem;color:var(--pp-grey);">Manual entry only, once per fiscal year. Intentionally shows "No data" until loaded — visible reminder.</div>
+        <div style="margin-top:6px;font-size:.68rem;color:var(--pp-grey);">Entered once per fiscal year via the normal entry form (Fiscal Year selector, no Month field). System-wide: <code>branch_id=None</code>, not the "YCL (System Wide)" branch row. Feeds eBook/eAudio/eVideo/eSerial Circ on the Director's Dashboard and the digital total in Annual Comparables. Shows "No data" for any fiscal year not yet loaded.</div>
       </div>
     </div>
 
@@ -413,7 +414,7 @@
       <ul class="field-list">
         <li><span class="field-name">id</span><span class="field-type">integer</span><span class="field-pk">PK</span></li>
         <li><span class="field-name">name</span><span class="field-type">string</span></li>
-        <li><span class="field-name">frequency</span><span class="field-type">monthly / quarterly</span></li>
+        <li><span class="field-name">frequency</span><span class="field-type">monthly / quarterly / annual</span></li>
         <li><span class="field-name">has_branch</span><span class="field-type">boolean</span></li>
         <li><span class="field-name">is_active</span><span class="field-type">boolean</span></li>
         <li><span class="field-name">sort_order</span><span class="field-type">integer</span></li>

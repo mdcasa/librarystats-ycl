@@ -33,7 +33,10 @@
 
         {# Year #}
         <div class="col-sm-2">
-          <label class="form-label fw-semibold">Year <span class="text-danger">*</span></label>
+          <label class="form-label fw-semibold">
+            {{ 'Fiscal Year' if category.frequency == 'annual' else 'Year' }}
+            <span class="text-danger">*</span>
+          </label>
           <select name="year" class="form-select" required>
             {% for y in year_range %}
             <option value="{{ y }}"
@@ -42,6 +45,9 @@
               {% endif %}>{{ y }}</option>
             {% endfor %}
           </select>
+          {% if category.frequency == 'annual' %}
+          <div class="form-text">Use the fiscal year's ending calendar year — FY 2025–2026 (Jul 2025–Jun 2026) is entered as <strong>2026</strong>.</div>
+          {% endif %}
         </div>
 
         {# Month (monthly only) #}

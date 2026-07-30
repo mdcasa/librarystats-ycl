@@ -98,10 +98,7 @@ SHEET_BLOCKS = [
         3: 'Data Axle/Reference USA - Searches',
         4: 'Data Axle/Reference USA - Downloads',
     }),
-    ('DigitalLearn', 1, 2, 14, {
-        2: 'DigitalLearn - Sessions',
-        3: 'DigitalLearn - Completed Courses',
-    }),
+    # DigitalLearn removed — not a paid service; stats stopped after Jul 2025
     ('EBSCO Flipster', 1, 2, 14, {
         2: 'EBSCO Flipster - Searches',
         4: 'EBSCO Flipster - Online Views',

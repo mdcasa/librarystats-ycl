@@ -182,9 +182,7 @@ def seed_eresource_databases(db):
         ('Data Axle/Reference USA - Sessions (Logins)', 'Data Axle/Reference USA', None),      # col: Sessions (Logins)
         ('Data Axle/Reference USA - Searches',          'Data Axle/Reference USA', None),      # col: Searches
 
-        # DigitalLearn — sheet 'DigitalLearn'
-        ('DigitalLearn - Sessions',           'DigitalLearn', None),    # col: Sessions
-        ('DigitalLearn - Completed Courses',  'DigitalLearn', None),    # col: Completed Courses
+        # DigitalLearn — removed (not a paid service; stats stopped after Jul 2025)
 
         # EBSCO Flipster — sheet 'EBSCO Flipster'
         ('EBSCO Flipster - Online Views', 'EBSCO Flipster', 'eserial'), # col: Online Views

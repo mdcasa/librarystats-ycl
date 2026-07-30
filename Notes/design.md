@@ -54,7 +54,7 @@ Single shared username/password — no user accounts or roles. Credentials are s
 
 ## Data Model
 
-Six tables:
+Eight tables:
 
 | Table | Purpose |
 |---|---|
@@ -64,6 +64,8 @@ Six tables:
 | `entries` | One record per branch/month(or quarter)/category |
 | `entry_values` | The actual numbers, linked to an Entry and a Metric |
 | `sirsi_checkouts` | Granular ILS checkout data: branch × patron type × shelving location × month |
+| `databases` | Subscription databases tracked for Monthly eResources (EBSCO, Hoopla, Kanopy, etc.) |
+| `usage_monthly` | Monthly usage number per database, linked to a Database |
 
 **Key model fields:**
 - `Entry.month` (1–12) and `Entry.quarter` (1–4) are both nullable — a monthly entry has month set, quarter null, and vice versa
@@ -147,6 +149,36 @@ Single metric: `Total Transactions for the Week` (integer). Branches are the des
 ### eResources (monthly, has_branch=False)
 
 Created by seed but not currently used. Metrics: E-Book Circulation, E-Audio Circulation, E-Video Circulation, E-Serials Circulation.
+
+---
+
+## Monthly eResources (`databases`, `usage_monthly`)
+
+Tracks how much each of YCL's ~90–104 subscription databases (EBSCO, Gale, Hoopla, Kanopy, Mango Languages, etc.) actually gets used, month by month. This is separate from the `eResources` category above, which is four yearly system-wide totals pulled from the SC State Annual Report export — Monthly eResources is one usage number per database per month, hand-collected from each vendor's site.
+
+**Status: schema only.** No import script or UI yet — staff still track this in a spreadsheet. `db.create_all()` picks up these two new tables automatically on next boot; no manual `ALTER TABLE` needed since they're new tables, not new columns on existing ones.
+
+**`EresourceDatabase` (table `databases`):**
+- `name` — unique, e.g. "Hoopla", "Kanopy"
+- `vendor` — optional, for grouping/display
+- `bucket` — optional string (`ebook`, `eaudio`, `evideo`, `eserial`) marking which Annual eResources total this database's usage will eventually roll up into (see "How they'll eventually connect" below). Not enforced or used anywhere yet.
+- `is_active`, `sort_order` — same convention as `Branch`/`Metric`
+
+**`UsageMonthly` (table `usage_monthly`):**
+- `database_id`, `year`, `month` (1–12) — unique together (`uq_usage_monthly_db_period`), so one row per database per month
+- `usage_count` — the number typed in from the vendor's site
+- `notes` — free text
+- Indexed on `(year, month)` for period-based queries, same pattern as `sirsi_checkouts`
+
+**How they'll eventually connect:** Once a full year of monthly numbers exists, summing `usage_count` by `bucket` per year should reproduce the same four totals the `eResources` category tracks — meaning the annual state-survey numbers could eventually be calculated from this data instead of retyped from the export each year. That aggregation isn't built yet.
+
+**Database seed data (`seed_eresource_databases` in `seed_data.py`):** 86 `databases` rows, worked out vendor-by-vendor against the director's monthly tracking workbook (`Monthly Stats 2025-2026.xlsx`, 2026-07-30):
+- 53 rows across 20 single/multi-metric vendors (ABC Mouse, Ask a Librarian, BiblioBoard, Brainfuse, Data Axle/Reference USA, DigitalLearn, EBSCO Flipster, Gale eBooks, Gale Presents Udemy, Infobase: The Mailbox, Kanopy, LibraryAware Newsletters, Lote4Kids, Mango, Newsbank, Salem Press, Tutor.com, Value Line, Weiss Financial Services, and the 3 Proquest products)
+- 9 rows for Hoopla (`vendor='Hoopla'`), split by content type since one vendor tab feeds all four state buckets (eBooks Instant/Flex, Comics → ebook; eAudio Instant/Flex, Music → eaudio; TV, Movies → evideo; BingePasses → unbucketed, since its annual 4-way split is derived by hand from a separate Hoopla report not present in the monthly tab)
+- 5 rows for Overdrive/Libby (`vendor='Overdrive/Libby'`) — eBooks/eAudio/Streaming/Magazines from the Libby side (bucketed), plus a combined Sora - Total (unbucketed)
+- 19 `DISCUS - *` rows (`vendor='DISCUS'`), seeded `is_active=False` — the DISCUS tab in the workbook is entirely blank, so these are placeholders until staff start entering data. Planned metric once populated: Views / Hits.
+
+Each entry's source sheet/column in the workbook is recorded as an inline comment in `seed_eresource_databases` for the eventual import script — that script isn't built yet.
 
 ---
 

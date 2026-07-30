@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, session
-from models import db, Category, Metric, Branch, Entry, EntryValue
+from models import db, Category, Metric, Branch, Entry, EntryValue, EresourceDatabase
 from datetime import datetime
 import hmac
 import os
@@ -44,6 +44,10 @@ with app.app_context():
     if Category.query.count() == 0:
         from seed_data import seed
         seed(db)
+
+    if EresourceDatabase.query.count() == 0:
+        from seed_data import seed_eresource_databases
+        seed_eresource_databases(db)
 
 MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
           'July', 'August', 'September', 'October', 'November', 'December']

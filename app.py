@@ -1333,6 +1333,60 @@ def report_programs_summary():
                            age_buckets=_PROGRAMS_SUMMARY_BUCKETS)
 
 
+@app.route('/dashboards/summer-learning-challenge')
+def slc_dashboard():
+    """Summer Learning Challenge dashboard: every ProgramEvent tagged "Summer Reading"
+    in its internal_categories (Communico's export field for that program), with
+    title/date/branch/attendance plus totals by branch and by age group."""
+    from models import ProgramEvent
+
+    slc_filter = ProgramEvent.internal_categories.ilike('%Summer Reading%')
+
+    available_years = [r[0] for r in db.session.query(ProgramEvent.year)
+                                                 .filter(slc_filter).distinct()
+                                                 .order_by(ProgramEvent.year.desc()).all()]
+    year = request.args.get('year', type=int) or (available_years[0] if available_years else None)
+
+    programs = branch_rows = age_rows = summary = None
+
+    if year:
+        programs = (ProgramEvent.query
+                    .filter(slc_filter, ProgramEvent.year == year)
+                    .filter(ProgramEvent.location_mode != 'STUDY_ROOM')
+                    .order_by(ProgramEvent.event_date, ProgramEvent.title)
+                    .all())
+        summary = {
+            'count':      len(programs),
+            'attendance': sum(p.attendance or 0 for p in programs),
+        }
+
+        branch_totals = {}
+        for p in programs:
+            label = p.branch.name if p.branch else 'Unassigned'
+            row = branch_totals.setdefault(label, {'count': 0, 'attendance': 0})
+            row['count'] += 1
+            row['attendance'] += p.attendance or 0
+        branch_rows = sorted(
+            [{'label': label, **totals} for label, totals in branch_totals.items()],
+            key=lambda r: r['label'])
+
+        AGE_ORDER = ['0-5', '6-11', '12-18', '19+', 'General Interest']
+        age_totals = {}
+        for p in programs:
+            label = p.age_bucket or 'Unspecified'
+            row = age_totals.setdefault(label, {'count': 0, 'attendance': 0})
+            row['count'] += 1
+            row['attendance'] += p.attendance or 0
+        ordered_labels = [b for b in AGE_ORDER if b in age_totals]
+        ordered_labels += sorted(b for b in age_totals if b not in AGE_ORDER)
+        age_rows = [{'label': label, **age_totals[label]} for label in ordered_labels]
+
+    return render_template('slc_dashboard.html',
+                           available_years=available_years, sel_year=year,
+                           programs=programs, summary=summary,
+                           branch_rows=branch_rows, age_rows=age_rows)
+
+
 @app.route('/reports/online')
 def report_online():
     year  = request.args.get('year',  type=int)

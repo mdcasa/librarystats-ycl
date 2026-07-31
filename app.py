@@ -1333,11 +1333,24 @@ def report_programs_summary():
                            age_buckets=_PROGRAMS_SUMMARY_BUCKETS)
 
 
+SLC_AGE_ORDER = ['0-5', '6-11', '12-18', '19+', 'General Interest']
+SLC_AGE_BREAKDOWN_METRICS = ['Take and Makes', 'Passive Programs']
+SLC_BRANCH_ONLY_METRICS = ['Number of Volunteers', 'Volunteer Hours']
+
+
+def _slc_age_metric_name(base_name, age):
+    return f'{base_name} ({age})'
+
+
 @app.route('/dashboards/summer-learning-challenge')
 def slc_dashboard():
     """Summer Learning Challenge dashboard: every ProgramEvent tagged "Summer Reading"
     in its internal_categories (Communico's export field for that program), with
-    title/date/branch/attendance plus totals by branch and by age group."""
+    title/date/branch/attendance plus totals by branch and by age group -- plus Take &
+    Makes / Passive Programs / Volunteers entered via the "Summer Learning Challenge"
+    Enter Data category. Take and Makes / Passive Programs are entered per age bucket
+    (matching the program age groups) and rolled into both the age-group table and a
+    per-branch grand total; Volunteers/Volunteer Hours are branch-only, no age split."""
     from models import ProgramEvent
 
     slc_filter = ProgramEvent.internal_categories.ilike('%Summer Reading%')
@@ -1348,6 +1361,7 @@ def slc_dashboard():
     year = request.args.get('year', type=int) or (available_years[0] if available_years else None)
 
     programs = branch_rows = age_rows = summary = None
+    age_totals = {}
 
     if year:
         programs = (ProgramEvent.query
@@ -1370,52 +1384,71 @@ def slc_dashboard():
             [{'label': label, **totals} for label, totals in branch_totals.items()],
             key=lambda r: r['label'])
 
-        AGE_ORDER = ['0-5', '6-11', '12-18', '19+', 'General Interest']
-        age_totals = {}
         for p in programs:
             label = p.age_bucket or 'Unspecified'
             row = age_totals.setdefault(label, {'count': 0, 'attendance': 0})
             row['count'] += 1
             row['attendance'] += p.attendance or 0
-        ordered_labels = [b for b in AGE_ORDER if b in age_totals]
-        ordered_labels += sorted(b for b in age_totals if b not in AGE_ORDER)
-        age_rows = [{'label': label, **age_totals[label]} for label in ordered_labels]
 
     # Take & Makes / Passive Programs / Volunteers, entered via the "Summer Learning
-    # Challenge" Enter Data category (one annual entry per branch).
-    extra_metrics = ['Take and Makes', 'Passive Programs', 'Number of Volunteers', 'Volunteer Hours']
+    # Challenge" Enter Data category (one annual entry per branch; Take and Makes and
+    # Passive Programs are further split into one metric per age bucket).
     extra_rows = extra_total = None
     slc_cat = Category.query.filter_by(name='Summer Learning Challenge').first()
-    if year:
-        if slc_cat:
-            metric_ids = {m.name: m.id for m in slc_cat.metrics}
-            entries = Entry.query.filter_by(category_id=slc_cat.id, year=year).all()
-            values_by_entry = {}
-            if entries:
-                for ev in EntryValue.query.filter(
-                    EntryValue.entry_id.in_([e.id for e in entries])
-                ).all():
-                    values_by_entry.setdefault(ev.entry_id, {})[ev.metric_id] = ev.value_number or 0
+    if year and slc_cat:
+        metric_by_name = {m.name: m for m in slc_cat.metrics}
+        entries = Entry.query.filter_by(category_id=slc_cat.id, year=year).all()
+        values_by_entry = {}
+        if entries:
+            for ev in EntryValue.query.filter(
+                EntryValue.entry_id.in_([e.id for e in entries])
+            ).all():
+                values_by_entry.setdefault(ev.entry_id, {})[ev.metric_id] = ev.value_number or 0
 
-            extra_by_branch = {}
-            for e in entries:
-                label = e.branch.name if e.branch else 'Unassigned'
-                row = extra_by_branch.setdefault(label, {name: 0 for name in extra_metrics})
-                vals = values_by_entry.get(e.id, {})
-                for name in extra_metrics:
-                    mid = metric_ids.get(name)
-                    if mid is not None:
-                        row[name] += vals.get(mid, 0)
-            extra_rows = sorted(
-                [{'label': label, **totals} for label, totals in extra_by_branch.items()],
-                key=lambda r: r['label'])
-            extra_total = {name: sum(r[name] for r in extra_rows) for name in extra_metrics}
+        branch_metric_cols = SLC_BRANCH_ONLY_METRICS + SLC_AGE_BREAKDOWN_METRICS
+        extra_by_branch = {}
+        for e in entries:
+            label = e.branch.name if e.branch else 'Unassigned'
+            row = extra_by_branch.setdefault(label, {name: 0 for name in branch_metric_cols})
+            vals = values_by_entry.get(e.id, {})
+
+            for name in SLC_BRANCH_ONLY_METRICS:
+                m = metric_by_name.get(name)
+                if m:
+                    row[name] += vals.get(m.id, 0)
+
+            for base_name in SLC_AGE_BREAKDOWN_METRICS:
+                for age in SLC_AGE_ORDER:
+                    m = metric_by_name.get(_slc_age_metric_name(base_name, age))
+                    if not m:
+                        continue
+                    v = vals.get(m.id, 0)
+                    row[base_name] += v
+                    age_row = age_totals.setdefault(age, {'count': 0, 'attendance': 0})
+                    age_row[base_name] = age_row.get(base_name, 0) + v
+
+        extra_rows = sorted(
+            [{'label': label, **totals} for label, totals in extra_by_branch.items()],
+            key=lambda r: r['label'])
+        extra_total = {name: sum(r[name] for r in extra_rows) for name in branch_metric_cols}
+
+    if year:
+        # Every age_totals row (from programs and/or SLC entries) needs all four
+        # columns present so the template can render a uniform table.
+        for row in age_totals.values():
+            for base_name in SLC_AGE_BREAKDOWN_METRICS:
+                row.setdefault(base_name, 0)
+        ordered_labels = [b for b in SLC_AGE_ORDER if b in age_totals]
+        ordered_labels += sorted(b for b in age_totals if b not in SLC_AGE_ORDER)
+        age_rows = [{'label': label, **age_totals[label]} for label in ordered_labels]
 
     return render_template('slc_dashboard.html',
                            available_years=available_years, sel_year=year,
                            programs=programs, summary=summary,
                            branch_rows=branch_rows, age_rows=age_rows,
-                           extra_metrics=extra_metrics, extra_rows=extra_rows, extra_total=extra_total,
+                           age_breakdown_metrics=SLC_AGE_BREAKDOWN_METRICS,
+                           branch_metric_cols=SLC_BRANCH_ONLY_METRICS + SLC_AGE_BREAKDOWN_METRICS,
+                           extra_rows=extra_rows, extra_total=extra_total,
                            slc_category_id=slc_cat.id if slc_cat else None)
 
 

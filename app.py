@@ -1381,10 +1381,42 @@ def slc_dashboard():
         ordered_labels += sorted(b for b in age_totals if b not in AGE_ORDER)
         age_rows = [{'label': label, **age_totals[label]} for label in ordered_labels]
 
+    # Take & Makes / Passive Programs / Volunteers, entered via the "Summer Learning
+    # Challenge" Enter Data category (one annual entry per branch).
+    extra_metrics = ['Take and Makes', 'Passive Programs', 'Number of Volunteers', 'Volunteer Hours']
+    extra_rows = extra_total = None
+    slc_cat = Category.query.filter_by(name='Summer Learning Challenge').first()
+    if year:
+        if slc_cat:
+            metric_ids = {m.name: m.id for m in slc_cat.metrics}
+            entries = Entry.query.filter_by(category_id=slc_cat.id, year=year).all()
+            values_by_entry = {}
+            if entries:
+                for ev in EntryValue.query.filter(
+                    EntryValue.entry_id.in_([e.id for e in entries])
+                ).all():
+                    values_by_entry.setdefault(ev.entry_id, {})[ev.metric_id] = ev.value_number or 0
+
+            extra_by_branch = {}
+            for e in entries:
+                label = e.branch.name if e.branch else 'Unassigned'
+                row = extra_by_branch.setdefault(label, {name: 0 for name in extra_metrics})
+                vals = values_by_entry.get(e.id, {})
+                for name in extra_metrics:
+                    mid = metric_ids.get(name)
+                    if mid is not None:
+                        row[name] += vals.get(mid, 0)
+            extra_rows = sorted(
+                [{'label': label, **totals} for label, totals in extra_by_branch.items()],
+                key=lambda r: r['label'])
+            extra_total = {name: sum(r[name] for r in extra_rows) for name in extra_metrics}
+
     return render_template('slc_dashboard.html',
                            available_years=available_years, sel_year=year,
                            programs=programs, summary=summary,
-                           branch_rows=branch_rows, age_rows=age_rows)
+                           branch_rows=branch_rows, age_rows=age_rows,
+                           extra_metrics=extra_metrics, extra_rows=extra_rows, extra_total=extra_total,
+                           slc_category_id=slc_cat.id if slc_cat else None)
 
 
 @app.route('/reports/online')

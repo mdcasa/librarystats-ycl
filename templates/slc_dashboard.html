@@ -24,6 +24,53 @@
   </div>
 </div>
 
+{% if extra_rows is not none %}
+<div class="card mb-4">
+  <div class="card-header-custom fw-bold d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-hand-thumbs-up me-2 text-primary"></i>Take &amp; Makes, Passive Programs &amp; Volunteers</span>
+    <a href="{{ url_for('entry_create', category_id=slc_category_id) }}" class="btn btn-outline-primary btn-sm d-print-none">
+      <i class="bi bi-plus-lg me-1"></i>Enter Data
+    </a>
+  </div>
+  {% if extra_rows %}
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered mb-0" style="font-size:.88rem">
+      <thead class="table-light">
+        <tr>
+          <th>Branch</th>
+          {% for name in extra_metrics %}
+          <th class="text-center">{{ name }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in extra_rows %}
+        <tr>
+          <td>{{ row.label }}</td>
+          {% for name in extra_metrics %}
+          <td class="text-center">{{ row[name]|int if row[name] == row[name]|int else row[name] }}</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="table-secondary fw-bold">
+        <tr>
+          <td>Grand Total</td>
+          {% for name in extra_metrics %}
+          <td class="text-center">{{ extra_total[name]|int if extra_total[name] == extra_total[name]|int else extra_total[name] }}</td>
+          {% endfor %}
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  {% else %}
+  <div class="card-body">
+    <div class="alert alert-info mb-0">No Take &amp; Makes / Passive Programs / Volunteer data entered yet for {{ sel_year }}.</div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
 {% if programs is not none %}
 {% if programs %}
 <div class="row g-3 mb-4">

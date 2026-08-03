@@ -47,6 +47,21 @@
   <p class="text-muted">{{ fy_label }} &nbsp;·&nbsp; State Library Annual Statistical Report Summary</p>
 </div>
 
+{# ── Extended closure note(s) ── #}
+{% if closure_notes %}
+<div class="alert alert-warning mb-4">
+  <i class="bi bi-exclamation-triangle me-2"></i>
+  {% for c in closure_notes %}
+  <strong>{{ c.branch }}</strong> was closed for an extended period this fiscal year
+  ({{ c.days }} closure days logged, {{ c.start.strftime('%b %d, %Y') }} &ndash; {{ c.end.strftime('%b %d, %Y') }}).
+  {% endfor %}
+  Visit-driven metrics for the affected branch(es) &mdash; Gate Count, WiFi Sessions, PC Reservations, onsite
+  programming, curbside, room use, prints, and hotspot circulation &mdash; are suppressed system-wide as a
+  direct result, not a real decline in usage. Circulation and card registrations continued at reduced levels
+  through the closure.
+</div>
+{% endif %}
+
 {# ── KPI cards ── #}
 <div class="row g-3 mb-4">
   {% set kpis = [

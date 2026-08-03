@@ -2687,6 +2687,7 @@ def director_dashboard():
 
     fy_year = request.args.get('fy_year', type=int)
     stats = None
+    closure_notes = []
 
     if fy_year:
         def fy_filter(cat_name):
@@ -2732,6 +2733,24 @@ def director_dashboard():
         os = fy_filter('Online Stats')
         qs = fy_filter('Quarterly Reference Stats')
         er = fy_filter_annual('Annual eResources')
+
+        # Detect any branch with an extended closure this fiscal year (e.g. a renovation)
+        # so the dashboard can explain otherwise-mysterious drops in visit-driven metrics
+        # (Gate Count, WiFi, PC Reservations, onsite programming, etc.) rather than leaving
+        # them looking like unexplained declines.
+        _closure_fy_start, _closure_fy_end = _fy_date_range(fy_year)
+        closure_notes = []
+        for _cb in _outlet_branches():
+            _closure_q = BranchClosure.query.filter(
+                BranchClosure.branch_id == _cb.id,
+                BranchClosure.closure_date >= _closure_fy_start,
+                BranchClosure.closure_date <= _closure_fy_end,
+            )
+            _count = _closure_q.count()
+            if _count >= 25:
+                _first = _closure_q.order_by(BranchClosure.closure_date.asc()).first().closure_date
+                _last = _closure_q.order_by(BranchClosure.closure_date.desc()).first().closure_date
+                closure_notes.append({'branch': _cb.name, 'days': _count, 'start': _first, 'end': _last})
 
         AGE   = AGE_GROUPS
         TYPES = PROG_TYPES
@@ -2970,7 +2989,7 @@ def director_dashboard():
                            available_fy=available_fy, sel_fy=fy_year,
                            fy_label=f'FY{fy_year} (Jul {fy_year-1} – Jun {fy_year})' if fy_year else None,
                            stats=stats, TYPES=PROG_TYPES,
-                           AGE=AGE_GROUPS)
+                           AGE=AGE_GROUPS, closure_notes=closure_notes)
 
 
 @app.route('/reports/quarterly_ref')

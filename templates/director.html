@@ -75,17 +75,28 @@
   <div class="card-header-custom fw-bold" style="color:#1a5276">
     <i class="bi bi-people me-2"></i>Library Users, Visits &amp; Internet Usage
   </div>
+  <div class="px-3 pt-2">
+    <small class="text-muted fst-italic d-block">
+      <i class="bi bi-info-circle me-1"></i>Registered Users (G1/G2) is a count of all currently active library
+      card holders, generated from a report outside this system — <strong>not tracked in YCLStats</strong>.
+      New card registrations processed each month are tracked here and shown separately below.
+    </small>
+  </div>
   <div class="table-responsive">
     <table class="table table-sm table-bordered mb-0" style="font-size:.88rem">
       <thead class="table-light">
         <tr><th style="width:60px">Code</th><th>Metric</th><th class="text-end" style="width:120px">FY Total</th></tr>
       </thead>
       <tbody>
-        {% for code, label, val in stats.users %}
+        {% for code, label, val, untracked in stats.users %}
         <tr>
           <td class="text-muted">{{ code }}</td>
           <td>{{ label }}</td>
-          <td class="text-end fw-semibold {{ 'text-muted' if not val }}">{{ '{:,}'.format(val|int) if val else '—' }}</td>
+          <td class="text-end fw-semibold {{ 'text-muted' if not val }}">
+            {% if untracked %}<span class="text-muted fst-italic" style="font-size:.8rem">not tracked in YCLStats</span>
+            {% elif val %}{{ '{:,}'.format(val|int) }}
+            {% else %}—{% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>

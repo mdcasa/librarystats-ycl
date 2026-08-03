@@ -2526,12 +2526,14 @@ def director_dashboard():
             'outlet_meeting_rooms': outlet_meeting_rows,
             'outlet_meeting_total': outlet_meeting_total,
             'users': [
-                ('G1',  'Registered Users, Adult',            v(bs, 'New Library Card Registrations, Adult')),
-                ('G2',  'Registered Users, Juvenile',         v(bs, 'New Library Card Registrations, Juvenile')),
-                ('G4',  'Gate Count',                         v(bs, 'Gate Count')),
-                ('G6',  'Public Internet Computer Use',       v(bs, 'PC Reservations')),
-                ('G9',  'WiFi Sessions',                      v(bs, 'WiFi - Unique Sessions')),
-                ('G11', 'Website Visits',                     v(os, 'yclibrary.org - Web Sessions')),
+                ('G1',  'Registered Users, Adult',            None, True),
+                ('G2',  'Registered Users, Juvenile',         None, True),
+                ('G4',  'Gate Count',                         v(bs, 'Gate Count'), False),
+                ('G6',  'Public Internet Computer Use',       v(bs, 'PC Reservations'), False),
+                ('G9',  'WiFi Sessions',                      v(bs, 'WiFi - Unique Sessions'), False),
+                ('G11', 'Website Visits',                     v(os, 'yclibrary.org - Web Sessions'), False),
+                ('',    'New Card Registrations, Adult',      v(bs, 'New Library Card Registrations, Adult'), False),
+                ('',    'New Card Registrations, Juvenile',   v(bs, 'New Library Card Registrations, Juvenile'), False),
             ],
             'circulation': [
                 ('',    'Total Branch Circulation',           v(bs, 'Total Branch Circulation')),
@@ -2629,12 +2631,14 @@ def director_dashboard():
                 ws.cell(hr, col).font = bold
                 ws.cell(hr, col).fill = PatternFill('solid', fgColor='D9E1F2')
             for row in rows:
+                untracked = row[-1] if len(row) > (3 if has_code else 2) else False
+                cell_val = 'not tracked in YCLStats' if untracked else (row[2 if has_code else 1] if row[2 if has_code else 1] is not None else '')
                 if has_code:
-                    code, label, val = row
-                    ws.append([code, label, val if val is not None else ''])
+                    code, label = row[0], row[1]
+                    ws.append([code, label, cell_val])
                 else:
-                    label, val = row
-                    ws.append([label, val if val is not None else ''])
+                    label = row[0]
+                    ws.append([label, cell_val])
             ws.append([])
 
         section('Library Users, Visits & Internet Usage', stats['users'])

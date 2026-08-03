@@ -570,10 +570,20 @@ def entry_create(category_id):
             if notes:
                 entry.notes = notes
 
+            def _display(m, ev):
+                if ev is None:
+                    return None
+                if m.data_type == 'text':
+                    return ev.value_text
+                v = ev.value_number
+                return int(v) if v is not None and v == int(v) else v
+
+            added, updated, cleared = [], [], []
             for m in metrics:
                 raw = request.form.get(f'metric_{m.id}', '').strip()
+                ev = EntryValue.query.filter_by(entry_id=entry.id, metric_id=m.id).first()
+                old_val = _display(m, ev)
                 if raw:
-                    ev = EntryValue.query.filter_by(entry_id=entry.id, metric_id=m.id).first()
                     if not ev:
                         ev = EntryValue(entry_id=entry.id, metric_id=m.id)
                         db.session.add(ev)
@@ -584,6 +594,18 @@ def entry_create(category_id):
                             ev.value_number = float(raw)
                         except ValueError:
                             pass
+                    new_val = _display(m, ev)
+                    if old_val is None:
+                        added.append(f'{m.name}: {new_val}')
+                    elif str(old_val) != str(new_val):
+                        updated.append(f'{m.name}: {old_val} → {new_val}')
+                elif ev is not None:
+                    # A blank field means this submission is the final, authoritative
+                    # record for this branch/period -- clear any prior value rather
+                    # than silently leaving stale data behind. Matches entry_edit()'s
+                    # existing behavior.
+                    cleared.append(f'{m.name} (was {old_val})')
+                    db.session.delete(ev)
 
             if category.name == 'Branch Stats' and entry.branch_id:
                 _save_branch_closures(entry.branch_id, current_user.username)
@@ -592,8 +614,16 @@ def entry_create(category_id):
             if is_new:
                 flash('Entry submitted successfully!', 'success')
             else:
-                flash('An entry already existed for this branch and period — '
-                      'your values were merged into it instead of creating a duplicate.', 'warning')
+                parts = [f'An entry already existed for {entry.period_label} — this submission is now the final record for it.']
+                if updated:
+                    parts.append('Replaced: ' + '; '.join(updated) + '.')
+                if added:
+                    parts.append('Added: ' + '; '.join(added) + '.')
+                if cleared:
+                    parts.append('Cleared (left blank this time): ' + '; '.join(cleared) + '.')
+                if not (updated or added or cleared):
+                    parts.append('No values changed.')
+                flash(' '.join(parts), 'warning')
             return redirect(url_for('entry_view', entry_id=entry.id))
 
     return render_template('entries/form.html',

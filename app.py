@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, session, abort
 from flask_login import LoginManager, login_user, logout_user, current_user
-from models import db, Category, Metric, Branch, Entry, EntryValue, User, QuarterlyRefClosureDays, ImportLog, BranchClosure
+from models import db, Category, Metric, Branch, Entry, EntryValue, User, QuarterlyRefClosureDays, ImportLog, BranchClosure, EresourceDatabase, UsageMonthly
 from sqlalchemy.orm import joinedload
 from sqlalchemy import or_, and_
 from jinja2 import ChoiceLoader, FileSystemLoader
@@ -69,6 +69,10 @@ with app.app_context():
     if Category.query.count() == 0:
         from seed_data import seed
         seed(db)
+
+    if EresourceDatabase.query.count() == 0:
+        from seed_data import seed_eresource_databases
+        seed_eresource_databases(db)
 
     # Ensure 'New Library Card Registrations, Total' exists in Branch Stats
     # (missing from early seed data; the SIRSI importer writes to it)
@@ -1329,6 +1333,125 @@ def report_programs_summary():
                            age_buckets=_PROGRAMS_SUMMARY_BUCKETS)
 
 
+SLC_AGE_ORDER = ['0-5', '6-11', '12-18', '19+', 'General Interest']
+SLC_AGE_BREAKDOWN_METRICS = ['Take and Makes', 'Passive Programs']
+SLC_BRANCH_ONLY_METRICS = ['Number of Volunteers', 'Volunteer Hours']
+
+
+def _slc_age_metric_name(base_name, age):
+    return f'{base_name} ({age})'
+
+
+@app.route('/dashboards/summer-learning-challenge')
+def slc_dashboard():
+    """Summer Learning Challenge dashboard: every ProgramEvent tagged "Summer Reading"
+    in its internal_categories (Communico's export field for that program), with
+    title/date/branch/attendance plus totals by branch and by age group -- plus Take &
+    Makes / Passive Programs / Volunteers entered via the "Summer Learning Challenge"
+    Enter Data category. Take and Makes / Passive Programs are entered per age bucket
+    (matching the program age groups) and rolled into both the age-group table and a
+    per-branch grand total; Volunteers/Volunteer Hours are branch-only, no age split."""
+    from models import ProgramEvent
+
+    slc_filter = ProgramEvent.internal_categories.ilike('%Summer Reading%')
+
+    available_years = [r[0] for r in db.session.query(ProgramEvent.year)
+                                                 .filter(slc_filter).distinct()
+                                                 .order_by(ProgramEvent.year.desc()).all()]
+    year = request.args.get('year', type=int) or (available_years[0] if available_years else None)
+
+    programs = branch_rows = age_rows = summary = None
+    age_totals = {}
+
+    if year:
+        programs = (ProgramEvent.query
+                    .filter(slc_filter, ProgramEvent.year == year)
+                    .filter(ProgramEvent.location_mode != 'STUDY_ROOM')
+                    .order_by(ProgramEvent.event_date, ProgramEvent.title)
+                    .all())
+        summary = {
+            'count':      len(programs),
+            'attendance': sum(p.attendance or 0 for p in programs),
+        }
+
+        branch_totals = {}
+        for p in programs:
+            label = p.branch.name if p.branch else 'Unassigned'
+            row = branch_totals.setdefault(label, {'count': 0, 'attendance': 0})
+            row['count'] += 1
+            row['attendance'] += p.attendance or 0
+        branch_rows = sorted(
+            [{'label': label, **totals} for label, totals in branch_totals.items()],
+            key=lambda r: r['label'])
+
+        for p in programs:
+            label = p.age_bucket or 'Unspecified'
+            row = age_totals.setdefault(label, {'count': 0, 'attendance': 0})
+            row['count'] += 1
+            row['attendance'] += p.attendance or 0
+
+    # Take & Makes / Passive Programs / Volunteers, entered via the "Summer Learning
+    # Challenge" Enter Data category (one annual entry per branch; Take and Makes and
+    # Passive Programs are further split into one metric per age bucket).
+    extra_rows = extra_total = None
+    slc_cat = Category.query.filter_by(name='Summer Learning Challenge').first()
+    if year and slc_cat:
+        metric_by_name = {m.name: m for m in slc_cat.metrics}
+        entries = Entry.query.filter_by(category_id=slc_cat.id, year=year).all()
+        values_by_entry = {}
+        if entries:
+            for ev in EntryValue.query.filter(
+                EntryValue.entry_id.in_([e.id for e in entries])
+            ).all():
+                values_by_entry.setdefault(ev.entry_id, {})[ev.metric_id] = ev.value_number or 0
+
+        branch_metric_cols = SLC_BRANCH_ONLY_METRICS + SLC_AGE_BREAKDOWN_METRICS
+        extra_by_branch = {}
+        for e in entries:
+            label = e.branch.name if e.branch else 'Unassigned'
+            row = extra_by_branch.setdefault(label, {name: 0 for name in branch_metric_cols})
+            vals = values_by_entry.get(e.id, {})
+
+            for name in SLC_BRANCH_ONLY_METRICS:
+                m = metric_by_name.get(name)
+                if m:
+                    row[name] += vals.get(m.id, 0)
+
+            for base_name in SLC_AGE_BREAKDOWN_METRICS:
+                for age in SLC_AGE_ORDER:
+                    m = metric_by_name.get(_slc_age_metric_name(base_name, age))
+                    if not m:
+                        continue
+                    v = vals.get(m.id, 0)
+                    row[base_name] += v
+                    age_row = age_totals.setdefault(age, {'count': 0, 'attendance': 0})
+                    age_row[base_name] = age_row.get(base_name, 0) + v
+
+        extra_rows = sorted(
+            [{'label': label, **totals} for label, totals in extra_by_branch.items()],
+            key=lambda r: r['label'])
+        extra_total = {name: sum(r[name] for r in extra_rows) for name in branch_metric_cols}
+
+    if year:
+        # Every age_totals row (from programs and/or SLC entries) needs all four
+        # columns present so the template can render a uniform table.
+        for row in age_totals.values():
+            for base_name in SLC_AGE_BREAKDOWN_METRICS:
+                row.setdefault(base_name, 0)
+        ordered_labels = [b for b in SLC_AGE_ORDER if b in age_totals]
+        ordered_labels += sorted(b for b in age_totals if b not in SLC_AGE_ORDER)
+        age_rows = [{'label': label, **age_totals[label]} for label in ordered_labels]
+
+    return render_template('slc_dashboard.html',
+                           available_years=available_years, sel_year=year,
+                           programs=programs, summary=summary,
+                           branch_rows=branch_rows, age_rows=age_rows,
+                           age_breakdown_metrics=SLC_AGE_BREAKDOWN_METRICS,
+                           branch_metric_cols=SLC_BRANCH_ONLY_METRICS + SLC_AGE_BREAKDOWN_METRICS,
+                           extra_rows=extra_rows, extra_total=extra_total,
+                           slc_category_id=slc_cat.id if slc_cat else None)
+
+
 @app.route('/reports/online')
 def report_online():
     year  = request.args.get('year',  type=int)
@@ -1368,6 +1491,135 @@ def report_online():
                            sel_year=year, sel_month=month, stats=stats,
                            stats_by_id={s['metric'].id: s for s in stats} if stats else {},
                            groups=groups)
+
+
+ERES_BUCKET_LABELS = [
+    ('ebook',   'E-Books',   'bi-book',           '#1a5276'),
+    ('eaudio',  'E-Audio',   'bi-headphones',     '#1e8449'),
+    ('evideo',  'E-Video',   'bi-play-circle',    '#6c3483'),
+    ('eserial', 'E-Serials', 'bi-newspaper',      '#922b21'),
+]
+ERES_MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+ERES_FY_MONTHS = list(range(7, 13)) + list(range(1, 7))
+
+
+def _eresources_available_fy():
+    fy_set = set()
+    for (y, m) in db.session.query(UsageMonthly.year, UsageMonthly.month).distinct():
+        fy_set.add(y + 1 if m >= 7 else y)
+    return sorted(fy_set, reverse=True)
+
+
+def _eresources_bucket_totals(fy_year):
+    """FY totals per Annual eResources bucket, from active databases' usage_monthly rows."""
+    usage_rows = (UsageMonthly.query
+                  .join(EresourceDatabase)
+                  .filter(EresourceDatabase.is_active == True)
+                  .filter(or_(
+                      and_(UsageMonthly.year == fy_year - 1, UsageMonthly.month >= 7),
+                      and_(UsageMonthly.year == fy_year,     UsageMonthly.month <= 6),
+                  ))
+                  .all())
+    totals = {code: 0 for code, *_ in ERES_BUCKET_LABELS}
+    for u in usage_rows:
+        if u.usage_count is not None and u.database.bucket in totals:
+            totals[u.database.bucket] += u.usage_count
+    return totals
+
+
+@app.route('/reports/eresources/overview')
+def report_eresources_overview():
+    """Monthly eResources landing page — snapshot + links out to the full
+    usage report and Annual eResources for context."""
+    available_fy = _eresources_available_fy()
+    latest_fy = available_fy[0] if available_fy else None
+    bucket_totals = _eresources_bucket_totals(latest_fy) if latest_fy else None
+    fy_label = f'FY{latest_fy}  (Jul {latest_fy - 1} – Jun {latest_fy})' if latest_fy else None
+
+    # Data status: most recent (year, month) with any usage row, and which
+    # active databases are missing a value for it.
+    latest_period = (db.session.query(UsageMonthly.year, UsageMonthly.month)
+                     .order_by(UsageMonthly.year.desc(), UsageMonthly.month.desc())
+                     .first())
+    latest_period_label = missing_count = reported_count = total_active = None
+    missing_databases = []
+
+    if latest_period:
+        ly, lm = latest_period
+        latest_period_label = f'{ERES_MONTH_ABBR[lm - 1]} {ly}'
+        active_dbs = (EresourceDatabase.query
+                     .filter_by(is_active=True)
+                     .order_by(EresourceDatabase.sort_order).all())
+        total_active = len(active_dbs)
+        reported_ids = {row.database_id for row in
+                        UsageMonthly.query.filter_by(year=ly, month=lm)
+                                          .filter(UsageMonthly.usage_count.isnot(None)).all()}
+        reported_count = len(reported_ids)
+        missing_databases = [d for d in active_dbs if d.id not in reported_ids]
+        missing_count = len(missing_databases)
+
+    return render_template('reports/eresources_overview.html',
+                           available_fy=available_fy, latest_fy=latest_fy, fy_label=fy_label,
+                           bucket_labels=ERES_BUCKET_LABELS, bucket_totals=bucket_totals,
+                           latest_period_label=latest_period_label,
+                           total_active=total_active, reported_count=reported_count,
+                           missing_count=missing_count, missing_databases=missing_databases)
+
+
+@app.route('/reports/eresources')
+def report_eresources():
+    """Monthly eResources usage — per-vendor database usage rolled up to the
+    same four Annual eResources buckets. See CLAUDE.md for how Monthly and
+    Annual eResources differ; this report reads usage_monthly, not Entry."""
+    fy_year = request.args.get('fy_year', type=int)
+
+    available_fy = _eresources_available_fy()
+
+    if not fy_year and available_fy:
+        fy_year = available_fy[0]
+
+    bucket_totals = vendor_groups = fy_label = None
+
+    if fy_year:
+        fy_label = f'FY{fy_year}  (Jul {fy_year - 1} – Jun {fy_year})'
+
+        usage_rows = (UsageMonthly.query
+                      .join(EresourceDatabase)
+                      .filter(EresourceDatabase.is_active == True)
+                      .filter(or_(
+                          and_(UsageMonthly.year == fy_year - 1, UsageMonthly.month >= 7),
+                          and_(UsageMonthly.year == fy_year,     UsageMonthly.month <= 6),
+                      ))
+                      .all())
+
+        bucket_totals = {code: 0 for code, *_ in ERES_BUCKET_LABELS}
+        by_db = {}  # database_id -> {'database': .., 'months': {month: val}, 'total': val}
+        for u in usage_rows:
+            if u.usage_count is None:
+                continue
+            if u.database.bucket in bucket_totals:
+                bucket_totals[u.database.bucket] += u.usage_count
+            entry = by_db.setdefault(u.database_id,
+                                     {'database': u.database, 'months': {}, 'total': 0})
+            entry['months'][u.month] = u.usage_count
+            entry['total'] += u.usage_count
+
+        vendor_map = {}
+        for entry in by_db.values():
+            vendor_map.setdefault(entry['database'].vendor or '(No vendor)', []).append(entry)
+
+        vendor_groups = []
+        for vendor, rows in vendor_map.items():
+            rows.sort(key=lambda e: e['database'].sort_order)
+            vendor_groups.append({'vendor': vendor, 'rows': rows,
+                                  'total': sum(r['total'] for r in rows)})
+        vendor_groups.sort(key=lambda g: g['vendor'])
+
+    return render_template('reports/eresources.html',
+                           available_fy=available_fy, sel_fy=fy_year, fy_label=fy_label,
+                           bucket_labels=ERES_BUCKET_LABELS, bucket_totals=bucket_totals,
+                           vendor_groups=vendor_groups,
+                           fy_months=ERES_FY_MONTHS, month_abbr=ERES_MONTH_ABBR)
 
 
 @app.route('/reports/yearoveryear')

@@ -2,10 +2,30 @@
 
 **Project:** yclstats.org — Database usage tracking module, referred to elsewhere in the app/docs as **"Monthly eResources"**
 **Author:** Martin (Assistant Director, York County Library), drafted with Claude
-**Status:** Draft for implementation
+**Status:** Phase 1 (manual ingestion) implemented; SUSHI harvester (Section 5) and manual upload UI (Section 6a) still to build
 **Stack:** Railway (hosting + scheduled jobs) + Supabase (Postgres + storage)
 
-> **Not to be confused with "Annual eResources"** — the existing DB category (E-Book/E-Audio/E-Video/E-Serials Circulation, entered once a year) documented in `Design/design.md`. This document covers a separate, monthly, per-database vendor usage dataset (COUNTER/SUSHI) that does not exist in the schema yet.
+> **Not to be confused with "Annual eResources"** — the existing DB category (E-Book/E-Audio/E-Video/E-Serials Circulation, entered once a year) documented in `Design/design.md`. This document covers a separate, monthly, per-database vendor usage dataset (COUNTER/SUSHI) — see "Implementation Notes" below for what's actually built vs. this original design.
+
+---
+
+## Implementation Notes (added after Phase 1 build)
+
+The `databases`/`usage_monthly` tables are implemented in `models.py`, but **not exactly as specified in Section 4 below** — the differences, and why:
+
+- **Integer primary keys, not UUIDs.** Every other table in this codebase uses plain auto-incrementing integers (see `SirsiCheckout`, `Entry`, etc.) — matching that convention rather than introducing UUIDs as a one-off.
+- **No `metric` column on `usage_monthly`.** Instead, each vendor/metric combination is its own row in `databases` (e.g. "Hoopla - eBooks Instant", "Hoopla - Comics" are separate database rows, not one "Hoopla" row with multiple metrics). This is simpler and was faster to ship given data collection is 100% manual right now — no COUNTER/SUSHI JSON to normalize yet. **If/when the SUSHI harvester (Section 5) gets built**, this will likely need revisiting, since one COUNTER DR response returns multiple metrics per database in a single call, which fits the original `metric`-column design much better.
+- **No `harvest_log` table yet** — not needed until Section 5's harvester exists.
+- **No `sushi_*` credential columns, `subject_categories`, `data_method`, or `raw_payload`** — all deferred until SUSHI work actually starts.
+- **89 databases seeded** (`seed_eresource_databases()` in `seed_data.py`), not the ~104 from the inventory spreadsheet — seeded from the director's actual monthly tracking workbook (`Monthly Stats 2025-2026.xlsx`) instead, vendor-by-vendor, since that's the real data source in hand. 19 DISCUS entries are seeded `is_active=False` placeholders (that tab was blank in the workbook).
+- **`import_eresources.py`** is the "Step (b) — a script" manual ingestion path called for in Section 6 — reads the tracking workbook directly (each vendor tab has its own row/column layout) and upserts `usage_monthly`. Verified against FY2025-2026 data: 809 rows imported, matches the "Annual Stats for SC State" bucket totals in `patch_fy2526_annual_eresources.py` to within rounding, with one known exception (see below).
+- **New `/reports/eresources` report** (not in the original design) — FY selector, the four bucket totals, and a per-vendor monthly usage table. Linked from the "All Reports" page.
+
+**Known data discrepancy — Hoopla BingePass (Comics & eBooks):** the monthly tracking workbook's own Bingepass breakdown table sums to **200** for FY2025-2026, but the "Annual Stats for SC State" export (loaded via `patch_fy2526_annual_eresources.py`) uses **14** for this same line. The other three Bingepass columns (audio, courses/videos, magazines) reconcile exactly between the two sources — only this one doesn't. `import_eresources.py` currently loads the monthly workbook's number (200) as-is; nobody has resolved which figure is correct. Until that's settled, the E-Books bucket total on `/reports/eresources` will read 186 higher (227,672) than the official state-reported total (227,486).
+
+Also fixed during Phase 1 build: the ABC Mouse sheet's own footer note says "For State Report, report Learning Activities," which is wrong — Learning Activities totals 41,555 (far more than the entire E-Video bucket target of 31,483), while Visits totals 4,793, which exactly matches the Annual Stats export. `databases`/`import_eresources.py` use Visits for the `evideo` bucket, not Learning Activities, contradicting the sheet's own (incorrect) instructions.
+
+---
 
 ---
 

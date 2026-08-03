@@ -366,6 +366,46 @@ class ImportLog(db.Model):
         return self.undone_at is None and self.changes_json is not None
 
 
+class EresourceDatabase(db.Model):
+    """A subscription database staff log monthly usage for (EBSCO, Hoopla, Kanopy, etc.).
+
+    Part of Monthly eResources — see CLAUDE.md and eResources/ for how this
+    differs from the Annual eResources category (Category/Metric/Entry-based,
+    reported once a year). Monthly eResources has its own tables since the
+    data has a different shape: one usage number per database per month.
+    """
+    __tablename__ = 'databases'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), unique=True, nullable=False)
+    vendor = db.Column(db.String(200))
+    # Which Annual eResources bucket this database's usage rolls up into —
+    # see eResources/YCL-Vendor-Data-Onboarding-Plan.md §3a for the crosswalk.
+    bucket = db.Column(db.String(20))  # ebook, eaudio, evideo, eserial
+    is_active = db.Column(db.Boolean, default=True)
+    sort_order = db.Column(db.Integer, default=0)
+
+    usage = db.relationship('UsageMonthly', back_populates='database',
+                             cascade='all, delete-orphan')
+
+
+class UsageMonthly(db.Model):
+    """One row per database per month: the hand-entered usage number from the vendor's site."""
+    __tablename__ = 'usage_monthly'
+    id = db.Column(db.Integer, primary_key=True)
+    database_id = db.Column(db.Integer, db.ForeignKey('databases.id'), nullable=False)
+    year = db.Column(db.Integer, nullable=False)
+    month = db.Column(db.Integer, nullable=False)  # 1–12
+    usage_count = db.Column(db.Integer, nullable=True)
+    notes = db.Column(db.Text)
+
+    database = db.relationship('EresourceDatabase', back_populates='usage')
+
+    __table_args__ = (
+        db.UniqueConstraint('database_id', 'year', 'month', name='uq_usage_monthly_db_period'),
+        db.Index('ix_usage_monthly_period', 'year', 'month'),
+    )
+
+
 class EntryValue(db.Model):
     __tablename__ = 'entry_values'
     id = db.Column(db.Integer, primary_key=True)

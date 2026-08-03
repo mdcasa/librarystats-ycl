@@ -1,0 +1,95 @@
+{% extends 'base.html' %}
+{% block title %}Monthly eResources – Reports{% endblock %}
+{% block content %}
+<h1 class="h4 fw-bold mb-4"><i class="bi bi-cloud-arrow-down me-2 text-secondary"></i>Monthly eResources</h1>
+
+<div class="card mb-4 d-print-none">
+  <div class="card-body py-3">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-sm-4">
+        <label class="sidebar-label mb-1">Fiscal Year</label>
+        <select name="fy_year" class="form-select form-select-sm" required>
+          <option value="">— select —</option>
+          {% for fy in available_fy %}
+          <option value="{{ fy }}" {% if sel_fy == fy %}selected{% endif %}>
+            FY{{ fy }} &nbsp;(Jul {{ fy - 1 }} – Jun {{ fy }})
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-primary btn-sm">Run Report</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if not available_fy %}
+<div class="alert alert-info">No Monthly eResources usage has been imported yet. See <code>import_eresources.py</code>.</div>
+{% elif vendor_groups is not none %}
+
+<p class="text-muted mb-3">{{ fy_label }} &nbsp;·&nbsp; Monthly usage per vendor database. Bucket totals below roll up to the same four figures reported on the SC State Annual Report (Annual eResources).</p>
+
+{# ── Bucket KPI cards ── #}
+<div class="row g-3 mb-4">
+  {% for code, label, icon, color in bucket_labels %}
+  <div class="col-6 col-md-3">
+    <div class="card text-center h-100" style="border-top:4px solid {{ color }}">
+      <div class="card-body py-3">
+        <i class="bi {{ icon }} fs-4 mb-1" style="color:{{ color }}"></i>
+        <div class="fw-bold fs-5">{{ '{:,}'.format(bucket_totals[code]) }}</div>
+        <div class="text-muted" style="font-size:.75rem">{{ label }} Circulation</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% if vendor_groups %}
+{% for group in vendor_groups %}
+<div class="card mb-3">
+  <div class="card-header-custom d-flex justify-content-between align-items-center">
+    <span class="fw-semibold">{{ group.vendor }}</span>
+    <span class="text-muted small">FY Total: <strong>{{ '{:,}'.format(group.total) }}</strong></span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm mb-0 align-middle" style="font-size:.82rem">
+      <thead class="table-light">
+        <tr>
+          <th style="min-width:220px">Database / Metric</th>
+          <th style="width:70px">Bucket</th>
+          {% for m in fy_months %}
+          <th class="text-end" style="width:56px">{{ month_abbr[m-1] }}</th>
+          {% endfor %}
+          <th class="text-end fw-bold" style="width:80px">FY Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in group.rows %}
+        <tr>
+          <td>{{ row.database.name }}</td>
+          <td>
+            {% if row.database.bucket %}
+            <span class="badge bg-secondary badge-freq">{{ row.database.bucket }}</span>
+            {% else %}
+            <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          {% for m in fy_months %}
+          {% set v = row.months.get(m) %}
+          <td class="text-end {{ 'text-muted' if v is none }}">{{ '{:,}'.format(v) if v is not none else '—' }}</td>
+          {% endfor %}
+          <td class="text-end fw-semibold">{{ '{:,}'.format(row.total) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endfor %}
+{% else %}
+<div class="alert alert-info">No eResources usage data found for {{ fy_label }}.</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}

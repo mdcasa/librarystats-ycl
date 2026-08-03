@@ -1,0 +1,214 @@
+{% extends 'base.html' %}
+{% block title %}Summer Learning Challenge Dashboard{% endblock %}
+
+{% block content %}
+<h1 class="h4 fw-bold mb-1"><i class="bi bi-sun me-2 text-warning"></i>Summer Learning Challenge</h1>
+<p class="text-muted mb-4">Every program tagged "Summer Reading" in the program data, by year.</p>
+
+<div class="card mb-4 d-print-none">
+  <div class="card-body py-3">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-sm-4">
+        <label class="sidebar-label mb-1">Year</label>
+        <select name="year" class="form-select form-select-sm" required>
+          <option value="">— select —</option>
+          {% for y in available_years %}
+          <option value="{{ y }}" {% if sel_year == y %}selected{% endif %}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-3">
+        <button class="btn btn-primary btn-sm">Run Report</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if extra_rows is not none %}
+<div class="card mb-4">
+  <div class="card-header-custom fw-bold d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-hand-thumbs-up me-2 text-primary"></i>Take &amp; Makes, Passive Programs &amp; Volunteers</span>
+    <a href="{{ url_for('entry_create', category_id=slc_category_id) }}" class="btn btn-outline-primary btn-sm d-print-none">
+      <i class="bi bi-plus-lg me-1"></i>Enter Data
+    </a>
+  </div>
+  {% if extra_rows %}
+  <p class="text-muted small px-3 pt-2 mb-0">Take and Makes and Passive Programs are entered by age group — see the age breakdown below for that detail; totals here are per-branch across all ages.</p>
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered mb-0" style="font-size:.88rem">
+      <thead class="table-light">
+        <tr>
+          <th>Branch</th>
+          {% for name in branch_metric_cols %}
+          <th class="text-center">{{ name }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in extra_rows %}
+        <tr>
+          <td>{{ row.label }}</td>
+          {% for name in branch_metric_cols %}
+          <td class="text-center">{{ row[name]|int if row[name] == row[name]|int else row[name] }}</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="table-secondary fw-bold">
+        <tr>
+          <td>Grand Total</td>
+          {% for name in branch_metric_cols %}
+          <td class="text-center">{{ extra_total[name]|int if extra_total[name] == extra_total[name]|int else extra_total[name] }}</td>
+          {% endfor %}
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  {% else %}
+  <div class="card-body">
+    <div class="alert alert-info mb-0">No Take &amp; Makes / Passive Programs / Volunteer data entered yet for {{ sel_year }}.</div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if age_rows %}
+<div class="card mb-4">
+  <div class="card-header-custom fw-bold">
+    <i class="bi bi-people me-2 text-primary"></i>By Age Group
+  </div>
+  <p class="text-muted small px-3 pt-2 mb-0">Programs/Attendance come from the program data; Take and Makes and Passive Programs come from the counts entered above.</p>
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered mb-0" style="font-size:.88rem">
+      <thead class="table-light">
+        <tr>
+          <th>Age Group</th>
+          <th class="text-center">Programs</th>
+          <th class="text-center">Attendance</th>
+          {% for name in age_breakdown_metrics %}
+          <th class="text-center">{{ name }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in age_rows %}
+        <tr>
+          <td>{{ row.label }}</td>
+          <td class="text-center">{{ row.count }}</td>
+          <td class="text-center">{{ row.attendance }}</td>
+          {% for name in age_breakdown_metrics %}
+          <td class="text-center">{{ row[name]|int if row[name] == row[name]|int else row[name] }}</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="table-secondary fw-bold">
+        <tr>
+          <td>Total</td>
+          <td class="text-center">{{ age_rows|sum(attribute='count') }}</td>
+          <td class="text-center">{{ age_rows|sum(attribute='attendance') }}</td>
+          {% for name in age_breakdown_metrics %}
+          {% set col_total = age_rows|sum(attribute=name) %}
+          <td class="text-center">{{ col_total|int if col_total == col_total|int else col_total }}</td>
+          {% endfor %}
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if programs is not none %}
+{% if programs %}
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-body text-center">
+        <div class="display-6 fw-bold text-primary">{{ summary.count }}</div>
+        <div class="text-muted small">Programs</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-body text-center">
+        <div class="display-6 fw-bold text-success">{{ summary.attendance }}</div>
+        <div class="text-muted small">Total Attendance</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header-custom fw-bold">
+    <i class="bi bi-building me-2 text-primary"></i>By Branch
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered mb-0" style="font-size:.88rem">
+      <thead class="table-light">
+        <tr><th>Branch</th><th class="text-center">Programs</th><th class="text-center">Attendance</th></tr>
+      </thead>
+      <tbody>
+        {% for row in branch_rows %}
+        <tr>
+          <td>{{ row.label }}</td>
+          <td class="text-center">{{ row.count }}</td>
+          <td class="text-center">{{ row.attendance }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="table-secondary fw-bold">
+        <tr>
+          <td>Total</td>
+          <td class="text-center">{{ summary.count }}</td>
+          <td class="text-center">{{ summary.attendance }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header-custom fw-bold">
+    <i class="bi bi-calendar-event me-2 text-primary"></i>All Programs
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered mb-0 align-middle" style="font-size:.88rem">
+      <thead class="table-light">
+        <tr>
+          <th>Date</th>
+          <th>Title</th>
+          <th>Branch</th>
+          <th>Age Group</th>
+          <th class="text-center">Attendance</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in programs %}
+        <tr>
+          <td class="text-nowrap">{{ p.event_date.strftime('%m/%d/%Y') if p.event_date else '—' }}</td>
+          <td>{{ p.title or '—' }}</td>
+          <td>{{ p.branch.name if p.branch else '—' }}</td>
+          <td>{{ p.age_group_raw or '—' }}</td>
+          <td class="text-center">
+            {{ p.attendance }}{% if p.attendance_is_estimate %} <span class="text-muted" title="Expected attendance — no actual count recorded">(est.)</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="table-secondary">
+        <tr>
+          <td colspan="4" class="fw-bold text-end">Total</td>
+          <td class="text-center fw-bold">{{ summary.attendance }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="alert alert-info">No Summer Learning Challenge programs found for this year.</div>
+{% endif %}
+{% elif sel_year %}
+<div class="alert alert-info">No Summer Learning Challenge programs found for this year.</div>
+{% endif %}
+{% endblock %}

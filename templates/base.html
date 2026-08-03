@@ -98,10 +98,12 @@
 {% set ep = request.endpoint or '' %}
 {% set _enter   = ['ill_entry','icl_entry','entry_create','entry_edit','entry_delete'] %}
 {% set _data    = ['upload_data','entries_list','entry_view'] %}
-{% set _dash    = ['director_dashboard','annual_survey_dashboard','annual_survey_enter','annual_survey_calculate'] %}
+{% set _dash    = ['director_dashboard','annual_survey_dashboard','annual_survey_enter','annual_survey_calculate',
+                   'slc_dashboard'] %}
 {% set _reports = ['report_monthly_stats','report_monthly','report_fiscal','report_trend',
                    'report_yoy','report_quarterly_ref','report_online','report_overview','report_impact',
-                   'report_branch_summary','report_category_landing'] %}
+                   'report_branch_summary','report_category_landing',
+                   'report_eresources_overview','report_eresources'] %}
 {% set _admin   = ['admin_categories','admin_category_edit','admin_branches',
                    'admin_import','admin_export','admin_metric_edit',
                    'admin_users','admin_user_new','admin_user_edit',
@@ -198,6 +200,10 @@
                    href="{{ url_for('annual_survey_dashboard') }}">
               <i class="bi bi-bar-chart-steps me-2 text-primary"></i>Annual Survey
             </a></li>
+            <li><a class="dropdown-item {% if ep == 'slc_dashboard' %}active{% endif %}"
+                   href="{{ url_for('slc_dashboard') }}">
+              <i class="bi bi-sun me-2 text-primary"></i>Summer Learning Challenge
+            </a></li>
           </ul>
         </li>
 
@@ -226,6 +232,10 @@
             <li><a class="dropdown-item {% if ep == 'report_category_landing' and request.view_args and request.view_args.slug == 'eresources' %}active{% endif %}"
                    href="{{ url_for('report_category_landing', slug='eresources') }}">
               <i class="bi bi-book me-2 text-primary"></i>Annual eResources
+            </a></li>
+            <li><a class="dropdown-item {% if ep in ('report_eresources_overview', 'report_eresources') %}active{% endif %}"
+                   href="{{ url_for('report_eresources_overview') }}">
+              <i class="bi bi-cloud-arrow-down me-2" style="color:#117a65"></i>Monthly eResources
             </a></li>
             <li><hr class="dropdown-divider"></li>
             <li><a class="dropdown-item {% if ep == 'reports_index' %}active{% endif %}"

@@ -41,6 +41,22 @@ def load_user(user_id):
 with app.app_context():
     db.create_all()
 
+    # Migrate: enforce one Entry per (category, branch, year, month, quarter).
+    # COALESCE makes the constraint NULL-safe (Postgres otherwise treats NULLs
+    # as distinct, so system-wide/annual entries wouldn't be protected).
+    # Guards against the exact bug fixed 2026-08: the manual entry form used to
+    # always INSERT a new Entry instead of finding the existing one for that
+    # period, silently creating duplicate rows whose values got double-counted
+    # in every report that sums Entry.values across a fiscal year.
+    try:
+        db.session.execute(db.text(
+            'CREATE UNIQUE INDEX ux_entries_period ON entries '
+            '(category_id, COALESCE(branch_id, -1), year, COALESCE(month, -1), COALESCE(quarter, -1))'
+        ))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
     # Migrate: add is_desk column if it doesn't exist yet
     try:
         db.session.execute(db.text(
@@ -529,22 +545,38 @@ def entry_create(category_id):
         if not year:
             flash('Year is required.', 'danger')
         else:
-            entry = Entry(
-                category_id=category_id,
-                branch_id=request.form.get('branch_id', type=int) or None,
-                year=year,
-                month=request.form.get('month', type=int) or None,
-                quarter=request.form.get('quarter', type=int) or None,
-                submitted_by=current_user.username,
-                notes=request.form.get('notes', '').strip(),
-            )
-            db.session.add(entry)
-            db.session.flush()
+            branch_id = request.form.get('branch_id', type=int) or None
+            month = request.form.get('month', type=int) or None
+            quarter = request.form.get('quarter', type=int) or None
+
+            # Find-or-create: an entry already covering this exact period must be
+            # reused, never duplicated. (Previously this always inserted a new
+            # Entry, so resubmitting -- or picking the wrong branch twice -- created
+            # a second row whose values got double-counted in every report that
+            # sums Entry.values for a fiscal year.)
+            entry = Entry.query.filter_by(
+                category_id=category_id, branch_id=branch_id, year=year,
+                month=month, quarter=quarter,
+            ).first()
+            is_new = entry is None
+            if is_new:
+                entry = Entry(category_id=category_id, branch_id=branch_id,
+                              year=year, month=month, quarter=quarter)
+                db.session.add(entry)
+                db.session.flush()
+
+            entry.submitted_by = current_user.username
+            notes = request.form.get('notes', '').strip()
+            if notes:
+                entry.notes = notes
 
             for m in metrics:
                 raw = request.form.get(f'metric_{m.id}', '').strip()
                 if raw:
-                    ev = EntryValue(entry_id=entry.id, metric_id=m.id)
+                    ev = EntryValue.query.filter_by(entry_id=entry.id, metric_id=m.id).first()
+                    if not ev:
+                        ev = EntryValue(entry_id=entry.id, metric_id=m.id)
+                        db.session.add(ev)
                     if m.data_type == 'text':
                         ev.value_text = raw
                     else:
@@ -552,13 +584,16 @@ def entry_create(category_id):
                             ev.value_number = float(raw)
                         except ValueError:
                             pass
-                    db.session.add(ev)
 
             if category.name == 'Branch Stats' and entry.branch_id:
                 _save_branch_closures(entry.branch_id, current_user.username)
 
             db.session.commit()
-            flash('Entry submitted successfully!', 'success')
+            if is_new:
+                flash('Entry submitted successfully!', 'success')
+            else:
+                flash('An entry already existed for this branch and period — '
+                      'your values were merged into it instead of creating a duplicate.', 'warning')
             return redirect(url_for('entry_view', entry_id=entry.id))
 
     return render_template('entries/form.html',

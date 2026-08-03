@@ -2740,6 +2740,10 @@ def director_dashboard():
             val = d.get(key)
             return int(val) if val is not None and val == int(val) else (round(val, 1) if val else None)
 
+        def v_sum(d, *keys):
+            total = sum((d.get(k) or 0) for k in keys)
+            return int(total) if total == int(total) else (round(total, 1) if total else None)
+
         def prog_sum(kind, age_group):
             return v(bs, f'ONSITE {kind} {age_group}') or 0 + \
                    (v(bs, f'OFFSITE {kind} {age_group}') or 0) + \
@@ -2835,8 +2839,8 @@ def director_dashboard():
                 ('H15', 'eAudio Circ',                        v(er, 'E-Audio Circulation')),
                 ('H16', 'eVideo Circ',                        v(er, 'E-Video Circulation')),
                 ('H17', 'eSerial Circ',                       v(er, 'E-Serials Circulation')),
-                ('H20', 'ILLs Sent',                          v(bs, 'ILL - Sent (Main ONLY)')),
-                ('H21', 'ILLs Received',                      v(bs, 'ILL - Received (Main ONLY)')),
+                ('H20', 'ILLs Sent (ILL + ICL)',               v_sum(bs, 'ILL - Sent (Main ONLY)', 'ICLs - Sent (Main ONLY)')),
+                ('H21', 'ILLs Received (ILL + ICL)',           v_sum(bs, 'ILL - Received (Main ONLY)', 'ICLs - Received (Main ONLY)')),
                 ('',    'Locker Circulation',                  v(bs, 'Locker Circulation')),
                 ('',    'Curbside',                            v(bs, 'Curbside')),
                 ('',    'Hotspots Circulation',                v(bs, 'Hotspots Circulation')),

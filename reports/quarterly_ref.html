@@ -54,7 +54,8 @@
           <th class="text-center">Q3</th>
           <th class="text-center">Q4</th>
           <th class="text-center">Avg / Week</th>
-          {% if closure_saved %}
+          <th class="text-center">Weeks Open <span class="text-muted fw-normal">(Section J)</span></th>
+          {% if weeks_open_available %}
           <th class="text-center">Est. Annual Transactions</th>
           {% endif %}
         </tr>
@@ -71,7 +72,10 @@
           <td class="text-center">
             {% if row.avg is not none %}{{ row.avg }}{% else %}<span class="text-muted">—</span>{% endif %}
           </td>
-          {% if closure_saved %}
+          <td class="text-center">
+            {% if row.weeks_open is not none %}{{ row.weeks_open }}{% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          {% if weeks_open_available %}
           <td class="text-center fw-semibold text-primary">
             {% if row.estimate %}{{ row.estimate | commas }}{% else %}<span class="text-muted">—</span>{% endif %}
           </td>
@@ -90,7 +94,8 @@
           </td>
           {% endfor %}
           <td class="text-center">—</td>
-          {% if closure_saved %}
+          <td class="text-center">—</td>
+          {% if weeks_open_available %}
           <td class="text-center text-primary">
             {% if annual_estimate %}{{ annual_estimate | commas }}{% else %}—{% endif %}
           </td>
@@ -101,117 +106,22 @@
   </div>
 </div>
 
-{# ── Closure days form ── #}
+{# ── Weeks Open source note ── #}
 <div class="card mb-4 d-print-none">
-  <div class="card-header-custom fw-semibold d-flex align-items-center gap-2">
-    Open Days &amp; Annual Estimate
-    {% if closure_saved %}
-    <span class="badge bg-success ms-1"><i class="bi bi-check-circle me-1"></i>Saved for FY{{ sel_year - 1 }}-{{ '%02d' % (sel_year % 100) }}</span>
-    {% else %}
-    <span class="badge bg-warning text-dark ms-1"><i class="bi bi-exclamation-circle me-1"></i>Not yet set for FY{{ sel_year - 1 }}-{{ '%02d' % (sel_year % 100) }}</span>
-    {% endif %}
-  </div>
-  <div class="card-body">
-    {% if not closure_saved %}
-    <div class="alert alert-warning mb-3">
-      Enter the number of closure days for <strong>FY{{ sel_year - 1 }}-{{ '%02d' % (sel_year % 100) }}</strong> and click
-      <strong>Save &amp; Calculate</strong> to generate the annual estimate.
-      This only needs to be done once per year.
-    </div>
-    {% endif %}
-    <form method="post" action="{{ url_for('quarterly_ref_save_closure') }}" class="row g-2 align-items-end">
-      <input type="hidden" name="year" value="{{ sel_year }}">
-      <div class="col-sm-3">
-        <label class="sidebar-label mb-1">Scheduled Holiday Days</label>
-        <input type="number" name="holidays" class="form-control form-control-sm"
-               min="0" max="100" value="{{ holidays }}" placeholder="0">
-      </div>
-      <div class="col-sm-3">
-        <label class="sidebar-label mb-1">Unexpected Closure Days</label>
-        <input type="number" name="unexpected" class="form-control form-control-sm"
-               min="0" max="100" value="{{ unexpected }}" placeholder="0">
-      </div>
-      <div class="col-sm-3 d-flex gap-2">
-        <button class="btn btn-primary btn-sm">
-          <i class="bi bi-floppy me-1"></i>{% if closure_saved %}Update &amp; Recalculate{% else %}Save &amp; Calculate{% endif %}
-        </button>
-        {% if closure_saved %}
-        <button type="button" class="btn btn-outline-danger btn-sm"
-                onclick="if(confirm('Clear saved closure days for {{ sel_year }}? The annual estimate will be hidden until you save new values.')) { document.getElementById('clear-closure-form').submit(); }">
-          <i class="bi bi-x-circle me-1"></i>Clear
-        </button>
-        {% endif %}
-      </div>
-    </form>
-    {% if closure_saved %}
-    <form id="clear-closure-form" method="post" action="{{ url_for('quarterly_ref_clear_closure') }}" class="d-none">
-      <input type="hidden" name="year" value="{{ sel_year }}">
-    </form>
-    {% endif %}
-    <p class="text-muted small mt-2 mb-0">
-      Library is assumed open <strong>Mon–Sat (6 days/week × 52 weeks = 312 days/year)</strong>
-      minus closure days. Once saved, the annual estimate appears in the table above and is
-      remembered for future visits.
+  <div class="card-body py-3">
+    <p class="text-muted small mb-0">
+      <i class="bi bi-info-circle me-1"></i>
+      <strong>Weeks Open</strong> is pulled automatically from
+      <a href="{{ url_for('annual_survey_section_j', year=sel_year) }}">Section J</a>
+      for FY{{ sel_year - 1 }}-{{ '%02d' % (sel_year % 100) }} — each branch's own scheduled hours minus its
+      holiday and logged closures, the same figure used on the Director's Dashboard. Rock Hill's desks
+      (Circulation, YA, etc.) share the main Rock Hill outlet's weeks open, since Section J tracks the
+      building, not each desk separately. Each branch's estimate = (avg of available sample weeks) &times;
+      that branch's weeks open. If a branch shows "—" here, its Scheduled Hours or Weekly Hours haven't
+      been set up in Section J yet — add them there and this page will pick it up automatically.
     </p>
   </div>
 </div>
-
-{# ── Open-days summary (only when closure days are saved) ── #}
-{% if closure_saved %}
-<div class="card mb-4">
-  <div class="card-header-custom fw-semibold">Open Days Calculation</div>
-  <div class="card-body">
-    <div class="row g-3 align-items-start">
-
-      <div class="col-md-6">
-        <table class="table table-sm mb-0">
-          <tbody>
-            <tr>
-              <td class="text-muted">Total possible open days (52 × 6)</td>
-              <td class="text-end fw-semibold">312</td>
-            </tr>
-            <tr>
-              <td class="text-muted">Scheduled holiday days</td>
-              <td class="text-end text-danger">− {{ holidays }}</td>
-            </tr>
-            <tr>
-              <td class="text-muted">Unexpected closure days</td>
-              <td class="text-end text-danger">− {{ unexpected }}</td>
-            </tr>
-            <tr class="table-light fw-semibold">
-              <td>Actual open days</td>
-              <td class="text-end">{{ open_days }}</td>
-            </tr>
-            <tr>
-              <td class="text-muted">Open weeks (÷ 6)</td>
-              <td class="text-end">{{ open_weeks }}</td>
-            </tr>
-            <tr>
-              <td class="text-muted small" colspan="2">
-                Each branch estimate = (avg of available sample weeks) × {{ open_weeks }} open weeks,
-                summed across all branches for the system total.
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="col-md-6 d-flex align-items-center justify-content-center">
-        <div class="text-center p-4 border rounded bg-light">
-          <div class="text-muted small mb-1">Estimated Annual Reference Transactions</div>
-          <div class="display-5 fw-bold text-primary">
-            {{ "{:,}".format(annual_estimate) if annual_estimate else '—' }}
-          </div>
-          <div class="text-muted small mt-1">
-            Sum of per-branch estimates &times; {{ open_weeks }} open weeks
-          </div>
-        </div>
-      </div>
-
-    </div>
-  </div>
-</div>
-{% endif %}
 
 {% endif %}
 

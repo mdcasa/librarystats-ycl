@@ -1117,6 +1117,41 @@ def import_pc_reservations(ws, branch_lookup, year_override=None):
     return created, updated, period_set, warnings
 
 
+# Report Filter substrings a SIRSI report must contain to be accepted, keyed by
+# the title text used to route it in detect_and_import(). A report whose title
+# matches but whose filter doesn't was run with the wrong transaction types
+# selected in SIRSI and would silently produce incomplete or wrong totals (this
+# is how the FY2025 renewals-undercount happened) — reject it instead of
+# importing partial data.
+SIRSI_EXPECTED_FILTERS = {
+    'Checkouts by Branch and Shelving Location': ['Charge Item Part B', 'Renew Item'],
+    'Number of New Library Users':               ['Create User Part B'],
+}
+
+
+def _report_filter_text(rows):
+    """Return the SIRSI report's '{Trans Stat Command Desc} = ...' Report Filter
+    line, or None if the sheet doesn't have one."""
+    for r in rows[:10]:
+        if r[0] and 'Trans Stat Command Desc' in str(r[0]):
+            return str(r[0])
+    return None
+
+
+def _check_sirsi_filter(rows, title_key):
+    """Validate that the sheet's Report Filter line contains every substring
+    required for `title_key` (a key into SIRSI_EXPECTED_FILTERS). Returns None
+    if valid, otherwise a warning string describing the mismatch."""
+    required = SIRSI_EXPECTED_FILTERS.get(title_key, [])
+    filter_text = _report_filter_text(rows)
+    missing = [req for req in required if not filter_text or req not in filter_text]
+    if not missing:
+        return None
+    found = f"'{filter_text}'" if filter_text else 'no Report Filter line found'
+    return (f"Report Filter does not match the expected '{title_key}' format "
+            f"(missing: {', '.join(missing)}; found {found}). File not imported.")
+
+
 def _detect_sirsi_report_type(rows):
     """Return ('checkouts_by_location', year, month) or None if not recognised."""
     for r in rows[:15]:
@@ -1955,6 +1990,11 @@ def detect_and_import(wb, year_override=None, filename=None):
                              'year': year, 'month': month})
 
         elif 'Checkouts by Branch and Shelving Location' in title:
+            filter_warning = _check_sirsi_filter(rows, 'Checkouts by Branch and Shelving Location')
+            if filter_warning:
+                results.append({'sheet': sheet_name, 'created': 0, 'skipped': 0,
+                                 'warnings': [filter_warning]})
+                continue
             report_type, year, month = _detect_sirsi_report_type(rows)
             if year and month:
                 det, circ, w = import_sirsi_checkouts(ws, year, month, branch_lookup)
@@ -1976,6 +2016,11 @@ def detect_and_import(wb, year_override=None, filename=None):
                              'month': (sorted(periods)[0][1] if periods else None)})
 
         elif 'Number of New Library Users' in title:
+            filter_warning = _check_sirsi_filter(rows, 'Number of New Library Users')
+            if filter_warning:
+                results.append({'sheet': sheet_name, 'created': 0, 'updated': 0, 'skipped': 0,
+                                 'warnings': [filter_warning]})
+                continue
             year = month = None
             for r in rows[:15]:
                 if r[0] and 'Trans Stat Year:' in str(r[0]):

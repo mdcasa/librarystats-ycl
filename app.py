@@ -2575,6 +2575,114 @@ def admin_export():
     )
 
 
+def _circulation_reconciliation(fy_year):
+    """Cross-check Branch Stats 'Total Branch Circulation' (the SIRSI-import-derived
+    monthly rollup) against the granular SirsiCheckout detail table, branch by branch,
+    month by month, for one fiscal year.
+
+    Exists because a one-off Aug 2026 database cleanup script silently dropped 43
+    values it had logged as successfully moved -- the app-level upload importers were
+    never at fault, but nothing surfaced the mismatch until it was found by hand.
+    This makes that same check runnable on demand instead of requiring another
+    forensic pass through import_logs.
+    """
+    from models import SirsiCheckout
+    fy_start, fy_end = _fy_date_range(fy_year)
+    months = []
+    y, m = fy_start.year, fy_start.month
+    for _ in range(12):
+        months.append((y, m))
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
+
+    bs_cat = Category.query.filter_by(name='Branch Stats').first()
+    circ_metric = Metric.query.filter_by(name='Total Branch Circulation').first()
+
+    rows = []
+    for branch in _outlet_branches():
+        for (year, month) in months:
+            bs_val = None
+            if bs_cat and circ_metric:
+                entry = Entry.query.filter_by(category_id=bs_cat.id, branch_id=branch.id,
+                                               year=year, month=month).first()
+                if entry:
+                    ev = EntryValue.query.filter_by(entry_id=entry.id, metric_id=circ_metric.id).first()
+                    bs_val = ev.value_number if ev else None
+
+            sirsi_val = db.session.query(
+                db.func.sum(SirsiCheckout.checkouts + SirsiCheckout.renewals)
+            ).filter_by(branch_id=branch.id, year=year, month=month).scalar()
+
+            if bs_val is None and sirsi_val is None:
+                continue  # neither source has data for this branch/month -- nothing to compare
+
+            rows.append({
+                'branch': branch.name, 'year': year, 'month': month,
+                'period_label': f'{Entry._MONTHS[month - 1]} {year}',
+                'branch_stats': bs_val, 'sirsi_detail': sirsi_val,
+                'match': (bs_val or 0) == (sirsi_val or 0),
+            })
+    return rows
+
+
+def _duplicate_entries(fy_year):
+    """Flag any (category, branch, year, month/quarter) combination with more than
+    one Entry row. The DB now has a uniqueness constraint preventing new duplicates
+    (see the 'Prevent duplicate Entry rows' fix), but this stays useful as a check
+    against older data or anything that slipped in before the constraint existed."""
+    fy_start, fy_end = _fy_date_range(fy_year)
+    dupes = db.session.query(
+        Entry.category_id, Entry.branch_id, Entry.year, Entry.month, Entry.quarter,
+        db.func.count(Entry.id).label('n')
+    ).filter(
+        db.or_(
+            db.and_(Entry.year == fy_year - 1, Entry.month >= 7),
+            db.and_(Entry.year == fy_year, Entry.month <= 6),
+            db.and_(Entry.year == fy_year, Entry.month.is_(None)),
+        )
+    ).group_by(
+        Entry.category_id, Entry.branch_id, Entry.year, Entry.month, Entry.quarter
+    ).having(db.func.count(Entry.id) > 1).all()
+
+    results = []
+    for cat_id, branch_id, year, month, quarter, n in dupes:
+        cat = db.session.get(Category, cat_id)
+        branch = db.session.get(Branch, branch_id) if branch_id else None
+        if month:
+            period_label = f'{Entry._MONTHS[month - 1]} {year}'
+        elif quarter:
+            period_label = f'Q{quarter} {year}'
+        else:
+            period_label = str(year)
+        results.append({
+            'category': cat.name if cat else f'#{cat_id}',
+            'branch': branch.name if branch else '(system-wide)',
+            'period_label': period_label, 'count': n,
+        })
+    return results
+
+
+@app.route('/admin/data-integrity')
+@app.route('/admin/data-integrity/<int:fy_year>')
+@admin_required
+def admin_data_integrity(fy_year=None):
+    fy_year = fy_year or datetime.now().year
+    rows = _circulation_reconciliation(fy_year)
+    mismatches = [r for r in rows if not r['match']]
+    dupes = _duplicate_entries(fy_year)
+
+    available_years = sorted(
+        {y for (y,) in db.session.query(Entry.year).distinct().all()},
+        reverse=True
+    )
+
+    return render_template('admin/data_integrity.html',
+                           fy_year=fy_year, available_years=available_years,
+                           rows=rows, mismatches=mismatches, dupes=dupes)
+
+
 @app.route('/reports/monthlystats')
 def report_monthly_stats():
     month = request.args.get('month', type=int)
@@ -2897,8 +3005,6 @@ def director_dashboard():
             'sessions': {t: [(a, session_row(t, a)) for a in AGE] for t in TYPES},
             'attendance': {t: [(a, attend_row(t, a)) for a in AGE] for t in TYPES},
             'async_': [
-                ('Asynchronous Presentations – YouTube',      v(os, 'YouTube Uploads')),
-                ('Asynchronous Presentations – Dial-A-Story', v(os, 'Dial A Story Uploads')),
                 ('Asynchronous Views – YouTube',              v(os, 'YouTube - Views')),
                 ('Asynchronous Views – Dial-A-Story',         v(os, 'Dial A Story - Views')),
             ],

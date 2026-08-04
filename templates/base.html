@@ -106,7 +106,7 @@
                    'report_eresources_overview','report_eresources'] %}
 {% set _admin   = ['admin_categories','admin_category_edit','admin_branches',
                    'admin_import','admin_export','admin_metric_edit',
-                   'admin_users','admin_user_new','admin_user_edit',
+                   'admin_users','admin_user_new','admin_user_edit','admin_data_integrity',
                    'annual_survey_section_j','annual_survey_holidays','annual_survey_branch_hours'] %}
 
 <body>
@@ -295,6 +295,13 @@
               <a class="dropdown-item {% if ep == 'admin_export' %}active{% endif %}"
                  href="{{ url_for('admin_export') }}">
                 <i class="bi bi-download me-2 text-success"></i>Export to Excel
+              </a>
+            </li>
+            <li><hr class="dropdown-divider"></li>
+            <li>
+              <a class="dropdown-item {% if ep == 'admin_data_integrity' %}active{% endif %}"
+                 href="{{ url_for('admin_data_integrity') }}">
+                <i class="bi bi-shield-check me-2 text-primary"></i>Data Integrity Check
               </a>
             </li>
             {% endif %}

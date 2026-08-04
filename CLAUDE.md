@@ -68,6 +68,14 @@ Flask 3, Flask-SQLAlchemy, Flask-Login, PostgreSQL (Supabase), gunicorn, openpyx
 
 ---
 
+## Known Data Issues
+
+- **FY2025 (and likely earlier) Total Branch Circulation is undercounted — checkouts only, missing renewals.** Verified: FY2025 DB total is 596,933 vs. the state survey's verified 1,014,285 (58.85% — matches the live FY2026 checkouts-only share of transactions, 59.2%, almost exactly). Affects `/public/annual-stats` and `/reports/overview` (`_overview_fy_stats()` in `app.py`). Gate Count and other metrics for the same year are fine — this is isolated to circulation. **Deliberately left unfixed** (see `Design/incident_2026-08-04_report_verification.md`) rather than patched with a top-line override, because that would create two disagreeing circulation numbers for the same year (a correct one on the overview page, a wrong one still in the 72 underlying monthly entries). Fixing it properly requires finding a genuine renewals-inclusive source for FY2016-2025 circulation and reloading it — don't invent numbers to fill the gap.
+- **Before trusting any circulation total for FY2025 or earlier**, reconcile it against `sirsi_checkouts` first (Admin → Data Integrity Check) — that table only has coverage from Jul 2025 onward, so an empty/mismatched result for older years is expected, not a new bug.
+- Admin → Data Integrity Check also flags branch/metric violations (e.g. a metric recorded for a branch documented as never tracking it) and registration-total mismatches (Adult + Juvenile ≠ stored Total) — run it before publishing any report that cites Branch Stats totals.
+
+---
+
 ## Authentication
 
 Flask-Login with individual user accounts. Passwords hashed with werkzeug. All routes require login except `/login` and `/logout`. On first boot with an empty users table, a bootstrap admin is created from `LOGIN_USERNAME` (default: `admin`) and `LOGIN_PASSWORD` env vars.

@@ -26,18 +26,22 @@
 </div>
 <p class="text-muted small mb-4">
   Compares Branch Stats "Total Branch Circulation" against the raw SIRSI checkout detail table
-  (<code>sirsi_checkouts</code>), branch by branch and month by month, and checks for duplicate
-  Entry rows &mdash; the two failure modes found and fixed on Aug 3&ndash;4, 2026. Run this anytime
-  you want to verify the numbers on a report without asking anyone to just trust them.
+  (<code>sirsi_checkouts</code>), branch by branch and month by month; checks for duplicate
+  Entry rows; flags metrics recorded for a branch documented as never tracking them (e.g. WiFi
+  for Bookmobile/Outreach); and flags registration entries where Adult + Juvenile doesn't equal
+  the stored Total. Run this anytime you want to verify the numbers on a report without asking
+  anyone to just trust them.
 </p>
 
 {# ── Summary banner ── #}
-{% if mismatches or dupes %}
+{% if mismatches or dupes or branch_metric_violations or registration_mismatches %}
 <div class="alert alert-warning d-flex align-items-center gap-2 mb-4">
   <i class="bi bi-exclamation-triangle-fill fs-5"></i>
   <div>
-    <strong>{{ mismatches|length }}</strong> circulation mismatch{{ 'es' if mismatches|length != 1 else '' }}
-    and <strong>{{ dupes|length }}</strong> duplicate entry group{{ 's' if dupes|length != 1 else '' }}
+    <strong>{{ mismatches|length }}</strong> circulation mismatch{{ 'es' if mismatches|length != 1 else '' }},
+    <strong>{{ dupes|length }}</strong> duplicate entry group{{ 's' if dupes|length != 1 else '' }},
+    <strong>{{ branch_metric_violations|length }}</strong> branch/metric violation{{ 's' if branch_metric_violations|length != 1 else '' }},
+    and <strong>{{ registration_mismatches|length }}</strong> registration total mismatch{{ 'es' if registration_mismatches|length != 1 else '' }}
     found for FY{{ fy_year }}. Review below &mdash; a mismatch isn't automatically a bug (a documented
     manual correction sourced from an outside report will show up here too), but every one should have
     a traceable reason.
@@ -48,7 +52,8 @@
   <i class="bi bi-check-circle-fill fs-5"></i>
   <div>
     All <strong>{{ rows|length }}</strong> branch-months checked for FY{{ fy_year }} match between
-    Branch Stats and the raw SIRSI detail table, and no duplicate entries were found.
+    Branch Stats and the raw SIRSI detail table, and no duplicate entries, branch/metric
+    violations, or registration mismatches were found.
   </div>
 </div>
 {% endif %}
@@ -124,6 +129,78 @@
   <div class="card-body text-muted small">
     None for FY{{ fy_year }}. A database constraint added on Aug 3, 2026 blocks new duplicates going forward.
   </div>
+  {% endif %}
+</div>
+
+{# ── Branch/metric violations ── #}
+<div class="card mb-4">
+  <div class="card-header-custom fw-semibold">
+    <i class="bi bi-slash-circle me-2 text-primary"></i>Branch/Metric Violations
+    <span class="text-muted small fw-normal">— a metric recorded for a branch documented as never tracking it</span>
+  </div>
+  {% if branch_metric_violations %}
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>Branch</th>
+          <th>Metric</th>
+          <th>Period</th>
+          <th class="text-end">Value recorded</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in branch_metric_violations %}
+        <tr>
+          <td class="fw-semibold">{{ v.branch }}</td>
+          <td>{{ v.metric }}</td>
+          <td>{{ v.period_label }}</td>
+          <td class="text-end text-danger fw-semibold">{{ '{:,.0f}'.format(v.value) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card-body text-muted small">No violations for FY{{ fy_year }}.</div>
+  {% endif %}
+</div>
+
+{# ── Registration total mismatches ── #}
+<div class="card mb-4">
+  <div class="card-header-custom fw-semibold">
+    <i class="bi bi-person-plus me-2 text-primary"></i>Registration Total Mismatches
+    <span class="text-muted small fw-normal">— New Library Card Registrations, Adult + Juvenile vs. stored Total</span>
+  </div>
+  {% if registration_mismatches %}
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>Branch</th>
+          <th>Period</th>
+          <th class="text-end">Adult</th>
+          <th class="text-end">Juvenile</th>
+          <th class="text-end">Adult + Juvenile</th>
+          <th class="text-end">Stored Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in registration_mismatches %}
+        <tr>
+          <td class="fw-semibold">{{ m.branch }}</td>
+          <td>{{ m.period_label }}</td>
+          <td class="text-end">{{ '{:,.0f}'.format(m.adult) }}</td>
+          <td class="text-end">{{ '{:,.0f}'.format(m.juvenile) }}</td>
+          <td class="text-end">{{ '{:,.0f}'.format(m.expected) }}</td>
+          <td class="text-end text-danger fw-semibold">{{ '{:,.0f}'.format(m.total) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card-body text-muted small">No mismatches for FY{{ fy_year }}.</div>
   {% endif %}
 </div>
 

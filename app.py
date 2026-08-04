@@ -2664,6 +2664,79 @@ def _duplicate_entries(fy_year):
     return results
 
 
+# Metrics a specific branch is documented as never tracking (Design/design.md,
+# CLAUDE.md) -- e.g. Bookmobile/Outreach has no fixed wifi infrastructure to
+# report sessions from. A nonzero value here is a data-entry error, most often
+# a column-shift in a manually-prepared Excel import.
+BRANCH_METRIC_EXCLUSIONS = {
+    'Bookmobile/Outreach': ['WiFi - Unique Sessions'],
+}
+
+
+def _branch_metric_violations(fy_year):
+    """Flag nonzero EntryValues for a (branch, metric) pair that's configured
+    in BRANCH_METRIC_EXCLUSIONS as something that branch never tracks."""
+    results = []
+    for branch_name, metric_names in BRANCH_METRIC_EXCLUSIONS.items():
+        branch = Branch.query.filter_by(name=branch_name).first()
+        if not branch:
+            continue
+        for metric_name in metric_names:
+            metric = Metric.query.filter_by(name=metric_name).first()
+            if not metric:
+                continue
+            q = (db.session.query(EntryValue.id, EntryValue.value_number, Entry.year, Entry.month)
+                 .join(Entry, EntryValue.entry_id == Entry.id)
+                 .filter(Entry.branch_id == branch.id, EntryValue.metric_id == metric.id)
+                 .filter(db.or_(
+                     db.and_(Entry.year == fy_year - 1, Entry.month >= 7),
+                     db.and_(Entry.year == fy_year, Entry.month <= 6),
+                 ))
+                 .filter(EntryValue.value_number.isnot(None), EntryValue.value_number != 0))
+            for ev_id, val, yr, mo in q.all():
+                results.append({
+                    'branch': branch_name, 'metric': metric_name,
+                    'period_label': f'{Entry._MONTHS[mo - 1]} {yr}',
+                    'value': val, 'ev_id': ev_id,
+                })
+    return results
+
+
+def _registration_total_mismatches(fy_year):
+    """Flag Branch Stats entries where 'New Library Card Registrations, Total'
+    doesn't equal Adult + Juvenile. The SIRSI importer (import_new_library_users,
+    import_excel.py) always writes Total as their sum in the same transaction,
+    so a mismatch means one side was changed (e.g. by a later import, manual
+    correction, or the Aug 2025 duplicate-entry merges) without the other being
+    recomputed -- a stale Total, not two independently-reported numbers."""
+    adult_m = Metric.query.filter_by(name='New Library Card Registrations, Adult').first()
+    juv_m   = Metric.query.filter_by(name='New Library Card Registrations, Juvenile').first()
+    total_m = Metric.query.filter_by(name='New Library Card Registrations, Total').first()
+    if not (adult_m and juv_m and total_m):
+        return []
+
+    entries = (Entry.query.filter_by(category_id=adult_m.category_id)
+               .filter(db.or_(
+                   db.and_(Entry.year == fy_year - 1, Entry.month >= 7),
+                   db.and_(Entry.year == fy_year, Entry.month <= 6),
+               )).all())
+    results = []
+    for e in entries:
+        vals = {v.metric_id: v.value_number for v in e.values
+                if v.metric_id in (adult_m.id, juv_m.id, total_m.id)}
+        if adult_m.id in vals and juv_m.id in vals and total_m.id in vals:
+            adult, juv, total = vals[adult_m.id] or 0, vals[juv_m.id] or 0, vals[total_m.id] or 0
+            if adult + juv != total:
+                results.append({
+                    'branch': e.branch.name if e.branch else '(system-wide)',
+                    'period_label': (f'{Entry._MONTHS[e.month - 1]} {e.year}'
+                                     if e.month else str(e.year)),
+                    'adult': adult, 'juvenile': juv, 'total': total,
+                    'expected': adult + juv,
+                })
+    return results
+
+
 @app.route('/admin/data-integrity')
 @app.route('/admin/data-integrity/<int:fy_year>')
 @admin_required
@@ -2672,6 +2745,8 @@ def admin_data_integrity(fy_year=None):
     rows = _circulation_reconciliation(fy_year)
     mismatches = [r for r in rows if not r['match']]
     dupes = _duplicate_entries(fy_year)
+    branch_metric_violations = _branch_metric_violations(fy_year)
+    registration_mismatches = _registration_total_mismatches(fy_year)
 
     available_years = sorted(
         {y for (y,) in db.session.query(Entry.year).distinct().all()},
@@ -2680,7 +2755,9 @@ def admin_data_integrity(fy_year=None):
 
     return render_template('admin/data_integrity.html',
                            fy_year=fy_year, available_years=available_years,
-                           rows=rows, mismatches=mismatches, dupes=dupes)
+                           rows=rows, mismatches=mismatches, dupes=dupes,
+                           branch_metric_violations=branch_metric_violations,
+                           registration_mismatches=registration_mismatches)
 
 
 @app.route('/reports/monthlystats')

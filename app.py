@@ -3005,6 +3005,8 @@ def director_dashboard():
             'sessions': {t: [(a, session_row(t, a)) for a in AGE] for t in TYPES},
             'attendance': {t: [(a, attend_row(t, a)) for a in AGE] for t in TYPES},
             'async_': [
+                ('Asynchronous Presentations – YouTube',      v(os, 'YouTube Uploads')),
+                ('Asynchronous Presentations – Dial-A-Story', v(os, 'Dial A Story Uploads')),
                 ('Asynchronous Views – YouTube',              v(os, 'YouTube - Views')),
                 ('Asynchronous Views – Dial-A-Story',         v(os, 'Dial A Story - Views')),
             ],

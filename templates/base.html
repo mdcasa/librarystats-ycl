@@ -107,6 +107,7 @@
 {% set _admin   = ['admin_categories','admin_category_edit','admin_branches',
                    'admin_import','admin_export','admin_metric_edit',
                    'admin_users','admin_user_new','admin_user_edit','admin_data_integrity',
+                   'data_pipeline',
                    'annual_survey_section_j','annual_survey_holidays','annual_survey_branch_hours'] %}
 
 <body>
@@ -126,12 +127,6 @@
         <li class="nav-item">
           <a class="nav-link {% if ep == 'index' %}active{% endif %}" href="{{ url_for('index') }}">
             <i class="bi bi-speedometer2 me-1"></i>Dashboard
-          </a>
-        </li>
-
-        <li class="nav-item">
-          <a class="nav-link {% if ep == 'data_pipeline' %}active{% endif %}" href="{{ url_for('data_pipeline') }}">
-            <i class="bi bi-diagram-3 me-1"></i>Data Pipeline
           </a>
         </li>
 
@@ -251,6 +246,11 @@
             <i class="bi bi-gear me-1"></i>Admin
           </a>
           <ul class="dropdown-menu shadow-sm">
+            <li><a class="dropdown-item {% if ep == 'data_pipeline' %}active{% endif %}"
+                   href="{{ url_for('data_pipeline') }}">
+              <i class="bi bi-diagram-3 me-2 text-primary"></i>Data Pipeline
+            </a></li>
+            <li><hr class="dropdown-divider"></li>
             <li><a class="dropdown-item {% if ep == 'annual_survey_section_j' %}active{% endif %}"
                    href="{{ url_for('annual_survey_section_j', year=now.year) }}">
               <i class="bi bi-clock-history me-2 text-primary"></i>Section J — Outlet Hours

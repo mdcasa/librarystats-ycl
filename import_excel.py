@@ -1203,6 +1203,7 @@ def import_sirsi_checkouts(ws, year, month, branch_lookup):
     current_ils = None
     warnings = []
     unrecognised = set()
+    ycl_bare_dropped = 0  # real patron transactions under bare 'YCL' (no branch given) — not counted anywhere
 
     # accumulate: {(branch_id, patron_type, shelving_location): [checkouts, renewals]}
     detail = {}
@@ -1240,7 +1241,13 @@ def import_sirsi_checkouts(ws, year, month, branch_lookup):
 
         branch = ils_to_branch.get(current_ils)
         if branch is None:
-            unrecognised.add(current_ils)
+            if current_ils == 'YCL':
+                # Bare 'YCL' station with a real patron profile — SIRSI doesn't say which
+                # branch this belongs to, so it can't be counted anywhere. Tracked separately
+                # from `unrecognised` so it doesn't get lost in the generic ILS-code warning.
+                ycl_bare_dropped += int(count)
+            else:
+                unrecognised.add(current_ils)
             continue
 
         key = (branch.id, str(profile) if profile else None, str(location))
@@ -1251,6 +1258,12 @@ def import_sirsi_checkouts(ws, year, month, branch_lookup):
         else:
             detail[key][1] += int(count)
 
+    if ycl_bare_dropped:
+        warnings.append(
+            f"{ycl_bare_dropped} real patron checkout/renewal transactions recorded under "
+            "bare 'YCL' (no branch given) were NOT counted in any branch or system-wide "
+            "total — SIRSI's export doesn't say which branch they belong to."
+        )
     if unrecognised:
         warnings.append(f"Unrecognised ILS codes skipped: {sorted(unrecognised)}")
 

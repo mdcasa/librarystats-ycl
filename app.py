@@ -613,16 +613,23 @@ def entry_create(category_id):
             db.session.commit()
             if is_new:
                 flash('Entry submitted successfully!', 'success')
+            elif not (updated or added or cleared):
+                flash(f'No changes — {entry.period_label} already has this data recorded.', 'info')
+            elif not (updated or cleared):
+                # Nothing existing was overwritten -- just new metrics filled in
+                # (e.g. manual fields added after an upload already created this
+                # period's entry). Nothing here needs a second look, so this is a
+                # plain success, not a warning.
+                flash('Entry submitted successfully! Added: ' + '; '.join(added) + '.', 'success')
             else:
-                parts = [f'An entry already existed for {entry.period_label} — this submission is now the final record for it.']
+                # An existing value was changed or removed -- worth a second look.
+                parts = ['Entry submitted — some existing values changed.']
                 if updated:
                     parts.append('Replaced: ' + '; '.join(updated) + '.')
                 if added:
                     parts.append('Added: ' + '; '.join(added) + '.')
                 if cleared:
                     parts.append('Cleared (left blank this time): ' + '; '.join(cleared) + '.')
-                if not (updated or added or cleared):
-                    parts.append('No values changed.')
                 flash(' '.join(parts), 'warning')
             return redirect(url_for('entry_view', entry_id=entry.id))
 

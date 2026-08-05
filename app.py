@@ -3084,8 +3084,10 @@ def director_dashboard():
             'async_': [
                 ('Asynchronous Presentations – YouTube',      v(os, 'YouTube Uploads')),
                 ('Asynchronous Presentations – Dial-A-Story', v(os, 'Dial A Story Uploads')),
+                ('Total Asynchronous Presentations',          v_sum(os, 'YouTube Uploads', 'Dial A Story Uploads')),
                 ('Asynchronous Views – YouTube',              v(os, 'YouTube - Views')),
                 ('Asynchronous Views – Dial-A-Story',         v(os, 'Dial A Story - Views')),
+                ('Total Asynchronous Views',                  v_sum(os, 'YouTube - Views', 'Dial A Story - Views')),
             ],
             'outreach': [
                 ('Outreach Activities – Branches',            outreach_branches if outreach_branches else None),

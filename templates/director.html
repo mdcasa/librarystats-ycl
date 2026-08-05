@@ -214,7 +214,7 @@
         <table class="table table-sm table-bordered mb-0" style="font-size:.88rem">
           <tbody>
             {% for label, val in stats.async_ %}
-            <tr>
+            <tr class="{{ 'table-light fw-bold' if label.startswith('Total') }}">
               <td>{{ label }}</td>
               <td class="text-end fw-semibold {{ 'text-muted' if not val }}">{{ '{:,}'.format(val|int) if val else '—' }}</td>
             </tr>

@@ -1104,6 +1104,14 @@ A door counter upload overwrote Gate Count values for Jul 2025 – Mar 2026 with
 
 **Note:** The door counter export format (hourly rows per location) is supported by the importer, but the raw files for FY2025-26 produced incorrect totals. Gate Count data for that period now comes from the manually compiled Branch Stats Excel files. Going forward, check gate count values after any door counter upload.
 
+### One-off scripts silently writing to local SQLite instead of Supabase (fixed 2026-08-05)
+
+A one-off script (written to a temp/scratch directory to load a print-summary spreadsheet) called `load_dotenv()` itself before `from app import app, db`. python-dotenv's default `load_dotenv()` searches for `.env` starting from the *calling script's own file location*, not the working directory — since the script lived in a temp directory with no `.env` anywhere above it, the search failed silently (`load_dotenv()` returned `False`), `DATABASE_URL` was never set, and `app.py`'s `SQLALCHEMY_DATABASE_URI` line fell back to its local-SQLite default (`sqlite:///librarystats.db`, resolved by Flask into `instance/librarystats.db`). The script ran with no errors, reported a plausible "15 records created," and everything looked normal — it had written to a throwaway local database instead of production. Caught only because a follow-up read against production found the new data wasn't there.
+
+**Fix:** `app.py` now calls `load_dotenv()` itself, anchored to its own file (`os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')`), so `DATABASE_URL` loads correctly for any script that imports `app`, regardless of where that script lives or what its own working directory is — the caller no longer needs to (and no longer should rely on its own) `load_dotenv()` call. If `DATABASE_URL` is still unset after that, `app.py` now prints a `WARNING` to stderr before falling back to SQLite, so the fallback is never silent.
+
+**Going forward:** don't trust a one-off script's own "success" output as proof it touched production. Print `db.engine.url` inside `app.app_context()` and compare a row count before/after against a fresh, independent read.
+
 ### /entries crash when submitted_at is null (fixed 2026-04-28)
 
 The Browse Data entries list template accessed `entry.submitted_at` without a null guard. Entries created by the SQL import had `submitted_at = null`, causing a Jinja2 render error. Fixed by adding a null check in `templates/entries/list.html`.

@@ -9,13 +9,32 @@ from functools import wraps
 import hmac
 import io
 import os
+import sys
+
+# Load .env relative to THIS file, not the caller's working directory or
+# script location. Any one-off script that does `from app import app` --
+# no matter where that script lives (e.g. a scratch/temp directory) or what
+# its own cwd is -- ends up with the correct Supabase DATABASE_URL. Without
+# this, python-dotenv's default load_dotenv() searches from the *calling*
+# script's own file location, which silently fails (and falls through to
+# the local SQLite default below with no error) for any script that isn't
+# co-located with .env. This bit us once already: a patch script run from a
+# temp directory silently wrote to a throwaway local SQLite file instead of
+# production. See Design/design.md → "Known Issues Fixed" for the incident.
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'library-stats-dev-key')
 
 # Supabase (and some other hosts) provide URLs starting with "postgres://"
 # but SQLAlchemy 2.x requires "postgresql://".
-_db_url = os.environ.get('DATABASE_URL', 'sqlite:///librarystats.db')
+_db_url = os.environ.get('DATABASE_URL')
+if not _db_url:
+    print('WARNING: DATABASE_URL not set -- falling back to local SQLite '
+          '(librarystats.db). If you expected to be connected to Supabase, '
+          'this script/process is NOT touching production.', file=sys.stderr)
+    _db_url = 'sqlite:///librarystats.db'
 if _db_url.startswith('postgres://'):
     _db_url = _db_url.replace('postgres://', 'postgresql://', 1)
 app.config['SQLALCHEMY_DATABASE_URI'] = _db_url

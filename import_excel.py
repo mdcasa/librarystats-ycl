@@ -1871,13 +1871,20 @@ def import_door_count(ws, branch_lookup):
 
 # ── Cisco Meraki WiFi "Summary Report" export ─────────────────────────────────
 #
-# The Meraki dashboard exports one workbook per branch per period. Neither the
-# branch nor the month appears inside the sheets — both come from the file name
-# (e.g. "Rock Hill - Summary Report 2026-06-01 - 2026-07-01.xlsx"). The single
-# figure we track is "Total Unique Clients" (the "Client stats" sheet): the
-# monthly count of distinct devices seen on the WiFi. This is the automated
-# replacement for the previously hand-entered "WiFi - Unique Sessions" metric
-# (the Google Forms field was literally "WiFi - Unique Clients").
+# Through June 2026 the Meraki dashboard exported one workbook per branch per
+# period — neither the branch nor the month appeared inside the sheets, both
+# came from the file name (e.g. "Rock Hill - Summary Report 2026-06-01 -
+# 2026-07-01.xlsx"). Starting July 2026 this switched to a single combined,
+# org-wide workbook per period with no branch name in the file (e.g. "Wi-Fi
+# Summary Report 2026-07-01 - 2026-07-31.xlsx") — WiFi usage is now tracked as
+# one system-wide monthly total (Online Stats category) rather than a
+# per-branch breakdown, since the combined export has no reliable way to
+# reconstruct per-branch unique-client counts (summing per-access-point client
+# counts would double-count anyone whose device touched more than one AP).
+#
+# Both formats share the same 'Client stats' / 'Usage stats' signature sheets
+# and the same "Total Unique Clients" figure; they're told apart by whether a
+# branch name appears in the file name.
 
 # Presence of these sheets identifies a Meraki summary workbook.
 MERAKI_SIGNATURE_SHEETS = {'Client stats', 'Usage stats'}
@@ -1892,11 +1899,31 @@ MERAKI_BRANCH_MAP = {
 }
 
 
+def _meraki_total_unique_clients(wb):
+    """Shared parse of the 'Client stats' sheet -> 'Total Unique Clients' value."""
+    if 'Client stats' not in wb.sheetnames:
+        return None, ['No "Client stats" sheet found in workbook']
+
+    rows = list(wb['Client stats'].iter_rows(values_only=True))
+    header = [str(v).strip() if v is not None else '' for v in (rows[0] if rows else [])]
+    try:
+        clients_col = header.index('Total Unique Clients')
+    except ValueError:
+        return None, ['"Total Unique Clients" column not found in "Client stats" sheet']
+
+    value = next((r[clients_col] for r in rows[1:]
+                  if r and clients_col < len(r) and isinstance(r[clients_col], (int, float))), None)
+    if value is None:
+        return None, ['No numeric "Total Unique Clients" value found']
+    return value, []
+
+
 def import_meraki_wifi(wb, branch_lookup, filename, year_override=None):
     """
-    Parse a Cisco Meraki 'Summary Report' workbook (one branch per file) and
-    upsert 'Total Unique Clients' into the Branch Stats 'WiFi - Unique Sessions'
-    metric. Both the branch and the period come from the file name.
+    Parse a per-branch Cisco Meraki 'Summary Report' workbook (the format used
+    through June 2026) and upsert 'Total Unique Clients' into the Branch Stats
+    'WiFi - Unique Sessions' metric. Both the branch and the period come from
+    the file name.
 
     Upsert semantics: an existing branch/month value is overwritten in place,
     other data is untouched, and re-running the same file is a no-op.
@@ -1916,20 +1943,9 @@ def import_meraki_wifi(wb, branch_lookup, filename, year_override=None):
         return 0, 0, set(), ['Could not determine month/year from file name — expected a date '
                              'like 2026-06-01 in it']
 
-    if 'Client stats' not in wb.sheetnames:
-        return 0, 0, set(), ['No "Client stats" sheet found in workbook']
-
-    rows = list(wb['Client stats'].iter_rows(values_only=True))
-    header = [str(v).strip() if v is not None else '' for v in (rows[0] if rows else [])]
-    try:
-        clients_col = header.index('Total Unique Clients')
-    except ValueError:
-        return 0, 0, set(), ['"Total Unique Clients" column not found in "Client stats" sheet']
-
-    value = next((r[clients_col] for r in rows[1:]
-                  if r and clients_col < len(r) and isinstance(r[clients_col], (int, float))), None)
+    value, warnings = _meraki_total_unique_clients(wb)
     if value is None:
-        return 0, 0, set(), ['No numeric "Total Unique Clients" value found']
+        return 0, 0, set(), warnings
 
     metric_lookup, cat = build_metric_lookup('Branch Stats')
     wifi_metric = metric_lookup.get('WiFi - Unique Sessions')
@@ -1937,6 +1953,36 @@ def import_meraki_wifi(wb, branch_lookup, filename, year_override=None):
         return 0, 0, set(), ['Branch Stats or "WiFi - Unique Sessions" metric not found']
 
     res = _upsert_branch_stat(cat.id, branch.id, year, month, wifi_metric.id, int(value))
+    db.session.commit()
+    return (1 if res == 'created' else 0), (1 if res == 'updated' else 0), {(year, month)}, []
+
+
+def import_meraki_wifi_systemwide(wb, filename, year_override=None):
+    """
+    Parse the combined, org-wide Meraki 'Wi-Fi Summary Report' (the format
+    used starting July 2026) and upsert 'Total Unique Clients' into the
+    system-wide Online Stats 'WiFi - Unique Sessions' metric (branch_id=None).
+
+    Upsert semantics match import_meraki_wifi: an existing month's value is
+    overwritten in place, other data is untouched, and re-running the same
+    file is a no-op. Returns (created, updated, period_set, warnings).
+    """
+    f_year, f_month = parse_period_from_filename(filename)
+    year, month = (f_year or year_override), f_month
+    if not (year and month):
+        return 0, 0, set(), ['Could not determine month/year from file name — expected a date '
+                             'like 2026-07-01 in it']
+
+    value, warnings = _meraki_total_unique_clients(wb)
+    if value is None:
+        return 0, 0, set(), warnings
+
+    metric_lookup, cat = build_metric_lookup('Online Stats')
+    wifi_metric = metric_lookup.get('WiFi - Unique Sessions')
+    if not cat or not wifi_metric:
+        return 0, 0, set(), ['Online Stats or "WiFi - Unique Sessions" metric not found']
+
+    res = _upsert_branch_stat(cat.id, None, year, month, wifi_metric.id, int(value))
     db.session.commit()
     return (1 if res == 'created' else 0), (1 if res == 'updated' else 0), {(year, month)}, []
 
@@ -1974,13 +2020,23 @@ def detect_and_import(wb, year_override=None, filename=None):
             })
             return results
 
-    # Cisco Meraki WiFi "Summary Report" — one branch per workbook; branch and
-    # period both come from the file name. Detected at workbook level (its 13
-    # sheets carry no branch/date, so there is nothing to route per-sheet).
+    # Cisco Meraki WiFi "Summary Report" — period always comes from the file
+    # name. Through June 2026 one workbook per branch (branch name also in the
+    # file name); from July 2026 a single combined org-wide workbook (no
+    # branch name) that goes to the system-wide Online Stats metric instead.
+    # Detected at workbook level (its 13 sheets carry no branch/date, so there
+    # is nothing to route per-sheet).
     if MERAKI_SIGNATURE_SHEETS <= set(wb.sheetnames):
-        created, updated, periods, w = import_meraki_wifi(wb, branch_lookup, filename, year_override)
+        name_lower = (filename or '').lower()
+        is_branch_file = any(key in name_lower for key in MERAKI_BRANCH_MAP)
+        if is_branch_file:
+            created, updated, periods, w = import_meraki_wifi(wb, branch_lookup, filename, year_override)
+            sheet_label = 'WiFi - Unique Sessions (Meraki)'
+        else:
+            created, updated, periods, w = import_meraki_wifi_systemwide(wb, filename, year_override)
+            sheet_label = 'WiFi - Unique Sessions (Meraki, System-wide)'
         y, m = (sorted(periods)[0] if periods else (None, None))
-        results.append({'sheet': 'WiFi - Unique Sessions (Meraki)',
+        results.append({'sheet': sheet_label,
                         'created': created, 'updated': updated, 'skipped': 0, 'warnings': w,
                         'periods': sorted(periods),
                         'note': (f'Total Unique Clients stored for {m}/{y}' if y and m else ''),

@@ -123,6 +123,7 @@ def seed(db):
         ('Website Messages',                      'Newsletters & Apps',   'integer'),
         ('YCL App - Users',                       'Newsletters & Apps',   'integer'),
         ('YCL App - Sessions',                    'Newsletters & Apps',   'integer'),
+        ('WiFi - Unique Sessions',                 'WiFi',                 'integer'),
     ]
     for i, (name, group, dtype) in enumerate(online_metrics):
         db.session.add(Metric(category_id=c3.id, name=name,

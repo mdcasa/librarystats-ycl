@@ -179,6 +179,24 @@ with app.app_context():
                 db.session.delete(_dl)
         db.session.commit()
 
+    # Add 'WiFi - Unique Sessions' to Online Stats (system-wide, monthly).
+    # Starting July 2026 the Meraki WiFi report switched from 5 separate
+    # per-branch exports to a single combined org-wide export with no reliable
+    # per-branch breakdown, so WiFi usage moved from a Branch Stats metric
+    # (per-branch, historical data through June 2026 left untouched) to this
+    # new system-wide metric going forward.
+    _os = Category.query.filter_by(name='Online Stats').first()
+    if _os and not any(m.name == 'WiFi - Unique Sessions' for m in _os.metrics):
+        _max_sort = max((m.sort_order for m in _os.metrics), default=0)
+        db.session.add(Metric(
+            category_id=_os.id,
+            name='WiFi - Unique Sessions',
+            group_name='WiFi',
+            data_type='integer',
+            sort_order=_max_sort + 1,
+        ))
+        db.session.commit()
+
     # Create import_logs table if it doesn't exist yet
     try:
         db.session.execute(db.text(
@@ -2033,7 +2051,9 @@ def report_annual():
         ('Cards (Adult)',       'New Library Card Registrations, Adult'),
         ('Cards (Juv.)',        'New Library Card Registrations, Juvenile'),
         ('PC Reservations',     'PC Reservations'),
-        ('WiFi Sessions',       'WiFi - Unique Sessions'),
+        # WiFi Sessions removed Jul 2026 -- WiFi usage is now tracked as a
+        # single system-wide monthly number (Online Stats), not per branch,
+        # so it no longer fits this per-branch table. See Online Usage report.
         ('Prog. Sessions',      '_prog_sessions'),
         ('Prog. Attendance',    '_prog_attendance'),
         ('Outreach Activities', 'Number of Outreach Activities Conducted'),
@@ -2691,12 +2711,12 @@ def _duplicate_entries(fy_year):
 
 
 # Metrics a specific branch is documented as never tracking (Design/design.md,
-# CLAUDE.md) -- e.g. Bookmobile/Outreach has no fixed wifi infrastructure to
-# report sessions from. A nonzero value here is a data-entry error, most often
-# a column-shift in a manually-prepared Excel import.
-BRANCH_METRIC_EXCLUSIONS = {
-    'Bookmobile/Outreach': ['WiFi - Unique Sessions'],
-}
+# CLAUDE.md). A nonzero value here is a data-entry error, most often a
+# column-shift in a manually-prepared Excel import.
+# (Bookmobile/Outreach WiFi lived here through June 2026 -- moot since Jul
+# 2026, when WiFi became a system-wide-only Online Stats metric with no more
+# per-branch entries, Bookmobile included, to violate this check.)
+BRANCH_METRIC_EXCLUSIONS = {}
 
 
 def _branch_metric_violations(fy_year):
@@ -2840,6 +2860,13 @@ def report_monthly_stats():
         def pair(curr, prev, label):
             return {'label': label, 'curr': curr, 'prev': prev}
 
+        def wifi(bs_sums, os_sums):
+            # WiFi moved from a Branch Stats metric (summed across branches)
+            # to a system-wide Online Stats metric starting Jul 2026 -- read
+            # whichever source actually has data for this period.
+            v = bs_sums.get('WiFi - Unique Sessions')
+            return v if v is not None else os_sums.get('WiFi - Unique Sessions')
+
         sections = [
             {
                 'title': 'Circulation & Door Count',
@@ -2892,7 +2919,7 @@ def report_monthly_stats():
                 'color': '#922b21',
                 'items': [
                     pair(bs_c.get('PC Reservations'),       bs_p.get('PC Reservations'),       'Monthly PC Reservations'),
-                    pair(bs_c.get('WiFi - Unique Sessions'), bs_p.get('WiFi - Unique Sessions'), 'WiFi – Unique Sessions'),
+                    pair(wifi(bs_c, os_c), wifi(bs_p, os_p), 'WiFi – Unique Sessions'),
                     pair(bs_c.get('Hotspots Circulation'),  bs_p.get('Hotspots Circulation'),  'Hotspots – Circulation'),
                     pair(bs_c.get('Total Prints per Month'), bs_p.get('Total Prints per Month'), 'Monthly Total Prints'),
                 ],
@@ -2974,6 +3001,13 @@ def director_dashboard():
         os = fy_filter('Online Stats')
         qs = fy_filter('Quarterly Reference Stats')
         er = fy_filter_annual('Annual eResources')
+
+        # WiFi moved from a Branch Stats metric (summed across branches) to a
+        # system-wide Online Stats metric starting Jul 2026 -- a fiscal year
+        # is entirely one source or the other, never a mix, so fall back to
+        # Online Stats only when Branch Stats has nothing for this FY.
+        if 'WiFi - Unique Sessions' not in bs:
+            bs['WiFi - Unique Sessions'] = os.get('WiFi - Unique Sessions')
 
         # Detect any branch with an extended closure this fiscal year (e.g. a renovation)
         # so the dashboard can explain otherwise-mysterious drops in visit-driven metrics
@@ -3688,8 +3722,14 @@ def _calculate_annual_metrics(year):
 
     _save('Annual Library Visits (gate count)',
           sum_metric(bs_entries_no_locker, 'Gate Count'))
-    _save('Number of wireless sessions',
-          sum_metric(bs_entries_no_locker, 'WiFi - Unique Sessions'))
+    # WiFi moved from a Branch Stats metric to a system-wide Online Stats
+    # metric starting Jul 2026 -- a fiscal year is entirely one source or the
+    # other, never a mix, so fall back to Online Stats only when Branch Stats
+    # has nothing for this FY.
+    _wifi_sessions = sum_metric(bs_entries_no_locker, 'WiFi - Unique Sessions')
+    if _wifi_sessions is None:
+        _wifi_sessions = sum_metric(online_entries, 'WiFi - Unique Sessions')
+    _save('Number of wireless sessions', _wifi_sessions)
     _save('Number of website visits',
           sum_metric(online_entries, 'yclibrary.org - Web Sessions'))
     _save('TOTAL COLLECTION USE',

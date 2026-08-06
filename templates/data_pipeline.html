@@ -282,7 +282,7 @@
     <div class="pp-card dest-bs">
       <div class="pp-card-head">Branch Stats <span class="pp-pill pp-pill-grey" style="margin-left:auto">Entry + EntryValue</span></div>
       <div class="pp-card-body">
-        <div style="font-size:.73rem;margin-bottom:6px;color:var(--pp-grey);">Per-branch &middot; Monthly &middot; 75 metrics</div>
+        <div style="font-size:.73rem;margin-bottom:6px;color:var(--pp-grey);">Per-branch &middot; Monthly &middot; 74 metrics</div>
         <div style="display:flex;flex-wrap:wrap;gap:3px;">
           <span class="pp-pill pp-pill-orange">Gate Count</span>
           <span class="pp-pill pp-pill-red">Total Branch Circulation &#9733;</span>
@@ -293,7 +293,6 @@
           <span class="pp-pill pp-pill-blue">ONSITE Sessions / Attendance (&times;10)</span>
           <span class="pp-pill pp-pill-blue">OFFSITE Sessions / Attendance (&times;10)</span>
           <span class="pp-pill pp-pill-blue">VIRTUAL Sessions / Attendance (&times;10)</span>
-          <span class="pp-pill pp-pill-green">WiFi Sessions</span>
           <span class="pp-pill pp-pill-green">PC Reservations</span>
           <span class="pp-pill pp-pill-green">ILL / ICL Sent + Received</span>
           <span class="pp-pill pp-pill-green">Outreach Activities + Attendance</span>
@@ -302,14 +301,16 @@
           <span class="pp-pill pp-pill-grey">1-on-1 Total</span>
         </div>
         <div style="margin-top:6px;font-size:.68rem;color:#c0392b;">&#9733; upload-only — hidden from manual entry form</div>
+        <div style="margin-top:4px;font-size:.68rem;color:var(--pp-grey);">WiFi &ndash; Unique Sessions moved to Online Stats (system-wide) starting Jul 2026 — historical per-branch data through Jun 2026 stays here.</div>
       </div>
     </div>
 
     <div class="pp-card dest-online">
       <div class="pp-card-head">Online Stats <span class="pp-pill pp-pill-grey" style="margin-left:auto">Entry + EntryValue</span></div>
       <div class="pp-card-body">
-        <div style="font-size:.73rem;margin-bottom:6px;color:var(--pp-grey);">System-wide &middot; Monthly &middot; 25 metrics</div>
+        <div style="font-size:.73rem;margin-bottom:6px;color:var(--pp-grey);">System-wide &middot; Monthly &middot; 26 metrics</div>
         <div style="display:flex;flex-wrap:wrap;gap:3px;">
+          <span class="pp-pill pp-pill-green">WiFi Sessions &dagger;</span>
           <span class="pp-pill pp-pill-orange">yclibrary.org Sessions</span>
           <span class="pp-pill pp-pill-orange">ychistory.org Views</span>
           <span class="pp-pill pp-pill-orange">patchworktales.org Views</span>
@@ -322,6 +323,7 @@
           <span class="pp-pill pp-pill-grey">YCL News Subscribers</span>
           <span class="pp-pill pp-pill-grey">YCL App Users + Sessions</span>
         </div>
+        <div style="margin-top:6px;font-size:.68rem;color:#c0392b;">&dagger; upload-only in practice, but still visible (not hidden) on the manual entry form with a note that it's normally imported — everything else on this card is manual</div>
       </div>
     </div>
 
@@ -474,7 +476,7 @@
 <!-- SECTION 3 — BRANCH STATS METRIC REFERENCE -->
 <p class="section-title">3 &middot; Branch Stats — Full Metric Reference</p>
 <div style="margin-bottom:10px;font-size:.75rem;color:var(--pp-grey);">
-  75 metrics &middot; per-branch &middot; monthly &middot; stored as EntryValue rows.
+  74 metrics &middot; per-branch &middot; monthly &middot; stored as EntryValue rows.
   <span class="tag-red" style="margin-left:6px;">&#9733; upload-only</span> metrics are written by importers and hidden from the manual entry form.
 </div>
 
@@ -497,7 +499,6 @@
       <ul class="metric-list">
         <li><span class="metric-name">Gate Count</span><span class="tag-orange">Door counter</span></li>
         <li><span class="metric-name">PC Reservations</span><span class="upload-only">manual</span></li>
-        <li><span class="metric-name">WiFi - Unique Sessions</span><span class="upload-only">manual</span></li>
         <li><span class="metric-name">External Party Library Room Use</span><span class="upload-only">manual</span></li>
         <li><span class="metric-name">Total Prints per Month</span><span class="tag-red">&#9733; Princh</span></li>
         <li><span class="metric-name">1-on-1 Total for Month</span><span class="upload-only">manual</span></li>

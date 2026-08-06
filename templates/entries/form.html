@@ -98,6 +98,11 @@
 
 
       </div>
+      {% if category.frequency == 'monthly' %}
+      <div id="period-warning" class="alert alert-warning d-none mt-3 mb-0" role="alert">
+        <i class="bi bi-exclamation-triangle-fill me-1"></i><span id="period-warning-text"></span>
+      </div>
+      {% endif %}
     </div>
   </div>
 
@@ -257,5 +262,41 @@
     const btn = e.target.closest('.remove-closure-row');
     if (btn) btn.closest('tr').remove();
   });
+
+  // Warn when the selected period is the current (still in-progress) or a
+  // future month -- a strong signal the month dropdown was picked by mistake
+  // (see incident: Aug 2026 Facebook/Instagram data entered days into August
+  // that actually belonged to July).
+  (function() {
+    const yearSelect = document.querySelector('select[name="year"]');
+    const monthSelect = document.querySelector('select[name="month"]');
+    const warningDiv = document.getElementById('period-warning');
+    const warningText = document.getElementById('period-warning-text');
+    if (!yearSelect || !monthSelect || !warningDiv) return;
+
+    const nowYear = {{ now.year }};
+    const nowMonth = {{ now.month }};
+
+    function checkPeriod() {
+      const y = parseInt(yearSelect.value, 10);
+      const m = parseInt(monthSelect.value, 10);
+      if (!y || !m) { warningDiv.classList.add('d-none'); return; }
+
+      const isFuture = (y > nowYear) || (y === nowYear && m > nowMonth);
+      const isCurrent = (y === nowYear && m === nowMonth);
+      if (isFuture || isCurrent) {
+        const monthName = monthSelect.options[monthSelect.selectedIndex].text;
+        warningText.textContent = `Heads up: ${monthName} ${y} ${isCurrent ? "hasn't ended yet" : "hasn't started yet"}. ` +
+          `If this data actually belongs to a different month, double-check before submitting.`;
+        warningDiv.classList.remove('d-none');
+      } else {
+        warningDiv.classList.add('d-none');
+      }
+    }
+
+    yearSelect.addEventListener('change', checkPeriod);
+    monthSelect.addEventListener('change', checkPeriod);
+    checkPeriod();
+  })();
 </script>
 {% endblock %}

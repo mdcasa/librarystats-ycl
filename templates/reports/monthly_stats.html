@@ -133,7 +133,7 @@ sections.forEach((sec, i) => {
     options: {
       responsive: true,
       plugins: {
-        legend: { position: 'bottom', labels: { boxWidth: 8, font: { size: 9 } } },
+        legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 }, color: '#333' } },
         datalabels: {
           anchor: 'end',
           align: 'end',
@@ -146,11 +146,12 @@ sections.forEach((sec, i) => {
       scales: {
         y: {
           beginAtZero: true,
-          ticks: { font: { size: 9 } },
+          ticks: { font: { size: 9 }, color: '#333' },
         },
         x: {
           ticks: {
-            font: { size: 9 },
+            font: { size: 10 },
+            color: '#333',
             maxRotation: 30,
           },
         },

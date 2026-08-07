@@ -96,7 +96,8 @@
 
 {# ── Active nav helpers ── #}
 {% set ep = request.endpoint or '' %}
-{% set _enter   = ['ill_entry','icl_entry','entry_create','entry_edit','entry_delete'] %}
+{% set _enter   = ['ill_entry','icl_entry','annual_survey_bookmobile_hours',
+                   'entry_create','entry_edit','entry_delete'] %}
 {% set _data    = ['upload_data','entries_list','entry_view'] %}
 {% set _dash    = ['director_dashboard','annual_survey_dashboard','annual_survey_enter','annual_survey_calculate',
                    'slc_dashboard'] %}
@@ -108,8 +109,7 @@
                    'admin_import','admin_export','admin_metric_edit',
                    'admin_users','admin_user_new','admin_user_edit','admin_data_integrity',
                    'data_pipeline',
-                   'annual_survey_section_j','annual_survey_holidays','annual_survey_branch_hours',
-                   'annual_survey_bookmobile_hours'] %}
+                   'annual_survey_section_j','annual_survey_holidays','annual_survey_branch_hours'] %}
 
 <body>
 
@@ -149,6 +149,12 @@
                  href="{{ url_for('icl_entry') }}">
                 <i class="bi bi-arrow-left-right me-2 text-primary"></i>ICL Entry
                 <span class="text-muted small">(Main only)</span>
+              </a>
+            </li>
+            <li>
+              <a class="dropdown-item {% if ep == 'annual_survey_bookmobile_hours' %}active{% endif %}"
+                 href="{{ url_for('annual_survey_bookmobile_hours', year=now.year) }}">
+                <i class="bi bi-truck me-2 text-primary"></i>Bookmobile Weekly Hours
               </a>
             </li>
             <li><hr class="dropdown-divider"></li>
@@ -259,10 +265,6 @@
             <li><a class="dropdown-item {% if ep == 'annual_survey_branch_hours' %}active{% endif %}"
                    href="{{ url_for('annual_survey_branch_hours') }}">
               <i class="bi bi-clock me-2 text-primary"></i>Branch Weekly Hours
-            </a></li>
-            <li><a class="dropdown-item {% if ep == 'annual_survey_bookmobile_hours' %}active{% endif %}"
-                   href="{{ url_for('annual_survey_bookmobile_hours', year=now.year) }}">
-              <i class="bi bi-truck me-2 text-primary"></i>Bookmobile Weekly Hours
             </a></li>
             <li><a class="dropdown-item {% if ep == 'annual_survey_holidays' %}active{% endif %}"
                    href="{{ url_for('annual_survey_holidays') }}">

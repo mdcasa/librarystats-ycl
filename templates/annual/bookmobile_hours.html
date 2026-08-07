@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+{% block title %}Bookmobile Weekly Hours FY{{ year }} – Library Stats{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <div>
+    <h1 class="h4 fw-bold mb-0">
+      <i class="bi bi-truck me-2 text-primary"></i>Bookmobile Weekly Hours
+    </h1>
+    <p class="text-muted small mb-0">FY{{ year }} — July {{ year - 1 }} through June {{ year }}
+      {% if branch %}&mdash; {{ branch.name }}{% endif %}</p>
+  </div>
+  <div class="d-flex gap-2 align-items-center">
+    <select class="form-select form-select-sm" style="width:auto"
+            onchange="window.location='/annual-survey/'+this.value+'/bookmobile-hours'">
+      {% for y in all_years %}
+      <option value="{{ y }}" {% if y == year %}selected{% endif %}>FY{{ y }}</option>
+      {% endfor %}
+      <option value="{{ (all_years[0] if all_years else year) + 1 }}">+ New Year</option>
+    </select>
+    <a href="{{ url_for('annual_survey_section_j', year=year) }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-clock-history me-1"></i>Section J
+    </a>
+  </div>
+</div>
+
+{% if not branch %}
+<div class="alert alert-warning py-2">
+  <i class="bi bi-exclamation-triangle me-1"></i>
+  No Bookmobile/Outreach branch found.
+</div>
+{% endif %}
+
+<div class="alert alert-info py-2">
+  <i class="bi bi-info-circle me-1"></i>
+  Enter the actual hours the bookmobile was available each week — since the schedule varies,
+  this replaces the fixed Scheduled Hours formula used for the other outlets. Leave a week blank
+  if it hasn't happened yet or wasn't tracked; it won't count toward Hours Open or Weeks Open
+  until a value is entered. Section J's Hours Open (J10) and Weeks Open (J12) for this outlet
+  update automatically from what's entered here.
+</div>
+
+<form method="post" action="{{ url_for('annual_survey_bookmobile_hours', year=year) }}">
+  <div class="card mb-3">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Week</th>
+            <th class="text-center" style="width:160px">Hours Available</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>{{ row.week_start.strftime('%b %d, %Y') }} &ndash; {{ row.week_end.strftime('%b %d, %Y') }}</td>
+            <td class="text-center" style="max-width:120px">
+              <input type="number" name="hours_{{ row.week_start.isoformat() }}" step="0.5" min="0" max="168"
+                     class="form-control form-control-sm text-center mx-auto"
+                     value="{{ row.hours if row.hours is not none else '' }}" placeholder="&mdash;">
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="d-flex align-items-center gap-3 mb-3">
+    <button class="btn btn-primary btn-sm">
+      <i class="bi bi-floppy me-1"></i>Save
+    </button>
+    <span class="text-muted small">
+      Entered so far: <strong>{{ '%g' | format(total_hours) }}</strong> hours across
+      <strong>{{ weeks_open }}</strong> week{{ '' if weeks_open == 1 else 's' }}
+    </span>
+  </div>
+</form>
+{% endblock %}

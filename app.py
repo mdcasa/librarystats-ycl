@@ -3083,10 +3083,17 @@ def director_dashboard():
         for _ob in _outlet_branches():
             _sj = SectionJOutletData.query.filter_by(branch_id=_ob.id, fiscal_year=fy_year).first()
             _wh = BranchWeeklyHours.query.filter_by(branch_id=_ob.id).first()
-            _weeks = _sj.weeks_open if _sj else _live_weeks_open(_ob.id, _wh, _outlet_fy_start, _outlet_fy_end)
-            _j11_weekly = _j11_weekly_hours(_wh)
-            _j11_annual = (round(_j11_weekly * _weeks, 1)
-                           if _j11_weekly is not None and _weeks is not None else None)
+            _bk_rows = _bookmobile_weekly_rows(_ob.id, _outlet_fy_start, _outlet_fy_end)
+            if _bk_rows:
+                # Reported weekly hours override any stale fixed-schedule SectionJOutletData
+                # row, and there's no day-level detail to split out evening/weekend hours.
+                _weeks = _live_weeks_open(_ob.id, _wh, _outlet_fy_start, _outlet_fy_end)
+                _j11_annual = None
+            else:
+                _weeks = _sj.weeks_open if _sj else _live_weeks_open(_ob.id, _wh, _outlet_fy_start, _outlet_fy_end)
+                _j11_weekly = _j11_weekly_hours(_wh)
+                _j11_annual = (round(_j11_weekly * _weeks, 1)
+                               if _j11_weekly is not None and _weeks is not None else None)
             _hours_open = _live_hours_open(_ob.id, fy_year, _wh, _outlet_fy_start, _outlet_fy_end)
             outlet_rows.append(('J10', f'{_ob.name} — Hours Open',  _hours_open))
             outlet_rows.append(('J11', f'{_ob.name} — Weekend/Evening Hours', _j11_annual))
@@ -3492,7 +3499,7 @@ def admin_user_toggle(user_id):
 
 # ── Annual Survey Dashboard ───────────────────────────────────────────────────
 
-from models import AnnualSurveyMetric, AnnualSurveyValue, HolidayClosure, OutletScheduledHours, SectionJOutletData, BranchWeeklyHours
+from models import AnnualSurveyMetric, AnnualSurveyValue, HolidayClosure, OutletScheduledHours, SectionJOutletData, BranchWeeklyHours, BookmobileWeeklyHours
 
 _ANNUAL_CHART_METRICS = [
     'Annual Library Visits (gate count)',
@@ -3866,10 +3873,49 @@ def _holiday_hours_for_branch(branch_id, weekly_hours_by_branch, fy_start, fy_en
     return total
 
 
+def _fy_week_buckets(fy_start, fy_end):
+    """Real Monday-Sunday calendar weeks covering a fiscal year, in order, as (week_start,
+    week_end) tuples. 52 buckets starting from the Monday on/before fy_start (not a 7-day
+    block offset from fy_start, which for a fy_start that isn't a Monday would misalign
+    closures spanning a week boundary); the last bucket is extended through fy_end to
+    absorb the day or two that shift introduces at the far end. Shared by _live_weeks_open
+    and the Bookmobile Weekly Hours entry form so both agree on exactly which Mondays a
+    fiscal year's weeks start on."""
+    from datetime import timedelta
+    total_weeks = 52
+    cal_week_start = fy_start - timedelta(days=fy_start.weekday())  # Monday on/before fy_start
+    buckets = []
+    for w in range(total_weeks):
+        week_start = cal_week_start + timedelta(days=7 * w)
+        week_end = fy_end if w == total_weeks - 1 else week_start + timedelta(days=6)
+        buckets.append((week_start, week_end))
+    return buckets
+
+
+def _bookmobile_weekly_rows(branch_id, fy_start, fy_end):
+    """BookmobileWeeklyHours rows entered for one branch/FY (keyed to that FY's week-bucket
+    Mondays). Non-empty return means this branch/FY has switched to reporting real weekly
+    hours instead of the fixed-schedule Scheduled Hours formula — see _live_hours_open /
+    _live_weeks_open."""
+    bucket_starts = [ws for ws, _ in _fy_week_buckets(fy_start, fy_end)]
+    return BookmobileWeeklyHours.query.filter(
+        BookmobileWeeklyHours.branch_id == branch_id,
+        BookmobileWeeklyHours.week_start.in_(bucket_starts),
+    ).all()
+
+
 def _live_hours_open(branch_id, fy_year, wh, fy_start, fy_end):
     """Section J Hours Open for one branch/FY, computed fresh every time from Scheduled
     Hours, the Holiday Schedule, and the Non-holiday Closures log — never a stale saved
-    snapshot, so newly logged closures show up immediately everywhere this is used."""
+    snapshot, so newly logged closures show up immediately everywhere this is used.
+
+    If the branch has any Bookmobile Weekly Hours entered for this FY (an outlet whose
+    schedule varies too much for a fixed weekly total), that reported total is used
+    directly instead — those numbers already reflect actual hours run, so no further
+    holiday/closure subtraction applies."""
+    bk_rows = _bookmobile_weekly_rows(branch_id, fy_start, fy_end)
+    if bk_rows:
+        return round(sum(r.hours or 0 for r in bk_rows), 1)
     sh = OutletScheduledHours.query.filter_by(branch_id=branch_id, fiscal_year=fy_year).first()
     scheduled = sh.scheduled_hours if sh else (round(wh.weekly_total * 52, 1) if wh else None)
     if scheduled is None:
@@ -3890,13 +3936,11 @@ def _live_weeks_open(branch_id, wh, fy_start, fy_end):
     Non-holiday Closures log: a week only fails to count if every one of the branch's normally-
     scheduled open days that week was fully closed (e.g. Rock Hill's renovation closure).
 
-    Weeks are real Monday-Sunday calendar weeks (not 7-day blocks offset from fy_start, which
-    for a fy_start that isn't a Monday would misalign closures spanning a week boundary --
-    e.g. a Mon-Sat closure could straddle two such blocks and register as fully open in both).
-    Still 52 weeks total, matching the flat default used elsewhere when nothing has closed --
-    the first bucket starts on the Monday on/before fy_start, and the last bucket is extended
-    through fy_end to absorb the day or two that shift introduces at the far end."""
-    from datetime import timedelta
+    If the branch has any Bookmobile Weekly Hours entered for this FY, Weeks Open is instead
+    just the count of weeks with a reported hours total > 0 — see _live_hours_open."""
+    bk_rows = _bookmobile_weekly_rows(branch_id, fy_start, fy_end)
+    if bk_rows:
+        return sum(1 for r in bk_rows if (r.hours or 0) > 0)
     if not wh:
         return None
     holidays = {h.closure_date: h for h in HolidayClosure.query.filter(
@@ -3908,12 +3952,10 @@ def _live_weeks_open(branch_id, wh, fy_start, fy_end):
     ).all():
         branch_closed_hours[bc.closure_date] = branch_closed_hours.get(bc.closure_date, 0) + bc.hours_closed
 
-    total_weeks = 52
-    cal_week_start = fy_start - timedelta(days=fy_start.weekday())  # Monday on/before fy_start
+    from datetime import timedelta
     closed_weeks = 0
-    for w in range(total_weeks):
-        week_start = cal_week_start + timedelta(days=7 * w)
-        week_end = fy_end if w == total_weeks - 1 else week_start + timedelta(days=6)
+    buckets = _fy_week_buckets(fy_start, fy_end)
+    for week_start, week_end in buckets:
         any_open = False
         d = week_start
         while d <= week_end:
@@ -3931,7 +3973,7 @@ def _live_weeks_open(branch_id, wh, fy_start, fy_end):
             d += timedelta(days=1)
         if not any_open:
             closed_weeks += 1
-    return total_weeks - closed_weeks
+    return len(buckets) - closed_weeks
 
 
 @app.route('/annual-survey/<int:year>/section-j', methods=['GET', 'POST'])
@@ -3942,6 +3984,8 @@ def annual_survey_section_j(year):
 
     if request.method == 'POST':
         for b in branches:
+            if _bookmobile_weekly_rows(b.id, fy_start, fy_end):
+                continue  # entered via the Bookmobile Weekly Hours page instead
             scheduled = request.form.get(f'scheduled_{b.id}', type=float)
             weeks     = request.form.get(f'weeks_{b.id}', type=float)
             if scheduled is None:
@@ -3991,8 +4035,19 @@ def annual_survey_section_j(year):
 
     rows = []
     for b in branches:
-        sh = scheduled_by_branch.get(b.id)
         wh = weekly_hours_by_branch.get(b.id)
+        if _bookmobile_weekly_rows(b.id, fy_start, fy_end):
+            rows.append({
+                'branch': b,
+                'bk_override': True,
+                'scheduled_hours': None,
+                'holiday_hours': None,
+                'unexpected_hours': None,
+                'hours_open': _live_hours_open(b.id, year, wh, fy_start, fy_end),
+                'weeks_open': _live_weeks_open(b.id, wh, fy_start, fy_end),
+            })
+            continue
+        sh = scheduled_by_branch.get(b.id)
         default_scheduled = round(wh.weekly_total * 52, 1) if wh else None
         scheduled = sh.scheduled_hours if sh else default_scheduled
         holiday_hours = _holiday_hours_for_branch(b.id, weekly_hours_by_branch, fy_start, fy_end)
@@ -4006,6 +4061,7 @@ def annual_survey_section_j(year):
         sj = saved_by_branch.get(b.id)
         rows.append({
             'branch': b,
+            'bk_override': False,
             'scheduled_hours': scheduled,
             'holiday_hours': holiday_hours,
             'unexpected_hours': unexpected_hours,
@@ -4019,6 +4075,66 @@ def annual_survey_section_j(year):
                            year=year,
                            all_years=all_years,
                            rows=rows)
+
+
+def _bookmobile_branch():
+    """The one outlet whose weekly hours vary too much for a fixed BranchWeeklyHours row."""
+    return Branch.query.filter(Branch.name.ilike('%bookmobile%')).first()
+
+
+@app.route('/annual-survey/<int:year>/bookmobile-hours', methods=['GET', 'POST'])
+def annual_survey_bookmobile_hours(year):
+    branch = _bookmobile_branch()
+    fy_start, fy_end = _fy_date_range(year)
+    buckets = _fy_week_buckets(fy_start, fy_end)
+
+    if request.method == 'POST':
+        if branch:
+            for week_start, _ in buckets:
+                hours = request.form.get(f'hours_{week_start.isoformat()}', type=float)
+                row = BookmobileWeeklyHours.query.filter_by(
+                    branch_id=branch.id, week_start=week_start).first()
+                if hours is None:
+                    if row:
+                        db.session.delete(row)
+                    continue
+                if row:
+                    row.hours = hours
+                    row.submitted_by = current_user.username
+                else:
+                    db.session.add(BookmobileWeeklyHours(
+                        branch_id=branch.id, week_start=week_start,
+                        hours=hours, submitted_by=current_user.username,
+                    ))
+            db.session.commit()
+        flash(f'Bookmobile weekly hours saved for FY{year}.', 'success')
+        return redirect(url_for('annual_survey_bookmobile_hours', year=year))
+
+    hours_by_week = {}
+    if branch:
+        hours_by_week = {r.week_start: r.hours for r in BookmobileWeeklyHours.query.filter(
+            BookmobileWeeklyHours.branch_id == branch.id,
+            BookmobileWeeklyHours.week_start.in_([ws for ws, _ in buckets]),
+        ).all()}
+
+    rows = [{
+        'week_start': week_start,
+        'week_end': week_end,
+        'hours': hours_by_week.get(week_start),
+    } for week_start, week_end in buckets]
+
+    total_hours = round(sum(v for v in hours_by_week.values() if v), 1) if hours_by_week else 0
+    weeks_open = sum(1 for v in hours_by_week.values() if v and v > 0)
+
+    all_years = sorted({sh.fiscal_year for sh in OutletScheduledHours.query.all()} | {year}, reverse=True)
+
+    return render_template('annual/bookmobile_hours.html',
+                           branch=branch,
+                           year=year,
+                           all_years=all_years,
+                           rows=rows,
+                           total_hours=total_hours,
+                           weeks_open=weeks_open)
 
 
 @app.route('/annual-survey/branch-hours', methods=['GET', 'POST'])

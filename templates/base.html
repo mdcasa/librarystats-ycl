@@ -108,7 +108,8 @@
                    'admin_import','admin_export','admin_metric_edit',
                    'admin_users','admin_user_new','admin_user_edit','admin_data_integrity',
                    'data_pipeline',
-                   'annual_survey_section_j','annual_survey_holidays','annual_survey_branch_hours'] %}
+                   'annual_survey_section_j','annual_survey_holidays','annual_survey_branch_hours',
+                   'annual_survey_bookmobile_hours'] %}
 
 <body>
 
@@ -258,6 +259,10 @@
             <li><a class="dropdown-item {% if ep == 'annual_survey_branch_hours' %}active{% endif %}"
                    href="{{ url_for('annual_survey_branch_hours') }}">
               <i class="bi bi-clock me-2 text-primary"></i>Branch Weekly Hours
+            </a></li>
+            <li><a class="dropdown-item {% if ep == 'annual_survey_bookmobile_hours' %}active{% endif %}"
+                   href="{{ url_for('annual_survey_bookmobile_hours', year=now.year) }}">
+              <i class="bi bi-truck me-2 text-primary"></i>Bookmobile Weekly Hours
             </a></li>
             <li><a class="dropdown-item {% if ep == 'annual_survey_holidays' %}active{% endif %}"
                    href="{{ url_for('annual_survey_holidays') }}">

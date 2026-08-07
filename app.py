@@ -2900,12 +2900,12 @@ def report_monthly_stats():
             {
                 'title': 'ONSITE Program Sessions',
                 'color': '#6c3483',
-                'items': [pair(prog(bs_c,'ONSITE','Sessions',a), prog(bs_p,'ONSITE','Sessions',a), f'Sessions {a}') for a in AGE],
+                'items': [pair(prog(bs_c,'ONSITE','Sessions',a), prog(bs_p,'ONSITE','Sessions',a), a) for a in AGE],
             },
             {
                 'title': 'ONSITE Program Attendance',
                 'color': '#784212',
-                'items': [pair(prog(bs_c,'ONSITE','Attendance',a), prog(bs_p,'ONSITE','Attendance',a), f'Attendance {a}') for a in AGE],
+                'items': [pair(prog(bs_c,'ONSITE','Attendance',a), prog(bs_p,'ONSITE','Attendance',a), a) for a in AGE],
             },
             {
                 'title': 'Online Usage',

@@ -162,7 +162,7 @@ sections.forEach((sec, i) => {
 </script>
 
 <style>
-@page { size: letter portrait; margin: 0.5in; }
+@page { size: letter landscape; margin: 0.5in; }
 
 @media print {
   .d-print-none { display: none !important; }
@@ -172,12 +172,13 @@ sections.forEach((sec, i) => {
   #report-header { margin-bottom: 8px !important; }
   #report-header h2 { font-size: 14pt !important; margin-bottom: 2px !important; }
   #report-header p { font-size: 9pt !important; }
-  #dashboard { display: grid !important; grid-template-columns: 1fr 1fr; gap: 12px; margin: 0 !important; }
-  #dashboard .col-md-6 { width: 100% !important; max-width: 100% !important; padding: 0 !important; break-inside: avoid; }
-  #dashboard .col-md-6:nth-child(4) { break-after: page; }
-  .card { box-shadow: none !important; border: 1px solid #dee2e6 !important; height: auto !important; }
-  .card-body { padding: 10px !important; }
-  .card h6 { font-size: 10pt !important; margin-bottom: 6px !important; }
+  #dashboard { display: grid !important; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 0 !important; }
+  #dashboard .col-md-6 { display: block !important; width: 100% !important; max-width: 100% !important; min-width: 0 !important; padding: 0 !important; break-inside: avoid; }
+  #dashboard .col-md-6:nth-child(6) { break-after: page; }
+  .card { box-shadow: none !important; border: 1px solid #dee2e6 !important; height: auto !important; min-width: 0 !important; }
+  .card-body { padding: 8px !important; min-width: 0 !important; }
+  .card h6 { font-size: 9pt !important; margin-bottom: 4px !important; }
+  #dashboard canvas { max-width: 100% !important; }
 }
 </style>
 {% endblock %}

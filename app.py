@@ -3044,7 +3044,7 @@ def director_dashboard():
                    (v(bs, f'VIRTUAL {kind} {age_group}') or 0)
 
         # Outreach branch vs bookmobile split
-        ob_branch = Branch.query.filter_by(name='Outreach/Bookmobile').first()
+        ob_branch = _bookmobile_branch()
         ob_id = ob_branch.id if ob_branch else None
 
         def fy_filter_by_branch(cat_name, branch_id):

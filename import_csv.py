@@ -73,10 +73,10 @@ BRANCH_STATS_MAP = {
 }
 
 BRANCH_ALIASES = {
-    'OUTREACH / BOOKMOBILE': 'Outreach/Bookmobile',  # spaces variant in CSV
-    'OUTREACH/BOOKMOBILE':   'Outreach/Bookmobile',  # no-spaces variant in CSV
-    'BOOKMOBILE/OUTREACH':   'Outreach/Bookmobile',
-    'OUTREACH / BKM':        'Outreach/Bookmobile',
+    'OUTREACH / BOOKMOBILE': 'Bookmobile/Outreach',  # spaces variant in CSV
+    'OUTREACH/BOOKMOBILE':   'Bookmobile/Outreach',  # no-spaces variant in CSV
+    'BOOKMOBILE/OUTREACH':   'Bookmobile/Outreach',
+    'OUTREACH / BKM':        'Bookmobile/Outreach',
     'YCL (SYSTEM WIDE)':     'YCL (System Wide)',
 }
 

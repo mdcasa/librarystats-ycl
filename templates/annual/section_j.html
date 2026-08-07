@@ -20,6 +20,9 @@
     <a href="{{ url_for('annual_survey_branch_hours') }}" class="btn btn-outline-secondary btn-sm">
       <i class="bi bi-clock me-1"></i>Weekly Hours
     </a>
+    <a href="{{ url_for('annual_survey_bookmobile_hours', year=year) }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-truck me-1"></i>Bookmobile Hours
+    </a>
     <a href="{{ url_for('annual_survey_holidays') }}" class="btn btn-outline-secondary btn-sm">
       <i class="bi bi-calendar-x me-1"></i>Holiday Schedule
     </a>
@@ -53,6 +56,19 @@
           {% for row in rows %}
           <tr>
             <td>{{ row.branch.name }}</td>
+            {% if row.bk_override %}
+            <td class="text-center text-muted" colspan="3">
+              <a href="{{ url_for('annual_survey_bookmobile_hours', year=year) }}">
+                <i class="bi bi-truck me-1"></i>Entered via Bookmobile Weekly Hours
+              </a>
+            </td>
+            <td class="text-center fw-semibold">
+              {% if row.hours_open is not none %}{{ '%g' | format(row.hours_open) }}{% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
+            <td class="text-center text-muted">
+              {{ row.weeks_open if row.weeks_open is not none else '—' }}
+            </td>
+            {% else %}
             <td class="text-center" style="max-width:140px">
               <input type="number" name="scheduled_{{ row.branch.id }}" step="0.5" min="0"
                      class="form-control form-control-sm text-center mx-auto"
@@ -69,6 +85,7 @@
                      class="form-control form-control-sm text-center mx-auto"
                      value="{{ row.weeks_open }}">
             </td>
+            {% endif %}
           </tr>
           {% endfor %}
         </tbody>

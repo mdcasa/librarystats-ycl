@@ -313,6 +313,32 @@ class BranchWeeklyHours(db.Model):
         return sum(getattr(self, c) for c in self._DAY_COLS)
 
 
+class BookmobileWeeklyHours(db.Model):
+    """Actual/available hours for one real calendar week, for an outlet whose schedule
+    varies too much week-to-week for a fixed BranchWeeklyHours row to represent it
+    (currently just Bookmobile/Outreach). One row per branch/week; week_start is the
+    Monday of that week, aligned to the same calendar-week buckets Section J uses
+    elsewhere (_fy_week_buckets in app.py). When any rows exist for a branch/fiscal
+    year, they take over Section J's Hours Open (J10, summed) and Weeks Open (J12,
+    count of weeks with hours > 0) for that branch/year, bypassing the normal
+    Scheduled Hours - Holiday - Non-holiday Closure formula — see _live_hours_open /
+    _live_weeks_open in app.py. Weeks left blank simply aren't counted yet, so totals
+    build up live as weeks are entered rather than needing the whole year filled in
+    first."""
+    __tablename__ = 'bookmobile_weekly_hours'
+    id           = db.Column(db.Integer, primary_key=True)
+    branch_id    = db.Column(db.Integer, db.ForeignKey('branches.id'), nullable=False)
+    week_start   = db.Column(db.Date, nullable=False)
+    hours        = db.Column(db.Float, nullable=False)
+    submitted_by = db.Column(db.String(80), nullable=True)
+
+    branch = db.relationship('Branch')
+
+    __table_args__ = (
+        db.UniqueConstraint('branch_id', 'week_start', name='uq_bookmobile_weekly_hours_branch_week'),
+    )
+
+
 class OutletScheduledHours(db.Model):
     """A branch's normal/baseline annual open hours for one fiscal year (Section J baseline)."""
     __tablename__ = 'outlet_scheduled_hours'

@@ -2520,6 +2520,19 @@ _UPLOAD_SOURCED_METRICS = {
     'ILL - Received (Main ONLY)',
     'ICLs - Sent (Main ONLY)',
     'ICLs - Received (Main ONLY)',
+    # Onsite programming — computed from the Communico "LibraryCalendar" events
+    # export (import_programming_stats in import_excel.py) as of July 2026;
+    # Offsite/Virtual stay manual since branch managers still report those directly.
+    'ONSITE Sessions 0-5',
+    'ONSITE Sessions 6-11',
+    'ONSITE Sessions 12-18',
+    'ONSITE Sessions 19+',
+    'ONSITE Sessions General Interest',
+    'ONSITE Attendance 0-5',
+    'ONSITE Attendance 6-11',
+    'ONSITE Attendance 12-18',
+    'ONSITE Attendance 19+',
+    'ONSITE Attendance General Interest',
 }
 
 _ILL_METRICS  = {'ILL - Sent (Main ONLY)', 'ILL - Received (Main ONLY)'}

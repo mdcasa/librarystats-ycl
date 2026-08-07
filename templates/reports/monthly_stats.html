@@ -133,12 +133,12 @@ sections.forEach((sec, i) => {
     options: {
       responsive: true,
       plugins: {
-        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+        legend: { position: 'bottom', labels: { boxWidth: 8, font: { size: 9 } } },
         datalabels: {
           anchor: 'end',
           align: 'end',
           offset: 2,
-          font: { size: 10, weight: 'bold' },
+          font: { size: 9, weight: 'normal' },
           color: '#333',
           formatter: (v) => v > 0 ? v.toLocaleString() : '',
         },
@@ -146,18 +146,31 @@ sections.forEach((sec, i) => {
       scales: {
         y: {
           beginAtZero: true,
-          ticks: { font: { size: 10 } },
+          ticks: { font: { size: 9 } },
         },
         x: {
           ticks: {
-            font: { size: 10 },
+            font: { size: 9 },
             maxRotation: 30,
           },
         },
       },
-      layout: { padding: { top: 20 } },
+      layout: { padding: { top: 10 } },
     },
   });
+});
+
+// Chart.js's responsive resize relies on a ResizeObserver, which isn't
+// reliably given a chance to fire between the print stylesheet applying
+// and the browser rasterizing the page — leaving canvases rendered at
+// their last on-screen (pre-print) size and visually squashed into the
+// narrower print columns. Forcing a resize on beforeprint/afterprint
+// makes each chart redraw crisply at its actual print/screen size.
+window.addEventListener('beforeprint', () => {
+  Object.values(Chart.instances).forEach(c => c.resize());
+});
+window.addEventListener('afterprint', () => {
+  Object.values(Chart.instances).forEach(c => c.resize());
 });
 </script>
 

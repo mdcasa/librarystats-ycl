@@ -52,6 +52,9 @@
       <div class="card-body">
         <h6 class="fw-bold mb-3 text-center" style="color:{{ sec.color }}">{{ sec.title }}</h6>
         <canvas id="chart{{ loop.index }}" height="160"></canvas>
+        {% if sec.note %}
+        <p class="report-note text-muted fst-italic mb-0 mt-2 text-center">* {{ sec.note }}</p>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -176,6 +179,8 @@ window.addEventListener('afterprint', () => {
 </script>
 
 <style>
+.report-note { font-size: 0.75rem; }
+
 @page { size: letter portrait; margin: 0.5in; }
 
 @media print {
@@ -193,6 +198,7 @@ window.addEventListener('afterprint', () => {
   .card-body { padding: 10px !important; min-width: 0 !important; }
   .card h6 { font-size: 10pt !important; margin-bottom: 6px !important; }
   #dashboard canvas { max-width: 100% !important; }
+  .report-note { font-size: 7.5pt !important; margin-top: 4px !important; }
 }
 </style>
 {% endblock %}

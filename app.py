@@ -2936,6 +2936,7 @@ def report_monthly_stats():
                     pair(bs_c.get('Hotspots Circulation'),  bs_p.get('Hotspots Circulation'),  'Hotspots – Circulation'),
                     pair(bs_c.get('Total Prints per Month'), bs_p.get('Total Prints per Month'), 'Monthly Total Prints'),
                 ],
+                'note': 'Monthly Total Prints is significantly higher because the counting method changed.',
             },
         ]
 

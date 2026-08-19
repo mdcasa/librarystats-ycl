@@ -85,6 +85,28 @@ with app.app_context():
     except Exception:
         db.session.rollback()
 
+    # Enable Row Level Security on every table. Supabase exposes all public-
+    # schema tables to PostgREST (its auto-generated REST API) regardless of
+    # whether the app uses it -- this app doesn't, it connects straight to
+    # Postgres via DATABASE_URL/SQLAlchemy, and that connection owns these
+    # tables (it created them via db.create_all()), so table owners bypass
+    # RLS automatically and none of this affects app queries. It only closes
+    # off the unused PostgREST surface, which is what Supabase's security
+    # linter flags ("RLS has not been enabled") for every public table.
+    for _table in (
+        'users', 'categories', 'metrics', 'branches', 'entries',
+        'sirsi_checkouts', 'program_events', 'annual_survey_metrics',
+        'annual_survey_values', 'quarterly_ref_closure_days', 'branch_closures',
+        'holiday_closures', 'branch_weekly_hours', 'bookmobile_weekly_hours',
+        'outlet_scheduled_hours', 'section_j_outlet_data', 'import_logs',
+        'databases', 'usage_monthly', 'entry_values',
+    ):
+        try:
+            db.session.execute(db.text(f'ALTER TABLE {_table} ENABLE ROW LEVEL SECURITY'))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
     # Mark Rock Hill desk branches used in Quarterly Reference Stats
     for _desk_name in ['Rock Hill - Circulation', 'Rock Hill - Reference', 'Rock Hill - YA', "Rock Hill - Children's"]:
         _b = Branch.query.filter_by(name=_desk_name).first()

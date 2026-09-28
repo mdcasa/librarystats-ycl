@@ -1367,6 +1367,7 @@ PROGRAMMING_BRANCH_MAP = {
     'Online':                    'YCL (System Wide)',
 }
 _OFFSITE_LIBRARY_BRANCH_VALUES = {'Bookmobile', 'Outreach Sprinter Van'}
+_CANCELLED_TITLE_RE = re.compile(r'\bcancell?ed\b', re.IGNORECASE)
 
 _AGE_BUCKET_PATTERNS = [
     ('0-5',    ('0–2', '0-2', 'babies', 'toddler', '3–5', '3-5', 'preschooler')),
@@ -1428,9 +1429,15 @@ def import_programming_stats(ws, branch_lookup):
     ONSITE/OFFSITE/VIRTUAL Sessions/Attendance) and counted instead into a
     separate 'Study Room Use' Branch Stats metric, per branch per month.
 
+    Cancelled events (Moderation State containing "cancel", or "Cancelled" /
+    "Canceled" in the title) are never counted — any ProgramEvent row already
+    stored for one is deleted, so an event cancelled after an earlier upload
+    drops out of the totals on re-upload.
+
     Upserts by Event URL — safe to re-upload the same or a corrected file.
     Returns (created, updated, skipped, periods, warnings) — 'skipped' counts
-    rows dropped for lacking a usable date, not study room bookings.
+    rows dropped for lacking a usable date, not study room bookings or
+    cancelled events.
     """
     rows = list(ws.iter_rows(values_only=True))
     if not rows:
@@ -1439,6 +1446,7 @@ def import_programming_stats(ws, branch_lookup):
 
     col = {
         'title':        col_index(header, 'Title'),
+        'moderation':   col_index(header, 'Moderation State'),
         'age_group':    col_index(header, 'Age Group'),
         'prog_type':    col_index(header, 'Program Type'),
         'categories':   col_index(header, 'Internal Categories'),
@@ -1462,7 +1470,7 @@ def import_programming_stats(ws, branch_lookup):
     def text(v):
         return str(v).strip() if v is not None and str(v).strip() else None
 
-    created = updated = skipped = 0
+    created = updated = skipped = cancelled = 0
     periods = set()
     warnings = []
     unmapped_branches = set()
@@ -1474,6 +1482,17 @@ def import_programming_stats(ws, branch_lookup):
         event_url = text(cell(r, 'event_url'))
         if not event_url:
             continue  # not a real data row
+
+        moderation = text(cell(r, 'moderation')) or ''
+        title_raw  = text(cell(r, 'title')) or ''
+        if 'cancel' in moderation.lower() or _CANCELLED_TITLE_RE.search(title_raw):
+            cancelled += 1
+            existing = ProgramEvent.query.filter_by(event_url=event_url).first()
+            if existing:
+                # Previously counted — remove it and recompute that period.
+                periods.add((existing.year, existing.month))
+                db.session.delete(existing)
+            continue
 
         room_raw = text(cell(r, 'room'))
         is_study_room = bool(room_raw and 'study room' in room_raw.lower())
@@ -1548,6 +1567,8 @@ def import_programming_stats(ws, branch_lookup):
 
     if unmapped_branches:
         warnings.append(f'Unrecognised Library Branch value(s), stored without a branch: {sorted(unmapped_branches)}')
+    if cancelled:
+        warnings.append(f'{cancelled} cancelled event(s) excluded from program counts')
 
     db.session.flush()
 
@@ -1556,8 +1577,20 @@ def import_programming_stats(ws, branch_lookup):
     metric_lookup, cat = build_metric_lookup('Branch Stats')
     if cat:
         study_metric = _ensure_metric(cat.id, 'Study Room Use', 'Access & Usage', 'integer')
+        recomputed_ids = {m.id for name, m in metric_lookup.items()
+                          if re.match(r'(ONSITE|OFFSITE|VIRTUAL) (Sessions|Attendance) ', name)}
+        recomputed_ids.add(study_metric.id)
 
         for (year, month) in periods:
+            # Zero this period's previously-imported values first, so a combo
+            # that no longer has any events (e.g. its only event was cancelled)
+            # doesn't keep a stale count.
+            (EntryValue.query
+             .filter(EntryValue.metric_id.in_(recomputed_ids))
+             .filter(EntryValue.entry_id.in_(
+                 db.session.query(Entry.id).filter_by(category_id=cat.id, year=year, month=month)))
+             .update({EntryValue.value_number: 0}, synchronize_session=False))
+
             agg = {}          # (branch_id, location_mode, age_bucket) -> [sessions, attendance]
             study_counts = {}  # branch_id -> count
             for row in ProgramEvent.query.filter_by(year=year, month=month).all():

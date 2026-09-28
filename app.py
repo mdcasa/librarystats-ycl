@@ -37,6 +37,11 @@ if not _db_url:
     _db_url = 'sqlite:///librarystats.db'
 if _db_url.startswith('postgres://'):
     _db_url = _db_url.replace('postgres://', 'postgresql://', 1)
+# Name the driver explicitly: SQLAlchemy 2.1 changed the default for a bare
+# "postgresql://" URL from psycopg2 to psycopg (v3), which isn't installed —
+# fresh Railway builds crashed with "No module named 'psycopg'".
+if _db_url.startswith('postgresql://'):
+    _db_url = _db_url.replace('postgresql://', 'postgresql+psycopg2://', 1)
 app.config['SQLALCHEMY_DATABASE_URI'] = _db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 

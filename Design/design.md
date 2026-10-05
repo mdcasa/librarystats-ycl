@@ -167,7 +167,7 @@ Two independent safety nets were added in Oct 2026 after manually entered values
 
 **Restoring.** `python restore_backup.py <zip>` loads a backup into a **new local SQLite file**, never production, and checks every table's row count against the manifest. Run the app against that file (`DATABASE_URL=sqlite:///…`) to look up old values, then put individual values back deliberately: via Change History → Restore, or a reviewed one-off script. Restored users have no password until one is set. The first backup (2026-10-05) was verified this way: entry_values count and value total, sirsi_checkouts totals and the latest entry timestamp all matched production exactly, and the app ran on the restored copy.
 
-**If the task stops running** (new PC, different user, Python moved): re-register it with `Register-ScheduledTask`, using `pythonw.exe "<repo>ackup_db.py" --log "G:\Shared drives\Statistics\Backupsackup_log.txt"`, a daily 9 PM trigger and `-StartWhenAvailable`. It must run as a user who has the `G:` Google Drive mounted.
+**If the task stops running** (new PC, different user, Python moved): re-register it with `Register-ScheduledTask`, using `pythonw.exe "<repo>\backup_db.py" --log "G:\Shared drives\Statistics\Backups\backup_log.txt"`, a daily 9 PM trigger and `-StartWhenAvailable`. It must run as a user who has the `G:` Google Drive mounted.
 
 The Supabase project is on the free tier, which has no downloadable backups or point-in-time recovery; that's why these backups exist.
 

@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, session, abort
 from flask_login import LoginManager, login_user, logout_user, current_user
-from models import db, Category, Metric, Branch, Entry, EntryValue, User, ImportLog, BranchClosure, EresourceDatabase, UsageMonthly
+from models import db, Category, Metric, Branch, Entry, EntryValue, User, ImportLog, BranchClosure, EresourceDatabase, UsageMonthly, EntryValueHistory
 from sqlalchemy.orm import joinedload
 from sqlalchemy import or_, and_
 from jinja2 import ChoiceLoader, FileSystemLoader
@@ -104,7 +104,7 @@ with app.app_context():
         'annual_survey_values', 'quarterly_ref_closure_days', 'branch_closures',
         'holiday_closures', 'branch_weekly_hours', 'bookmobile_weekly_hours',
         'outlet_scheduled_hours', 'section_j_outlet_data', 'import_logs',
-        'databases', 'usage_monthly', 'entry_values',
+        'databases', 'usage_monthly', 'entry_values', 'entry_value_history',
     ):
         try:
             db.session.execute(db.text(f'ALTER TABLE {_table} ENABLE ROW LEVEL SECURITY'))
@@ -2815,6 +2815,81 @@ def _registration_total_mismatches(fy_year):
                     'expected': adult + juv,
                 })
     return results
+
+
+# ── Admin: Change History ─────────────────────────────────────────────────────
+
+@app.route('/admin/history')
+@admin_required
+def admin_history():
+    """Every recorded change to a stat value (EntryValueHistory), newest first,
+    filterable by category / year / month / metric / user / action."""
+    f = {k: request.args.get(k, '').strip() for k in
+         ('category_id', 'year', 'month', 'metric', 'user', 'action')}
+    q = EntryValueHistory.query
+    if f['category_id'].isdigit():
+        q = q.filter(EntryValueHistory.category_id == int(f['category_id']))
+    if f['year'].isdigit():
+        q = q.filter(EntryValueHistory.year == int(f['year']))
+    if f['month'].isdigit():
+        q = q.filter(EntryValueHistory.month == int(f['month']))
+    if f['metric']:
+        ids = [m.id for m in Metric.query.filter(Metric.name.ilike(f"%{f['metric']}%")).all()]
+        q = q.filter(EntryValueHistory.metric_id.in_(ids or [-1]))
+    if f['user']:
+        q = q.filter(EntryValueHistory.changed_by.ilike(f"%{f['user']}%"))
+    if f['action'] in ('create', 'update', 'delete'):
+        q = q.filter(EntryValueHistory.action == f['action'])
+    page = max(request.args.get('page', 1, type=int), 1)
+    per_page = 200
+    total = q.count()
+    rows = (q.order_by(EntryValueHistory.changed_at.desc(), EntryValueHistory.id.desc())
+             .offset((page - 1) * per_page).limit(per_page).all())
+
+    metrics = {m.id: m for m in Metric.query.all()}
+    branches = {b.id: b.name for b in Branch.query.all()}
+    categories = Category.query.order_by(Category.sort_order).all()
+    return render_template('admin/history.html', rows=rows, metrics=metrics,
+                           branches=branches, categories=categories,
+                           cat_names={c.id: c.name for c in categories},
+                           f=f, page=page, total=total, per_page=per_page, months=MONTHS)
+
+
+@app.route('/admin/history/<int:hist_id>/restore', methods=['POST'])
+@admin_required
+def admin_history_restore(hist_id):
+    """Put a value back to what it was before the recorded change. The restore
+    is itself an ordinary write, so it shows up in the history too."""
+    h = EntryValueHistory.query.get_or_404(hist_id)
+    metric = db.session.get(Metric, h.metric_id)
+    if metric is None:
+        flash('That metric no longer exists — nothing restored.', 'danger')
+        return redirect(request.referrer or url_for('admin_history'))
+
+    entry = db.session.get(Entry, h.entry_id) or Entry.query.filter_by(
+        category_id=h.category_id, branch_id=h.branch_id, year=h.year,
+        month=h.month, quarter=h.quarter).first()
+    ev = EntryValue.query.filter_by(entry_id=entry.id, metric_id=h.metric_id).first() if entry else None
+
+    if h.old_number is None and h.old_text is None:
+        # The change created the value, so restoring removes it.
+        if ev:
+            db.session.delete(ev)
+    else:
+        if entry is None:
+            entry = Entry(category_id=h.category_id, branch_id=h.branch_id, year=h.year,
+                          month=h.month, quarter=h.quarter)
+            db.session.add(entry)
+            db.session.flush()
+        if ev is None:
+            ev = EntryValue(entry_id=entry.id, metric_id=h.metric_id)
+            db.session.add(ev)
+        ev.value_number, ev.value_text = h.old_number, h.old_text
+        entry.add_source(current_user.username)
+    db.session.commit()
+    flash(f'Restored {metric.name} to its value before the change on '
+          f'{h.changed_at:%Y-%m-%d %H:%M} UTC.', 'success')
+    return redirect(request.referrer or url_for('admin_history'))
 
 
 @app.route('/admin/data-integrity')

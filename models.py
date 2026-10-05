@@ -452,3 +452,93 @@ class EntryValue(db.Model):
         if self.value_number == int(self.value_number):
             return str(int(self.value_number))
         return f"{self.value_number:.2f}".rstrip('0').rstrip('.')
+
+
+class EntryValueHistory(db.Model):
+    """
+    One row per change to an EntryValue — created, updated or deleted — so a
+    mistaken save can be seen and undone (Admin → Change History). Recorded
+    automatically by the mapper events below for every ORM write: the entry
+    forms, entry deletes, importers, and restores. Bulk query.update()/delete()
+    calls bypass these events; those paths are covered by ImportLog instead.
+
+    The period, category and branch are copied in so a row stays readable
+    after its Entry is deleted. Added after the Aug/Sep 2026 Facebook/Instagram
+    values were wiped by a form save with no record of the old numbers.
+    """
+    __tablename__ = 'entry_value_history'
+    id          = db.Column(db.Integer, primary_key=True)
+    changed_at  = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    changed_by  = db.Column(db.String(200))
+    source      = db.Column(db.String(100))   # Flask endpoint, or 'script'
+    action      = db.Column(db.String(10))    # 'create' | 'update' | 'delete'
+    entry_id    = db.Column(db.Integer, index=True)
+    metric_id   = db.Column(db.Integer)
+    category_id = db.Column(db.Integer)
+    branch_id   = db.Column(db.Integer)
+    year        = db.Column(db.Integer)
+    month       = db.Column(db.Integer)
+    quarter     = db.Column(db.Integer)
+    old_number  = db.Column(db.Float)
+    old_text    = db.Column(db.Text)
+    new_number  = db.Column(db.Float)
+    new_text    = db.Column(db.Text)
+
+
+def _history_actor():
+    """(changed_by, source) for the current write — the logged-in user and
+    endpoint inside a request, otherwise a one-off script or shell."""
+    try:
+        from flask import has_request_context, request
+        from flask_login import current_user
+        if has_request_context():
+            user = current_user.username if current_user.is_authenticated else 'anonymous'
+            return user, request.endpoint or 'request'
+    except Exception:
+        pass
+    return 'script', 'script'
+
+
+def _record_history(connection, target, action, old_number=None, old_text=None,
+                    new_number=None, new_text=None):
+    entries = Entry.__table__
+    e = connection.execute(
+        db.select(entries.c.category_id, entries.c.branch_id, entries.c.year,
+                  entries.c.month, entries.c.quarter)
+        .where(entries.c.id == target.entry_id)
+    ).first()
+    user, source = _history_actor()
+    connection.execute(EntryValueHistory.__table__.insert().values(
+        changed_at=datetime.utcnow(), changed_by=user, source=source, action=action,
+        entry_id=target.entry_id, metric_id=target.metric_id,
+        category_id=e.category_id if e else None, branch_id=e.branch_id if e else None,
+        year=e.year if e else None, month=e.month if e else None,
+        quarter=e.quarter if e else None,
+        old_number=old_number, old_text=old_text, new_number=new_number, new_text=new_text,
+    ))
+
+
+@db.event.listens_for(EntryValue, 'after_insert')
+def _ev_after_insert(mapper, connection, target):
+    _record_history(connection, target, 'create',
+                    new_number=target.value_number, new_text=target.value_text)
+
+
+@db.event.listens_for(EntryValue, 'before_update')
+def _ev_before_update(mapper, connection, target):
+    state = db.inspect(target)
+    num, txt = state.attrs.value_number.history, state.attrs.value_text.history
+    if not (num.has_changes() or txt.has_changes()):
+        return
+    old_num = num.deleted[0] if num.deleted else target.value_number
+    old_txt = txt.deleted[0] if txt.deleted else target.value_text
+    if old_num == target.value_number and old_txt == target.value_text:
+        return  # re-set to the same value — nothing actually changed
+    _record_history(connection, target, 'update', old_number=old_num, old_text=old_txt,
+                    new_number=target.value_number, new_text=target.value_text)
+
+
+@db.event.listens_for(EntryValue, 'before_delete')
+def _ev_before_delete(mapper, connection, target):
+    _record_history(connection, target, 'delete',
+                    old_number=target.value_number, old_text=target.value_text)

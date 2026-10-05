@@ -415,12 +415,9 @@ def index():
             return None
         return int(v) if v == int(v) else round(v, 1)
 
-    TYPES = PROG_TYPES
-    AGE   = AGE_GROUPS
-
     bs_cat = Category.query.filter_by(name='Branch Stats').first()
     latest_year = latest_month = None
-    kpi = kpi_prev = {}
+    board_sections = []
     circ_trend_labels = circ_trend_data = gate_trend_data = []
 
     if bs_cat:
@@ -448,35 +445,24 @@ def index():
             prev_m = latest_month - 1 or 12
             prev_y = latest_year if latest_month > 1 else latest_year - 1
 
-            bs_c = _sum_month('Branch Stats', latest_year, latest_month)
-            os_c = _sum_month('Online Stats',  latest_year, latest_month)
-            bs_p = _sum_month('Branch Stats', prev_y, prev_m)
-            os_p = _sum_month('Online Stats',  prev_y, prev_m)
+            # Same stats, counted the same way, as the Monthly Board Report --
+            # compared with the prior month instead of the prior year.
+            def _num(v):
+                return None if v is None else (int(v) if v == int(v) else round(v, 1))
 
-            def _cards(d):
-                a = _v(d, 'New Library Card Registrations, Adult') or 0
-                j = _v(d, 'New Library Card Registrations, Juvenile') or 0
-                return a + j or None
-
-            def _att(d):
-                return sum((_v(d, f'{t} Attendance {a}') or 0) for t in TYPES for a in AGE) or None
-
-            kpi = {
-                'circulation': _v(bs_c, 'Total Branch Circulation'),
-                'gate':        _v(bs_c, 'Gate Count'),
-                'attendance':  _att(bs_c),
-                'cards':       _cards(bs_c),
-                'website':     _v(os_c, 'yclibrary.org - Web Sessions'),
-                'pc':          _v(bs_c, 'PC Reservations'),
-            }
-            kpi_prev = {
-                'circulation': _v(bs_p, 'Total Branch Circulation'),
-                'gate':        _v(bs_p, 'Gate Count'),
-                'attendance':  _att(bs_p),
-                'cards':       _cards(bs_p),
-                'website':     _v(os_p, 'yclibrary.org - Web Sessions'),
-                'pc':          _v(bs_p, 'PC Reservations'),
-            }
+            for sec in _board_report_sections((latest_year, latest_month), (prev_y, prev_m)):
+                items = [{**it, 'curr': _num(it['curr']), 'prev': _num(it['prev'])} for it in sec['items']]
+                if sec.get('by_age'):
+                    # One card per section with the total, age groups listed beneath.
+                    cs = [it['curr'] for it in items if it['curr'] is not None]
+                    ps = [it['prev'] for it in items if it['prev'] is not None]
+                    cards = [{'label': sec['title'].replace('ONSITE Program ', 'Onsite Program '),
+                              'curr': sum(cs) if cs else None, 'prev': sum(ps) if ps else None,
+                              'breakdown': items}]
+                else:
+                    cards = items
+                board_sections.append({'title': sec['title'], 'color': sec['color'],
+                                       'icon': sec['icon'], 'cards': cards})
 
             circ_trend_labels = [m[:3] for m in MONTHS]
             circ_trend_data, gate_trend_data = [], []
@@ -543,8 +529,7 @@ def index():
                            real_branches=_real_branches,
                            latest_year=latest_year,
                            latest_month=latest_month,
-                           kpi=kpi,
-                           kpi_prev=kpi_prev,
+                           board_sections=board_sections,
                            circ_trend_labels=circ_trend_labels,
                            circ_trend_data=circ_trend_data,
                            gate_trend_data=gate_trend_data,
@@ -2971,6 +2956,118 @@ def admin_data_integrity(fy_year=None):
                            registration_mismatches=registration_mismatches)
 
 
+def _board_report_sums(cat_name, y, m):
+    """Sum each metric across a category's entries for one month, the way the
+    Monthly Board Report counts: locker, desk, system-wide and Administration
+    branch rows are left out so nothing is double-counted."""
+    cat = Category.query.filter_by(name=cat_name).first()
+    if not cat:
+        return {}
+    q = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat.id, year=y, month=m)
+    if cat.has_branch:
+        excluded_ids = [b.id for b in Branch.query.filter(
+            db.or_(
+                Branch.name.ilike('%locker%'),
+                Branch.name == 'YCL (System Wide)',
+                Branch.name == 'Administration',
+                Branch.is_desk == True,
+            )
+        ).with_entities(Branch.id).all()]
+        if excluded_ids:
+            q = q.filter(~Entry.branch_id.in_(excluded_ids))
+    id_to_name = {mx.id: mx.name for mx in cat.metrics}
+    totals = {}
+    for e in q.all():
+        for ev in e.values:
+            n = id_to_name.get(ev.metric_id)
+            if n and ev.value_number is not None:
+                totals[n] = totals.get(n, 0) + ev.value_number
+    return totals
+
+
+def _board_report_sections(curr, prev):
+    """The Monthly Board Report's stats, as sections of {label, curr, prev}
+    items, for any two (year, month) periods. The single definition of what's
+    on the Board Report -- the report itself compares a month with the same
+    month last year, and the dashboard compares it with the month before."""
+    bs_c, os_c = _board_report_sums('Branch Stats', *curr), _board_report_sums('Online Stats', *curr)
+    bs_p, os_p = _board_report_sums('Branch Stats', *prev), _board_report_sums('Online Stats', *prev)
+    AGE = AGE_GROUPS
+
+    def prog(sums, ptype, kind, age):
+        return sums.get(f'{ptype} {kind} {age}') or None
+
+    def pair(curr, prev, label):
+        return {'label': label, 'curr': curr, 'prev': prev}
+
+    def wifi(bs_sums, os_sums):
+        # WiFi moved from a Branch Stats metric (summed across branches)
+        # to a system-wide Online Stats metric starting Jul 2026 -- read
+        # whichever source actually has data for this period.
+        v = bs_sums.get('WiFi - Unique Sessions')
+        return v if v is not None else os_sums.get('WiFi - Unique Sessions')
+
+    return [
+        {
+            'title': 'Circulation & Door Count',
+            'color': '#1a5276', 'icon': 'bi-book',
+            'items': [
+                pair(bs_c.get('Total Branch Circulation'), bs_p.get('Total Branch Circulation'), 'Monthly Circulation'),
+                pair(bs_c.get('Gate Count'),               bs_p.get('Gate Count'),               'Monthly Gate Count'),
+            ],
+        },
+        {
+            'title': 'New Library Cards',
+            'color': '#1e8449', 'icon': 'bi-person-plus',
+            'items': [
+                pair(bs_c.get('New Library Card Registrations, Adult'), bs_p.get('New Library Card Registrations, Adult'), 'New Cards, Adult (incl. YA)'),
+                pair(bs_c.get('New Library Card Registrations, Juvenile'), bs_p.get('New Library Card Registrations, Juvenile'), 'New Cards, Juvenile'),
+            ],
+        },
+        {
+            'title': 'ONSITE Program Sessions',
+            'color': '#6c3483', 'icon': 'bi-calendar-event', 'by_age': True,
+            'items': [pair(prog(bs_c,'ONSITE','Sessions',a), prog(bs_p,'ONSITE','Sessions',a), a) for a in AGE],
+        },
+        {
+            'title': 'ONSITE Program Attendance',
+            'color': '#784212', 'icon': 'bi-people-fill', 'by_age': True,
+            'items': [pair(prog(bs_c,'ONSITE','Attendance',a), prog(bs_p,'ONSITE','Attendance',a), a) for a in AGE],
+        },
+        {
+            'title': 'Online Usage',
+            'color': '#117a65', 'icon': 'bi-globe',
+            'items': [
+                pair(os_c.get('yclibrary.org - Web Sessions'), os_p.get('yclibrary.org - Web Sessions'), 'Website Hits'),
+                pair(os_c.get('Website Messages'),             os_p.get('Website Messages'),             'Contact Us'),
+                pair(os_c.get('YCL App - Users'),              os_p.get('YCL App - Users'),              'YCL App Users'),
+                pair(os_c.get('YCL App - Sessions'),           os_p.get('YCL App - Sessions'),           'YCL App Sessions'),
+            ],
+        },
+        {
+            'title': 'Social Media',
+            'color': '#1a5276', 'icon': 'bi-share',
+            'items': [
+                pair(os_c.get('Instagram - Subscribers'), os_p.get('Instagram - Subscribers'), 'Instagram Subscriptions'),
+                pair(os_c.get('Facebook Followers'),       os_p.get('Facebook Followers'),       'Facebook Followers'),
+                pair(os_c.get('YouTube - Views'),          os_p.get('YouTube - Views'),          'YouTube Views'),
+                pair(os_c.get('YouTube - Subscribers'),    os_p.get('YouTube - Subscribers'),    'YouTube Subscribers'),
+            ],
+        },
+        {
+            'title': 'Technology Use',
+            'color': '#922b21', 'icon': 'bi-pc-display',
+            'items': [
+                pair(bs_c.get('PC Reservations'),       bs_p.get('PC Reservations'),       'Monthly PC Reservations'),
+                pair(wifi(bs_c, os_c), wifi(bs_p, os_p), 'WiFi – Unique Sessions'),
+                pair(bs_c.get('Hotspots Circulation'),  bs_p.get('Hotspots Circulation'),  'Hotspots – Circulation'),
+                pair(bs_c.get('Total Prints per Month'), bs_p.get('Total Prints per Month'), 'Monthly Total Prints'),
+            ],
+            'note': 'Monthly Total Prints is significantly higher because the counting method changed.',
+        },
+    ]
+
+
 @app.route('/reports/monthlystats')
 def report_monthly_stats():
     month = request.args.get('month', type=int)
@@ -2985,112 +3082,7 @@ def report_monthly_stats():
 
     if month and year:
         prev_year = year - 1
-
-        def get_sums(cat_name, y, m):
-            cat = Category.query.filter_by(name=cat_name).first()
-            if not cat:
-                return {}
-            q = Entry.query.options(joinedload(Entry.values)).filter_by(category_id=cat.id, year=y, month=m)
-            if cat.has_branch:
-                excluded_ids = [b.id for b in Branch.query.filter(
-                    db.or_(
-                        Branch.name.ilike('%locker%'),
-                        Branch.name == 'YCL (System Wide)',
-                        Branch.name == 'Administration',
-                        Branch.is_desk == True,
-                    )
-                ).with_entities(Branch.id).all()]
-                if excluded_ids:
-                    q = q.filter(~Entry.branch_id.in_(excluded_ids))
-            entries = q.all()
-            id_to_name = {mx.id: mx.name for mx in cat.metrics}
-            totals = {}
-            for e in entries:
-                for ev in e.values:
-                    n = id_to_name.get(ev.metric_id)
-                    if n and ev.value_number is not None:
-                        totals[n] = totals.get(n, 0) + ev.value_number
-            return totals
-
-        bs_c = get_sums('Branch Stats', year,      month)
-        bs_p = get_sums('Branch Stats', prev_year, month)
-        os_c = get_sums('Online Stats', year,      month)
-        os_p = get_sums('Online Stats', prev_year, month)
-
-        AGE  = AGE_GROUPS
-
-        def prog(sums, ptype, kind, age):
-            return sums.get(f'{ptype} {kind} {age}') or None
-
-        def pair(curr, prev, label):
-            return {'label': label, 'curr': curr, 'prev': prev}
-
-        def wifi(bs_sums, os_sums):
-            # WiFi moved from a Branch Stats metric (summed across branches)
-            # to a system-wide Online Stats metric starting Jul 2026 -- read
-            # whichever source actually has data for this period.
-            v = bs_sums.get('WiFi - Unique Sessions')
-            return v if v is not None else os_sums.get('WiFi - Unique Sessions')
-
-        sections = [
-            {
-                'title': 'Circulation & Door Count',
-                'color': '#1a5276',
-                'items': [
-                    pair(bs_c.get('Total Branch Circulation'), bs_p.get('Total Branch Circulation'), 'Monthly Circulation'),
-                    pair(bs_c.get('Gate Count'),               bs_p.get('Gate Count'),               'Monthly Gate Count'),
-                ],
-            },
-            {
-                'title': 'New Library Cards',
-                'color': '#1e8449',
-                'items': [
-                    pair(bs_c.get('New Library Card Registrations, Adult'), bs_p.get('New Library Card Registrations, Adult'), 'New Cards, Adult (incl. YA)'),
-                    pair(bs_c.get('New Library Card Registrations, Juvenile'), bs_p.get('New Library Card Registrations, Juvenile'), 'New Cards, Juvenile'),
-                ],
-            },
-            {
-                'title': 'ONSITE Program Sessions',
-                'color': '#6c3483',
-                'items': [pair(prog(bs_c,'ONSITE','Sessions',a), prog(bs_p,'ONSITE','Sessions',a), a) for a in AGE],
-            },
-            {
-                'title': 'ONSITE Program Attendance',
-                'color': '#784212',
-                'items': [pair(prog(bs_c,'ONSITE','Attendance',a), prog(bs_p,'ONSITE','Attendance',a), a) for a in AGE],
-            },
-            {
-                'title': 'Online Usage',
-                'color': '#117a65',
-                'items': [
-                    pair(os_c.get('yclibrary.org - Web Sessions'), os_p.get('yclibrary.org - Web Sessions'), 'Website Hits'),
-                    pair(os_c.get('Website Messages'),             os_p.get('Website Messages'),             'Contact Us'),
-                    pair(os_c.get('YCL App - Users'),              os_p.get('YCL App - Users'),              'YCL App Users'),
-                    pair(os_c.get('YCL App - Sessions'),           os_p.get('YCL App - Sessions'),           'YCL App Sessions'),
-                ],
-            },
-            {
-                'title': 'Social Media',
-                'color': '#1a5276',
-                'items': [
-                    pair(os_c.get('Instagram - Subscribers'), os_p.get('Instagram - Subscribers'), 'Instagram Subscriptions'),
-                    pair(os_c.get('Facebook Followers'),       os_p.get('Facebook Followers'),       'Facebook Followers'),
-                    pair(os_c.get('YouTube - Views'),          os_p.get('YouTube - Views'),          'YouTube Views'),
-                    pair(os_c.get('YouTube - Subscribers'),    os_p.get('YouTube - Subscribers'),    'YouTube Subscribers'),
-                ],
-            },
-            {
-                'title': 'Technology Use',
-                'color': '#922b21',
-                'items': [
-                    pair(bs_c.get('PC Reservations'),       bs_p.get('PC Reservations'),       'Monthly PC Reservations'),
-                    pair(wifi(bs_c, os_c), wifi(bs_p, os_p), 'WiFi – Unique Sessions'),
-                    pair(bs_c.get('Hotspots Circulation'),  bs_p.get('Hotspots Circulation'),  'Hotspots – Circulation'),
-                    pair(bs_c.get('Total Prints per Month'), bs_p.get('Total Prints per Month'), 'Monthly Total Prints'),
-                ],
-                'note': 'Monthly Total Prints is significantly higher because the counting method changed.',
-            },
-        ]
+        sections = _board_report_sections((year, month), (prev_year, month))
 
         # Drop sections where every item has no data in either year
         sections = [s for s in sections

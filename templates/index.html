@@ -43,8 +43,8 @@
   </div>
 </div>
 
-{# ── KPI tiles ── #}
-{% macro kpi_tile(label, icon, color, value, prev) %}
+{# ── KPI tiles: the Monthly Board Report's stats, vs prior month ── #}
+{% macro kpi_tile(label, icon, color, value, prev, breakdown=none) %}
 {% if prev and value is not none and value != '' %}
   {% set delta = value - prev %}
   {% set pct   = ((delta / prev) * 100) | round(1) %}
@@ -76,31 +76,45 @@
     </div>
     {% elif value is not none %}
     <div class="mt-1 small text-muted">No prior-month data</div>
+    {% else %}
+    <div class="mt-1 small text-muted">Not entered yet</div>
+    {% endif %}
+    {% if breakdown %}
+    <div class="d-flex flex-wrap gap-1 mt-2">
+      {% for b in breakdown %}
+      <span class="badge rounded-pill text-bg-light border fw-normal"
+            title="{{ b.label }}: {{ b.curr | commas if b.curr is not none else 'no data' }}">
+        {{ b.label }} <strong>{{ b.curr | commas if b.curr is not none else '—' }}</strong>
+      </span>
+      {% endfor %}
+    </div>
     {% endif %}
   </div>
 </div>
 {% endmacro %}
 
-{% if kpi %}
+{% if board_sections %}
+<div class="d-flex justify-content-between align-items-baseline mb-2">
+  <div class="text-muted small">Monthly Board Report stats</div>
+  <a class="small" href="{{ url_for('report_monthly_stats', month=latest_month, year=latest_year) }}">
+    Open {{ MN[latest_month - 1] }} Board Report <i class="bi bi-arrow-right-short"></i>
+  </a>
+</div>
 <div class="row g-3 mb-4">
-  <div class="col-sm-6 col-lg-4">
-    {{ kpi_tile('Circulation',       'bi-book',         '#2c6e8a', kpi.circulation, kpi_prev.circulation) }}
+  {% for sec in board_sections %}
+  {# Groups of 1–2 stats sit side by side; groups of 3+ get a full row. #}
+  {% set wide = sec.cards|length > 2 %}
+  <div class="{{ 'col-12' if wide else 'col-lg-6' }}">
+    <h2 class="h6 fw-semibold mb-2" style="color:{{ sec.color }}">{{ sec.title }}</h2>
+    <div class="row g-3">
+      {% for c in sec.cards %}
+      <div class="{{ 'col-sm-6 col-lg-3' if wide else ('col-12' if sec.cards|length == 1 else 'col-sm-6') }}">
+        {{ kpi_tile(c.label, sec.icon, sec.color, c.curr, c.prev, c.breakdown) }}
+      </div>
+      {% endfor %}
+    </div>
   </div>
-  <div class="col-sm-6 col-lg-4">
-    {{ kpi_tile('Gate Count',        'bi-door-open',    '#1e8449', kpi.gate,        kpi_prev.gate) }}
-  </div>
-  <div class="col-sm-6 col-lg-4">
-    {{ kpi_tile('Program Attendance','bi-people-fill',  '#6c3483', kpi.attendance,  kpi_prev.attendance) }}
-  </div>
-  <div class="col-sm-6 col-lg-4">
-    {{ kpi_tile('New Library Cards', 'bi-person-plus',  '#e67e22', kpi.cards,       kpi_prev.cards) }}
-  </div>
-  <div class="col-sm-6 col-lg-4">
-    {{ kpi_tile('Website Sessions',  'bi-globe',        '#117a65', kpi.website,     kpi_prev.website) }}
-  </div>
-  <div class="col-sm-6 col-lg-4">
-    {{ kpi_tile('PC Reservations',   'bi-pc-display',   '#922b21', kpi.pc,          kpi_prev.pc) }}
-  </div>
+  {% endfor %}
 </div>
 {% endif %}
 

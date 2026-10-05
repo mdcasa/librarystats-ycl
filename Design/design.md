@@ -169,7 +169,18 @@ Two independent safety nets were added in Oct 2026 after manually entered values
 
 **If the task stops running** (new PC, different user, Python moved): re-register it with `Register-ScheduledTask`, using `pythonw.exe "<repo>\backup_db.py" --log "G:\Shared drives\Statistics\Backups\backup_log.txt"`, a daily 9 PM trigger and `-StartWhenAvailable`. It must run as a user who has the `G:` Google Drive mounted.
 
-The Supabase project is on the free tier, which has no downloadable backups or point-in-time recovery; that's why these backups exist.
+**Supabase's own daily backups.** The project also has Supabase backups: check Database → Backups for how many days are kept and whether point-in-time recovery is enabled. A Supabase restore rolls back the **entire** database to that point, and the app is down while it runs. So it's the last resort, not the everyday tool. The shared-drive backups stay worthwhile because they're kept longer (30 days plus monthly) and allow recovering individual values.
+
+**Recovery playbook (pick the smallest tool that fixes it):**
+
+1. **A few values wrong or deleted recently:** Admin → Change History → Restore, or Undo on the Upload page for a bad import.
+2. **Values lost before Change History existed (Oct 2026), or a whole month or branch:** run `restore_backup.py` on the most recent nightly backup from before the loss, find the values in the restored SQLite copy, and put back only those.
+3. **Catastrophic** (tables emptied, a script damaged thousands of rows, corruption): Supabase restore.
+   - **First** run `python backup_db.py` to capture everything since Supabase's last backup.
+   - Restore in Supabase.
+   - Re-apply later changes: re-upload source files by the dates in the import log, and copy manual entries back from the fresh backup.
+   - Run Admin → Data Integrity Check before trusting reports.
+
 
 ---
 

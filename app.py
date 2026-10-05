@@ -451,16 +451,12 @@ def index():
                 return None if v is None else (int(v) if v == int(v) else round(v, 1))
 
             for sec in _board_report_sections((latest_year, latest_month), (prev_y, prev_m)):
-                items = [{**it, 'curr': _num(it['curr']), 'prev': _num(it['prev'])} for it in sec['items']]
+                cards = [{**it, 'curr': _num(it['curr']), 'prev': _num(it['prev'])} for it in sec['items']]
                 if sec.get('by_age'):
-                    # One card per section with the total, age groups listed beneath.
-                    cs = [it['curr'] for it in items if it['curr'] is not None]
-                    ps = [it['prev'] for it in items if it['prev'] is not None]
-                    cards = [{'label': sec['title'].replace('ONSITE Program ', 'Onsite Program '),
-                              'curr': sum(cs) if cs else None, 'prev': sum(ps) if ps else None,
-                              'breakdown': items}]
-                else:
-                    cards = items
+                    # One small card per age group, like the Board Report's age bars.
+                    for c in cards:
+                        if c['label'][0].isdigit():
+                            c['label'] = f"Ages {c['label']}"
                 board_sections.append({'title': sec['title'], 'color': sec['color'],
                                        'icon': sec['icon'], 'cards': cards})
 

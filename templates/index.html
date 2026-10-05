@@ -44,7 +44,7 @@
 </div>
 
 {# ── KPI tiles: the Monthly Board Report's stats, vs prior month ── #}
-{% macro kpi_tile(label, icon, color, value, prev, breakdown=none) %}
+{% macro kpi_tile(label, icon, color, value, prev) %}
 {% if prev and value is not none and value != '' %}
   {% set delta = value - prev %}
   {% set pct   = ((delta / prev) * 100) | round(1) %}
@@ -79,16 +79,6 @@
     {% else %}
     <div class="mt-1 small text-muted">Not entered yet</div>
     {% endif %}
-    {% if breakdown %}
-    <div class="d-flex flex-wrap gap-1 mt-2">
-      {% for b in breakdown %}
-      <span class="badge rounded-pill text-bg-light border fw-normal"
-            title="{{ b.label }}: {{ b.curr | commas if b.curr is not none else 'no data' }}">
-        {{ b.label }} <strong>{{ b.curr | commas if b.curr is not none else '—' }}</strong>
-      </span>
-      {% endfor %}
-    </div>
-    {% endif %}
   </div>
 </div>
 {% endmacro %}
@@ -102,14 +92,15 @@
 </div>
 <div class="row g-3 mb-4">
   {% for sec in board_sections %}
-  {# Groups of 1–2 stats sit side by side; groups of 3+ get a full row. #}
-  {% set wide = sec.cards|length > 2 %}
-  <div class="{{ 'col-12' if wide else 'col-lg-6' }}">
+  {# Every stat is its own small card. Groups of 2 sit side by side; groups of
+     3+ get a full row (the 5 age-group cards share one row on wide screens). #}
+  {% set n = sec.cards|length %}
+  <div class="{{ 'col-12' if n > 2 else 'col-lg-6' }}">
     <h2 class="h6 fw-semibold mb-2" style="color:{{ sec.color }}">{{ sec.title }}</h2>
-    <div class="row g-3">
+    <div class="row g-3 {{ 'row-cols-1 row-cols-sm-2 row-cols-lg-5' if n == 5 else '' }}">
       {% for c in sec.cards %}
-      <div class="{{ 'col-sm-6 col-lg-3' if wide else ('col-12' if sec.cards|length == 1 else 'col-sm-6') }}">
-        {{ kpi_tile(c.label, sec.icon, sec.color, c.curr, c.prev, c.breakdown) }}
+      <div class="{{ 'col' if n == 5 else ('col-sm-6 col-lg-3' if n > 2 else 'col-sm-6') }}">
+        {{ kpi_tile(c.label, sec.icon, sec.color, c.curr, c.prev) }}
       </div>
       {% endfor %}
     </div>

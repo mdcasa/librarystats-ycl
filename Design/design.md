@@ -157,6 +157,22 @@ Railway alone can host both app and database, but Supabase is preferred for the 
 
 ---
 
+## Change History & Backups
+
+Two independent safety nets were added in Oct 2026 after manually entered values were lost with no way to recover them.
+
+**Change History (`entry_value_history` table, Admin → Change History, `/admin/history`).** Mapper events on `EntryValue` (bottom of `models.py`) record every insert, update and delete made through the ORM. That covers the entry forms, Edit, entry deletes, importers and one-off scripts. Each row stores the old and new value, the user (or `script`), the Flask endpoint, and the period, category and branch, so it stays readable after its entry is deleted. **Restore** puts a value back to what it was before a change, recreating the entry if needed; the restore is itself recorded. Bulk `query.update()` / `query.delete()` calls bypass mapper events; the paths that use them (upload undo, the programming-metric reset) are covered by `ImportLog`.
+
+**Nightly backups (`backup_db.py`).** The Windows scheduled task **"YCL Stats nightly backup"**, registered on the stats admin's PC, runs at 9:00 PM. If the PC was off, it runs at the next start. It writes `G:\Shared drives\Statistics\Backups\YCLStats_backup_<date>_<time>.zip`, which holds every table as JSON (exact) and CSV (for Excel) plus a `manifest.json` of row counts. Tables are read from the database itself, so tables without a model are included. `users.password_hash` is deliberately left out. Retention is the last 30 days plus the first backup of every month. Each run appends one line (`OK …` or `FAILED …`) to `backup_log.txt` in the same folder; check it if in doubt. It's safe to run by hand: `python backup_db.py`.
+
+**Restoring.** `python restore_backup.py <zip>` loads a backup into a **new local SQLite file**, never production, and checks every table's row count against the manifest. Run the app against that file (`DATABASE_URL=sqlite:///…`) to look up old values, then put individual values back deliberately: via Change History → Restore, or a reviewed one-off script. Restored users have no password until one is set. The first backup (2026-10-05) was verified this way: entry_values count and value total, sirsi_checkouts totals and the latest entry timestamp all matched production exactly, and the app ran on the restored copy.
+
+**If the task stops running** (new PC, different user, Python moved): re-register it with `Register-ScheduledTask`, using `pythonw.exe "<repo>ackup_db.py" --log "G:\Shared drives\Statistics\Backupsackup_log.txt"`, a daily 9 PM trigger and `-StartWhenAvailable`. It must run as a user who has the `G:` Google Drive mounted.
+
+The Supabase project is on the free tier, which has no downloadable backups or point-in-time recovery; that's why these backups exist.
+
+---
+
 ## Deployment (Railway)
 
 The app is deployed on Railway. On startup, `db.create_all()` runs automatically — no migration tool is used. Schema changes that SQLAlchemy can't handle automatically (e.g. adding a column) are handled with inline `ALTER TABLE` statements inside a try/except in `app.py` at startup.
@@ -400,7 +416,11 @@ Both forms use `templates/entries/main_only_entry.html` and upsert values (exist
 
 ## New Entry / Edit Entry Forms (`/entries/new/<id>`, `/entries/<id>/edit`)
 
-These generic forms (used by "Enter Data → [category]" in the nav) also filter out `_UPLOAD_SOURCED_METRICS` for Branch Stats entries, matching the manual entry form. This prevents staff from accidentally entering values for metrics that are owned by file imports or the dedicated ILL/ICL forms. The filtering applies only to Branch Stats; other categories (Online Stats, Quarterly Reference Stats) show all their metrics.
+These generic forms (used by "Enter Data → [category]" in the nav) filter out `_UPLOAD_SOURCED_METRICS` in **every** category, matching the manual entry form. This keeps staff from entering values for metrics owned by file imports or the dedicated ILL/ICL forms, and stops a blank form field from deleting an imported value. (Until Oct 2026 this applied only to Branch Stats, so the Online Stats form wiped September 2026's Meraki WiFi import.)
+
+**Blank fields:** on **New Entry** a blank field leaves any stored value alone. The form always opens empty, even for a period that already has data, so a blank can't mean "clear". (Before Oct 2026 it did, and one person's partial submission wiped Facebook/Instagram for Aug and Sep 2026.) **Edit** pre-fills the current values, so clearing a field there does delete that value.
+
+Every change from either form is recorded in Change History (see **Change History & Backups**).
 
 **Circulation excluded from nav:** The `Circulation` category is excluded from the "Enter Data" dropdown. It has no entry form — it is a UI alias only. Selecting it in the nav would create empty, meaningless entries.
 

@@ -51,6 +51,9 @@
           <td>
             {% if u.is_active %}
             <span class="badge bg-success">Active</span>
+            {% if u.must_change_password %}
+            <span class="badge bg-info text-dark" title="Will be asked to choose a new password at next sign-in">Password change pending</span>
+            {% endif %}
             {% else %}
             <span class="badge bg-danger">Inactive</span>
             {% endif %}

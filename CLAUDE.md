@@ -64,7 +64,7 @@ Flask 3, Flask-SQLAlchemy, Flask-Login, PostgreSQL (Supabase), gunicorn, openpyx
 - **Annual eResources** (DB category, `models.py`/`seed_data.py`, `frequency='annual'`) — E-Book, E-Audio, E-Video, E-Serials Circulation, entered once a year via `/entries/new/<category_id>` (system-wide, `branch_id=None` — no branch breakdown, and not the `YCL (System Wide)` Branch row). Feeds the eBook/eAudio/eVideo/eSerial Circ rows on the Director's Dashboard and the Annual Comparables report's "digital" total. First loaded for FY2025-2026 via `patch_fy2526_annual_eresources.py`. Still shows "No data" in Data Status for any fiscal year not yet loaded — a visible reminder, not a bug.
 - **Monthly eResources** — vendor-reported database usage (logins, searches, sessions) for 89 subscription databases, tracked in `models.py` (`EresourceDatabase`/`UsageMonthly`, tables `databases`/`usage_monthly`) — not part of the Category/Metric/Entry schema. Entirely different dataset from Annual eResources. Data is loaded manually via `import_eresources.py` from the director's tracking workbook (SUSHI/COUNTER harvesting from `eResources/YCL-Database-Usage-Tracking-Design.md` is not built — that doc's "Implementation Notes" section covers what shipped vs. the original design). Browsable at `/reports/eresources`, which also rolls monthly usage up into the same four Annual eResources buckets — crosswalk in `eResources/YCL-Vendor-Data-Onboarding-Plan.md` §3a. One known data discrepancy (Hoopla BingePass comics/eBooks, 200 vs. 14) is documented in the design doc's Implementation Notes.
 
-**No email-based password reset.** Admins reset passwords directly via Admin → Users. No SMTP required.
+**No email-based password reset.** Admins set a temporary password via Admin → Users (new account or Reset Password); that flags the account `must_change_password`, and the user is sent to `/account/password` at next sign-in and can't use the app until they choose their own (min 12 chars, can't contain username, must differ from current). Any user can also change their own password anytime by clicking their username in the nav. No SMTP required.
 
 ---
 
@@ -81,6 +81,8 @@ Flask 3, Flask-SQLAlchemy, Flask-Login, PostgreSQL (Supabase), gunicorn, openpyx
 Flask-Login with individual user accounts. Passwords hashed with werkzeug. All routes require login except `/login` and `/logout`. On first boot with an empty users table, a bootstrap admin is created from `LOGIN_USERNAME` (default: `admin`) and `LOGIN_PASSWORD` env vars.
 
 Roles: `is_admin=True` → full access including user management. `is_admin=False` → data entry and reports only.
+
+Self-service password change: `/account/password` (`change_password` in `app.py`), rules in `password_problems()` / `MIN_PASSWORD_LENGTH`. Forced change is enforced in the `require_login` before_request hook via `User.must_change_password`. See `Design/user_logins_design.md`.
 
 ---
 

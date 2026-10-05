@@ -642,7 +642,7 @@ def entry_create(category_id):
                 v = ev.value_number
                 return int(v) if v is not None and v == int(v) else v
 
-            added, updated, cleared = [], [], []
+            added, updated = [], []
             for m in metrics:
                 raw = request.form.get(f'metric_{m.id}', '').strip()
                 ev = EntryValue.query.filter_by(entry_id=entry.id, metric_id=m.id).first()
@@ -663,13 +663,12 @@ def entry_create(category_id):
                         added.append(f'{m.name}: {new_val}')
                     elif str(old_val) != str(new_val):
                         updated.append(f'{m.name}: {old_val} → {new_val}')
-                elif ev is not None:
-                    # A blank field means this submission is the final, authoritative
-                    # record for this branch/period -- clear any prior value rather
-                    # than silently leaving stale data behind. Matches entry_edit()'s
-                    # existing behavior.
-                    cleared.append(f'{m.name} (was {old_val})')
-                    db.session.delete(ev)
+                # A blank field leaves any stored value alone. This form always
+                # renders empty, even for a period that already has data, so a
+                # blank can't mean "clear it" -- treating it that way let a second
+                # person's partial submission wipe values someone else entered
+                # (Facebook/Instagram for Aug + Sep 2026). To clear a value, use
+                # Edit, which pre-fills the current values.
 
             if category.name == 'Branch Stats' and entry.branch_id:
                 _save_branch_closures(entry.branch_id, current_user.username)
@@ -677,23 +676,21 @@ def entry_create(category_id):
             db.session.commit()
             if is_new:
                 flash('Entry submitted successfully!', 'success')
-            elif not (updated or added or cleared):
+            elif not (updated or added):
                 flash(f'No changes — {entry.period_label} already has this data recorded.', 'info')
-            elif not (updated or cleared):
+            elif not updated:
                 # Nothing existing was overwritten -- just new metrics filled in
                 # (e.g. manual fields added after an upload already created this
                 # period's entry). Nothing here needs a second look, so this is a
                 # plain success, not a warning.
                 flash('Entry submitted successfully! Added: ' + '; '.join(added) + '.', 'success')
             else:
-                # An existing value was changed or removed -- worth a second look.
+                # An existing value was changed -- worth a second look.
                 parts = ['Entry submitted — some existing values changed.']
                 if updated:
                     parts.append('Replaced: ' + '; '.join(updated) + '.')
                 if added:
                     parts.append('Added: ' + '; '.join(added) + '.')
-                if cleared:
-                    parts.append('Cleared (left blank this time): ' + '; '.join(cleared) + '.')
                 flash(' '.join(parts), 'warning')
             return redirect(url_for('entry_view', entry_id=entry.id))
 

@@ -71,6 +71,7 @@
           <div class="mb-4">
             <label class="form-label fw-semibold">Password <span class="text-danger">*</span></label>
             <input type="password" name="password" class="form-control" required autocomplete="new-password">
+            <div class="form-text">This is a temporary password. The user will be asked to choose their own the first time they sign in.</div>
           </div>
           {% endif %}
 
@@ -92,6 +93,9 @@
           <div class="mb-3">
             <label class="form-label fw-semibold">New Password <span class="text-danger">*</span></label>
             <input type="password" name="new_password" class="form-control" required autocomplete="new-password">
+            {% if user.id != current_user.id %}
+            <div class="form-text">Temporary password — {{ user.username }} will be asked to choose a new one at next sign-in.</div>
+            {% endif %}
           </div>
           <button type="submit" class="btn btn-warning">
             Reset Password

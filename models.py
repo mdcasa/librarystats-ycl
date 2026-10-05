@@ -14,6 +14,9 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(256), nullable=False)
     is_active     = db.Column(db.Boolean, default=True, nullable=False)
     is_admin      = db.Column(db.Boolean, default=False, nullable=False)
+    # True when an admin set the password (new account or reset): the user
+    # must choose their own password at next login before using the app.
+    must_change_password = db.Column(db.Boolean, default=False, nullable=False)
     created_at    = db.Column(db.DateTime, default=datetime.utcnow)
 
     def set_password(self, password):

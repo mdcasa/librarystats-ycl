@@ -81,6 +81,17 @@ with app.app_context():
     except Exception:
         db.session.rollback()
 
+    # Migrate: add must_change_password column to users if it doesn't exist yet.
+    # Existing accounts default to FALSE (not forced); new accounts and admin
+    # password resets set it to TRUE.
+    try:
+        db.session.execute(db.text(
+            'ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT FALSE'
+        ))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
     # Migrate: add is_desk column if it doesn't exist yet
     try:
         db.session.execute(db.text(
@@ -272,6 +283,25 @@ def commas_filter(value):
 
 _PUBLIC_ENDPOINTS = {'login', 'logout', 'static', 'public_annual_overview'}
 
+# Endpoints a logged-in user may still reach while a password change is pending
+_PASSWORD_CHANGE_ALLOWED = {'change_password', 'logout', 'static'}
+
+MIN_PASSWORD_LENGTH = 12
+
+
+def password_problems(user, new_password, confirm):
+    """Return a list of reasons new_password is not acceptable (empty = OK)."""
+    problems = []
+    if new_password != confirm:
+        problems.append('The two new passwords do not match.')
+    if len(new_password) < MIN_PASSWORD_LENGTH:
+        problems.append(f'Password must be at least {MIN_PASSWORD_LENGTH} characters long.')
+    if user.username and user.username.lower() in new_password.lower():
+        problems.append('Password cannot contain your username.')
+    if user.check_password(new_password):
+        problems.append('New password must be different from your current password.')
+    return problems
+
 
 @app.before_request
 def require_login():
@@ -279,6 +309,10 @@ def require_login():
         return redirect(url_for('public_annual_overview'))
     if request.endpoint not in _PUBLIC_ENDPOINTS and not current_user.is_authenticated:
         return redirect(url_for('login', next=request.path))
+    if (current_user.is_authenticated
+            and current_user.must_change_password
+            and request.endpoint not in _PASSWORD_CHANGE_ALLOWED):
+        return redirect(url_for('change_password'))
 
 
 def admin_required(f):
@@ -312,6 +346,28 @@ def login():
 def logout():
     logout_user()
     return redirect(url_for('login'))
+
+
+@app.route('/account/password', methods=['GET', 'POST'])
+def change_password():
+    forced = current_user.must_change_password
+    errors = []
+    if request.method == 'POST':
+        current_pw = request.form.get('current_password', '')
+        new_pw     = request.form.get('new_password', '')
+        confirm    = request.form.get('confirm_password', '')
+        if not current_user.check_password(current_pw):
+            errors.append('Current password is incorrect.')
+        else:
+            errors = password_problems(current_user, new_pw, confirm)
+        if not errors:
+            current_user.set_password(new_pw)
+            current_user.must_change_password = False
+            db.session.commit()
+            flash('Your password has been changed.', 'success')
+            return redirect(url_for('index'))
+    return render_template('account/change_password.html', errors=errors,
+                           forced=forced, min_length=MIN_PASSWORD_LENGTH)
 
 
 def group_metrics(metrics):
@@ -3530,11 +3586,13 @@ def admin_user_new():
             flash(f'Username "{username}" is already taken.', 'danger')
             return render_template('admin/user_form.html', editing=False)
 
-        user = User(username=username, email=email, is_admin=is_admin, is_active=True)
+        user = User(username=username, email=email, is_admin=is_admin, is_active=True,
+                    must_change_password=True)
         user.set_password(password)
         db.session.add(user)
         db.session.commit()
-        flash(f'User "{username}" created.', 'success')
+        flash(f'User "{username}" created. They will be asked to choose their own '
+              f'password the first time they sign in.', 'success')
         return redirect(url_for('admin_users'))
 
     return render_template('admin/user_form.html', editing=False)
@@ -3557,8 +3615,15 @@ def admin_user_edit(user_id):
                 flash('New password cannot be blank.', 'danger')
             else:
                 user.set_password(new_pw)
+                # Temporary password: the user picks their own at next login.
+                # (Not when an admin resets their own password here.)
+                user.must_change_password = (user.id != current_user.id)
                 db.session.commit()
-                flash(f'Password for "{user.username}" updated.', 'success')
+                if user.must_change_password:
+                    flash(f'Password for "{user.username}" reset. They will be asked to choose '
+                          f'a new password the next time they sign in.', 'success')
+                else:
+                    flash(f'Password for "{user.username}" updated.', 'success')
             return redirect(url_for('admin_user_edit', user_id=user_id))
 
         username  = request.form.get('username', '').strip()

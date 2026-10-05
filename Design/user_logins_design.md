@@ -31,6 +31,7 @@ Added to `requirements.txt`: `Flask-Login>=0.6.3`
 | `password_hash` | string(256) | Werkzeug PBKDF2 hash — never store plaintext |
 | `is_active` | boolean | False = cannot log in |
 | `is_admin` | boolean | True = access to Admin menu (user mgmt, categories, branches, import/export) |
+| `must_change_password` | boolean | True = password was set by an admin; user must choose their own at next sign-in. Added Oct 2026 via startup `ALTER TABLE` (existing rows default FALSE) |
 | `created_at` | datetime | UTC timestamp |
 
 `User` inherits from `flask_login.UserMixin` which provides the `is_authenticated`, `is_anonymous`, and `get_id()` methods Flask-Login needs.
@@ -110,6 +111,7 @@ This means the `LOGIN_USERNAME` and `LOGIN_PASSWORD` environment variables must 
 |---|---|---|---|
 | `/login` | `login` | Public | Username + password form |
 | `/logout` | `logout` | Any user | Clears Flask-Login session |
+| `/account/password` | `change_password` | Any user | Change your own password (current + new + confirm) |
 | `/admin/users` | `admin_users` | Admin | List all users |
 | `/admin/users/new` | `admin_user_new` | Admin | Create a new user |
 | `/admin/users/<id>/edit` | `admin_user_edit` | Admin | Edit username, email, role, active status; reset password |
@@ -139,8 +141,18 @@ Accessible via **Admin → Users** in the nav (admin only).
 - Passwords are hashed with Werkzeug's `generate_password_hash` (PBKDF2-SHA256 by default) — never stored in plaintext.
 - Login comparison uses the hash check, not `hmac.compare_digest` (the old shared-login approach). The ORM lookup by username is not timing-safe at the DB level, but is acceptable for an internal tool.
 - Flask-Login uses a signed session cookie (protected by `SECRET_KEY`). The `remember=True` flag in `login_user()` sets a persistent cookie so users stay logged in across browser sessions.
-- There is no password reset email flow — admins reset passwords manually through the UI.
+- There is no password reset email flow — admins reset passwords manually through the UI. An admin-set password is temporary (see Self-Service Password Change).
 - No account lockout after failed attempts — acceptable for an internal tool on a non-public network.
+
+---
+
+## Self-Service Password Change (added Oct 2026)
+
+- **Change Password page** at `/account/password`, reached by clicking your username in the top-right of the nav. Requires the current password, then the new one twice.
+- **Rules** (`password_problems()` in `app.py`): at least `MIN_PASSWORD_LENGTH` (12) characters, can't contain the username, must differ from the current password. No character-class rules — long passphrases are encouraged instead.
+- **Forced change for admin-set passwords.** Creating a user, or resetting someone else's password on Edit User, sets `must_change_password=True`. The `require_login` before_request hook then redirects that user to `/account/password` on every request (only `change_password`, `logout` and `static` are allowed) until they set their own. Changing it clears the flag. An admin resetting their *own* password is not forced.
+- Admin → Users shows a "Password change pending" badge for accounts that haven't chosen their own password yet.
+- Existing accounts at the time of deployment are not forced to change — reset their password on Edit User if you want them to.
 
 ---
 

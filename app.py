@@ -3027,6 +3027,20 @@ def _board_report_sections(curr, prev):
         v = bs_sums.get('WiFi - Unique Sessions')
         return v if v is not None else os_sums.get('WiFi - Unique Sessions')
 
+    def new_card_items():
+        # From Sep 2026 cards are tracked by card type; the Board Report shows
+        # those types and leaves out 'New Cards - Other' (JUVENILE, TEEN,
+        # HOMEBOUND, INST-TEACH, TEMP-INET). Earlier months only have the
+        # Adult / Juvenile split, so they keep showing that.
+        from import_excel import CARD_TYPE_METRICS
+        if any(n in bs_c for n in CARD_TYPE_METRICS):
+            return [pair(bs_c.get(n), bs_p.get(n), n.replace('New Cards - ', 'New Cards, '))
+                    for n in CARD_TYPE_METRICS if n != 'New Cards - Other']
+        return [
+            pair(bs_c.get('New Library Card Registrations, Adult'), bs_p.get('New Library Card Registrations, Adult'), 'New Cards, Adult (incl. YA)'),
+            pair(bs_c.get('New Library Card Registrations, Juvenile'), bs_p.get('New Library Card Registrations, Juvenile'), 'New Cards, Juvenile'),
+        ]
+
     return [
         {
             'title': 'Circulation & Door Count',
@@ -3039,10 +3053,7 @@ def _board_report_sections(curr, prev):
         {
             'title': 'New Library Cards',
             'color': '#1e8449', 'icon': 'bi-person-plus',
-            'items': [
-                pair(bs_c.get('New Library Card Registrations, Adult'), bs_p.get('New Library Card Registrations, Adult'), 'New Cards, Adult (incl. YA)'),
-                pair(bs_c.get('New Library Card Registrations, Juvenile'), bs_p.get('New Library Card Registrations, Juvenile'), 'New Cards, Juvenile'),
-            ],
+            'items': new_card_items(),
         },
         {
             'title': 'ONSITE Program Sessions',

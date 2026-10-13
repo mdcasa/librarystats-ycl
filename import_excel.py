@@ -22,7 +22,8 @@ load_dotenv()
 
 import openpyxl
 from app import app, db
-from models import Category, Metric, Branch, Entry, EntryValue, SirsiCheckout, ProgramEvent, CARD_TYPE_METRICS
+from models import (Category, Metric, Branch, Entry, EntryValue, SirsiCheckout, ProgramEvent,
+                    CARD_TYPE_METRICS, CARD_TYPES_START, CARD_AGE_METRICS)
 
 DEFAULT_EXCEL_PATH = os.path.join('Data files', 'statsonly423.xlsx')
 
@@ -723,6 +724,10 @@ _CARD_TYPE_BUCKETS = {
     'JR-NONRES':  'New Cards - Out of County',
     'T-NONRES':   'New Cards - Out of County',
 }   # any other profile in the Adult/Juvenile sets → 'New Cards - Other'
+
+# 'New Cards - All Adult'; every other counted profile (J-*, T-*, JUVENILE,
+# TEEN, TEMP-INET ...) is 'New Cards - All Youth'.
+_ALL_ADULT_PROFILES = {'ADULT', 'A-NONRES', 'INST-TEACH', 'COLLEGE', 'HOMEBOUND'}
 
 # Door count location name → Branch.name
 DOOR_COUNT_BRANCH_MAP = {
@@ -1763,7 +1768,10 @@ def import_new_library_users(ws, year, month, branch_lookup):
     # Aggregate counts: branch_id → {adult, juvenile}
     from collections import defaultdict
     counts = defaultdict(lambda: [0, 0])  # [adult, juvenile]
-    card_types = defaultdict(lambda: dict.fromkeys(CARD_TYPE_METRICS, 0))
+    # Card types only exist from CARD_TYPES_START on; the adult/youth split is
+    # written for every month so new cards compare across the change.
+    split_names = CARD_AGE_METRICS + (CARD_TYPE_METRICS if (year, month) >= CARD_TYPES_START else [])
+    card_types = defaultdict(lambda: dict.fromkeys(split_names, 0))
     unrecognised = set()
     unknown_profiles = set()
 
@@ -1795,7 +1803,11 @@ def import_new_library_users(ws, year, month, branch_lookup):
             if p not in INTERNAL_PROFILES:
                 unknown_profiles.add(p)
             continue
-        card_types[branch.id][_CARD_TYPE_BUCKETS.get(p, 'New Cards - Other')] += int(count)
+        split = card_types[branch.id]
+        split['New Cards - All Adult' if p in _ALL_ADULT_PROFILES else 'New Cards - All Youth'] += int(count)
+        bucket = _CARD_TYPE_BUCKETS.get(p, 'New Cards - Other')
+        if bucket in split:
+            split[bucket] += int(count)
 
     warnings = [f'Unrecognised ILS codes skipped: {sorted(unrecognised)}'] if unrecognised else []
     if unknown_profiles:

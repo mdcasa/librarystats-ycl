@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, session, abort
 from flask_login import LoginManager, login_user, logout_user, current_user
 from models import db, Category, Metric, Branch, Entry, EntryValue, User, ImportLog, BranchClosure, EresourceDatabase, UsageMonthly, EntryValueHistory
+from models import CARD_TYPE_METRICS, CARD_TYPES_START, CARD_AGE_METRICS
 from sqlalchemy.orm import joinedload
 from sqlalchemy import or_, and_
 from jinja2 import ChoiceLoader, FileSystemLoader
@@ -162,13 +163,13 @@ with app.app_context():
         ))
         db.session.commit()
 
-    # Card-type registration breakdown (tracked from Sep 2026 on) — add the
-    # metrics right after the Total, shifting later Branch Stats metrics down.
-    from models import CARD_TYPE_METRICS
+    # New-card adult/youth split and card-type breakdown (types tracked from
+    # Sep 2026 on) — add the metrics right after the Total, shifting later
+    # Branch Stats metrics down.
     _bs = Category.query.filter_by(name='Branch Stats').first()
     _total_m = _bs and next((m for m in _bs.metrics if m.name == 'New Library Card Registrations, Total'), None)
     if _total_m:
-        _missing = [n for n in CARD_TYPE_METRICS if n not in {m.name for m in _bs.metrics}]
+        _missing = [n for n in CARD_AGE_METRICS + CARD_TYPE_METRICS if n not in {m.name for m in _bs.metrics}]
         if _missing:
             _base = _total_m.sort_order
             for _m in _bs.metrics:
@@ -469,7 +470,9 @@ def index():
                 return None if v is None else (int(v) if v == int(v) else round(v, 1))
 
             for sec in _board_report_sections((latest_year, latest_month), (prev_y, prev_m)):
-                cards = [{**it, 'curr': _num(it['curr']), 'prev': _num(it['prev'])} for it in sec['items']]
+                if not sec['items']:
+                    continue
+                cards =[{**it, 'curr': _num(it['curr']), 'prev': _num(it['prev'])} for it in sec['items']]
                 if sec.get('by_age'):
                     # One small card per age group, like the Board Report's age bars.
                     for c in cards:
@@ -2584,6 +2587,8 @@ _UPLOAD_SOURCED_METRICS = {
     'New Library Card Registrations, Adult',
     'New Library Card Registrations, Juvenile',
     'New Library Card Registrations, Total',
+    'New Cards - All Adult',
+    'New Cards - All Youth',
     'New Cards - Adult',
     'New Cards - J-Restrict',
     'New Cards - T-Restrict',
@@ -3028,18 +3033,29 @@ def _board_report_sections(curr, prev):
         return v if v is not None else os_sums.get('WiFi - Unique Sessions')
 
     def new_card_items():
-        # From Sep 2026 cards are tracked by card type; the Board Report shows
-        # those types and leaves out 'New Cards - Other' (JUVENILE, TEEN,
-        # HOMEBOUND, INST-TEACH, TEMP-INET). Earlier months only have the
-        # Adult / Juvenile split, so they keep showing that.
-        from models import CARD_TYPE_METRICS
-        if any(n in bs_c for n in CARD_TYPE_METRICS):
-            return [pair(bs_c.get(n), bs_p.get(n), n.replace('New Cards - ', 'New Cards, '))
-                    for n in CARD_TYPE_METRICS if n != 'New Cards - Other']
+        # Total and the adult/youth split include every card type, old and
+        # new, so they compare year over year across the Sep 2026 change.
+        # Months loaded before the split existed fall back to Adult/Juvenile.
+        if any(n in bs_c for n in CARD_AGE_METRICS):
+            return [
+                pair(bs_c.get('New Library Card Registrations, Total'), bs_p.get('New Library Card Registrations, Total'), 'Total'),
+                pair(bs_c.get('New Cards - All Adult'), bs_p.get('New Cards - All Adult'), 'Adult'),
+                pair(bs_c.get('New Cards - All Youth'), bs_p.get('New Cards - All Youth'), 'Youth'),
+            ]
         return [
             pair(bs_c.get('New Library Card Registrations, Adult'), bs_p.get('New Library Card Registrations, Adult'), 'New Cards, Adult (incl. YA)'),
             pair(bs_c.get('New Library Card Registrations, Juvenile'), bs_p.get('New Library Card Registrations, Juvenile'), 'New Cards, Juvenile'),
         ]
+
+    def card_type_items():
+        # Card types exist from CARD_TYPES_START on; 'New Cards - Other'
+        # (JUVENILE, TEEN, HOMEBOUND, INST-TEACH, TEMP-INET) is left out.
+        # A period before the change has no comparable value, so it's blank.
+        if curr < CARD_TYPES_START:
+            return []
+        has_prev = prev >= CARD_TYPES_START
+        return [pair(bs_c.get(n), bs_p.get(n) if has_prev else None, n.replace('New Cards - ', ''))
+                for n in CARD_TYPE_METRICS if n != 'New Cards - Other']
 
     return [
         {
@@ -3054,6 +3070,12 @@ def _board_report_sections(curr, prev):
             'title': 'New Library Cards',
             'color': '#1e8449', 'icon': 'bi-person-plus',
             'items': new_card_items(),
+        },
+        {
+            'title': 'New Cards by Type',
+            'color': '#1e8449', 'icon': 'bi-person-vcard',
+            'items': card_type_items(),
+            'note': 'Card types began in September 2026; year-over-year comparison starts September 2027.',
         },
         {
             'title': 'ONSITE Program Sessions',

@@ -71,6 +71,11 @@ CARD_TYPE_METRICS = [
     'New Cards - Out of County',
     'New Cards - Other',
 ]
+CARD_TYPES_START = (2026, 9)   # (year, month) SIRSI switched to these card types
+
+# Adult vs youth split of every new card (all profiles, old and new), so new
+# cards compare year over year across the Sep 2026 card-type change.
+CARD_AGE_METRICS = ['New Cards - All Adult', 'New Cards - All Youth']
 
 
 class Metric(db.Model):

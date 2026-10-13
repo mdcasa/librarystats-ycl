@@ -61,6 +61,18 @@ class Category(db.Model):
         return self._NAV_LABELS.get(self.name, self.name)
 
 
+# Branch Stats new-card breakdown by SIRSI card type, tracked from Sep 2026 on.
+# Profile → type mapping lives in import_excel.py (_CARD_TYPE_BUCKETS).
+CARD_TYPE_METRICS = [
+    'New Cards - Adult',
+    'New Cards - J-Restrict',
+    'New Cards - T-Restrict',
+    'New Cards - Unrestricted',
+    'New Cards - Out of County',
+    'New Cards - Other',
+]
+
+
 class Metric(db.Model):
     __tablename__ = 'metrics'
     id = db.Column(db.Integer, primary_key=True)

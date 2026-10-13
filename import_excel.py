@@ -22,7 +22,7 @@ load_dotenv()
 
 import openpyxl
 from app import app, db
-from models import Category, Metric, Branch, Entry, EntryValue, SirsiCheckout, ProgramEvent
+from models import Category, Metric, Branch, Entry, EntryValue, SirsiCheckout, ProgramEvent, CARD_TYPE_METRICS
 
 DEFAULT_EXCEL_PATH = os.path.join('Data files', 'statsonly423.xlsx')
 
@@ -712,14 +712,6 @@ _JUVENILE_PROFILES = {'JUVENILE', 'J-INTERNET', 'J-RESTRICT', 'JR-NONRES', 'J-NO
 # Juvenile split above (which stays filled so trend reports keep working).
 # Every profile in _ADULT_PROFILES | _JUVENILE_PROFILES lands in exactly one
 # bucket, so the buckets always sum to 'New Library Card Registrations, Total'.
-CARD_TYPE_METRICS = [
-    'New Cards - Adult',
-    'New Cards - J-Restrict',
-    'New Cards - T-Restrict',
-    'New Cards - Unrestricted',
-    'New Cards - Out of County',
-    'New Cards - Other',
-]
 _CARD_TYPE_BUCKETS = {
     'ADULT':      'New Cards - Adult',
     'J-RESTRICT': 'New Cards - J-Restrict',

@@ -164,7 +164,7 @@ with app.app_context():
 
     # Card-type registration breakdown (tracked from Sep 2026 on) — add the
     # metrics right after the Total, shifting later Branch Stats metrics down.
-    from import_excel import CARD_TYPE_METRICS
+    from models import CARD_TYPE_METRICS
     _bs = Category.query.filter_by(name='Branch Stats').first()
     _total_m = _bs and next((m for m in _bs.metrics if m.name == 'New Library Card Registrations, Total'), None)
     if _total_m:
@@ -3032,7 +3032,7 @@ def _board_report_sections(curr, prev):
         # those types and leaves out 'New Cards - Other' (JUVENILE, TEEN,
         # HOMEBOUND, INST-TEACH, TEMP-INET). Earlier months only have the
         # Adult / Juvenile split, so they keep showing that.
-        from import_excel import CARD_TYPE_METRICS
+        from models import CARD_TYPE_METRICS
         if any(n in bs_c for n in CARD_TYPE_METRICS):
             return [pair(bs_c.get(n), bs_p.get(n), n.replace('New Cards - ', 'New Cards, '))
                     for n in CARD_TYPE_METRICS if n != 'New Cards - Other']

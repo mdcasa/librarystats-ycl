@@ -702,10 +702,35 @@ INTERNAL_PROFILES = {'DAMAGED', 'DISCARD', 'MISSING', 'REPAIR', 'PRGMNG',
 
 # New Library Users — patron type classification
 _ADULT_PROFILES   = {'ADULT', 'A-NONRES', 'INST-TEACH', 'TEEN', 'COLLEGE', 'HOMEBOUND',
-                     'J-ADULT'}       # juvenile patron aged up to adult status
-_JUVENILE_PROFILES = {'JUVENILE', 'J-INTERNET', 'J-RESTRICT', 'JR-NONRES',
+                     'J-ADULT',       # juvenile patron aged up to adult status
+                     'T-ADULT', 'T-RESTRICT', 'T-NONRES'}  # teen cards — 'Adult (includes YA)'
+_JUVENILE_PROFILES = {'JUVENILE', 'J-INTERNET', 'J-RESTRICT', 'JR-NONRES', 'J-NONRES',
                       'TEMP-INET',    # temporary internet-only juvenile card
                       'JR-RECIP'}     # junior reciprocal borrower
+
+# Card-type breakdown tracked from September 2026 on, alongside the Adult /
+# Juvenile split above (which stays filled so trend reports keep working).
+# Every profile in _ADULT_PROFILES | _JUVENILE_PROFILES lands in exactly one
+# bucket, so the buckets always sum to 'New Library Card Registrations, Total'.
+CARD_TYPE_METRICS = [
+    'New Cards - Adult',
+    'New Cards - J-Restrict',
+    'New Cards - T-Restrict',
+    'New Cards - Unrestricted',
+    'New Cards - Out of County',
+    'New Cards - Other',
+]
+_CARD_TYPE_BUCKETS = {
+    'ADULT':      'New Cards - Adult',
+    'J-RESTRICT': 'New Cards - J-Restrict',
+    'T-RESTRICT': 'New Cards - T-Restrict',
+    'J-ADULT':    'New Cards - Unrestricted',   # juvenile with adult privileges
+    'T-ADULT':    'New Cards - Unrestricted',   # teen with adult privileges
+    'A-NONRES':   'New Cards - Out of County',
+    'J-NONRES':   'New Cards - Out of County',
+    'JR-NONRES':  'New Cards - Out of County',
+    'T-NONRES':   'New Cards - Out of County',
+}   # any other profile in the Adult/Juvenile sets → 'New Cards - Other'
 
 # Door count location name → Branch.name
 DOOR_COUNT_BRANCH_MAP = {
@@ -1746,7 +1771,9 @@ def import_new_library_users(ws, year, month, branch_lookup):
     # Aggregate counts: branch_id → {adult, juvenile}
     from collections import defaultdict
     counts = defaultdict(lambda: [0, 0])  # [adult, juvenile]
+    card_types = defaultdict(lambda: dict.fromkeys(CARD_TYPE_METRICS, 0))
     unrecognised = set()
+    unknown_profiles = set()
 
     for r in rows:
         user_lib = r[1]
@@ -1772,8 +1799,15 @@ def import_new_library_users(ws, year, month, branch_lookup):
             counts[branch.id][0] += int(count)
         elif p in _JUVENILE_PROFILES:
             counts[branch.id][1] += int(count)
+        else:
+            if p not in INTERNAL_PROFILES:
+                unknown_profiles.add(p)
+            continue
+        card_types[branch.id][_CARD_TYPE_BUCKETS.get(p, 'New Cards - Other')] += int(count)
 
     warnings = [f'Unrecognised ILS codes skipped: {sorted(unrecognised)}'] if unrecognised else []
+    if unknown_profiles:
+        warnings.append(f'Unrecognised patron profiles not counted: {sorted(unknown_profiles)}')
     created = updated = 0
     for branch_id, (adult, juvenile) in counts.items():
         for val, metric in [(adult, adult_metric), (juvenile, juvenile_metric)]:
@@ -1785,6 +1819,13 @@ def import_new_library_users(ws, year, month, branch_lookup):
             r = _upsert_branch_stat(cat.id, branch_id, year, month, total_metric.id, adult + juvenile)
             if r == 'created': created += 1
             else: updated += 1
+        # Zeros are written too, so re-uploading a corrected file clears a stale bucket.
+        for name, val in card_types[branch_id].items():
+            metric = metric_lookup.get(name)
+            if metric:
+                r = _upsert_branch_stat(cat.id, branch_id, year, month, metric.id, val)
+                if r == 'created': created += 1
+                else: updated += 1
 
     db.session.commit()
     return created, updated, warnings

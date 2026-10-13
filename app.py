@@ -162,6 +162,24 @@ with app.app_context():
         ))
         db.session.commit()
 
+    # Card-type registration breakdown (tracked from Sep 2026 on) — add the
+    # metrics right after the Total, shifting later Branch Stats metrics down.
+    from import_excel import CARD_TYPE_METRICS
+    _bs = Category.query.filter_by(name='Branch Stats').first()
+    _total_m = _bs and next((m for m in _bs.metrics if m.name == 'New Library Card Registrations, Total'), None)
+    if _total_m:
+        _missing = [n for n in CARD_TYPE_METRICS if n not in {m.name for m in _bs.metrics}]
+        if _missing:
+            _base = _total_m.sort_order
+            for _m in _bs.metrics:
+                if _m.sort_order > _base:
+                    _m.sort_order += len(_missing)
+            for _i, _name in enumerate(_missing, start=1):
+                db.session.add(Metric(category_id=_bs.id, name=_name,
+                                      group_name='Registrations', data_type='integer',
+                                      sort_order=_base + _i))
+            db.session.commit()
+
     # Backfill Total for entries imported before the Total metric existed
     _bs = Category.query.filter_by(name='Branch Stats').first()
     if _bs:
@@ -2566,6 +2584,12 @@ _UPLOAD_SOURCED_METRICS = {
     'New Library Card Registrations, Adult',
     'New Library Card Registrations, Juvenile',
     'New Library Card Registrations, Total',
+    'New Cards - Adult',
+    'New Cards - J-Restrict',
+    'New Cards - T-Restrict',
+    'New Cards - Unrestricted',
+    'New Cards - Out of County',
+    'New Cards - Other',
     'Total Branch Circulation',
     'Hotspots Circulation',
     'Locker Circulation',

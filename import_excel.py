@@ -23,7 +23,7 @@ load_dotenv()
 import openpyxl
 from app import app, db
 from models import (Category, Metric, Branch, Entry, EntryValue, SirsiCheckout, ProgramEvent,
-                    CARD_TYPE_METRICS, CARD_TYPES_START, CARD_AGE_METRICS)
+                    CARD_TYPE_METRICS, CARD_TYPES_START, CARD_AGE_METRICS, CARD_TEEN_METRIC)
 
 DEFAULT_EXCEL_PATH = os.path.join('Data files', 'statsonly423.xlsx')
 
@@ -728,6 +728,10 @@ _CARD_TYPE_BUCKETS = {
 # 'New Cards - All Adult'; every other counted profile (J-*, T-*, JUVENILE,
 # TEEN, TEMP-INET ...) is 'New Cards - All Youth'.
 _ALL_ADULT_PROFILES = {'ADULT', 'A-NONRES', 'INST-TEACH', 'COLLEGE', 'HOMEBOUND'}
+
+# Teen / YA cards, part of All Youth — a separate profile family only from
+# Sep 2026 (before that teens got ADULT or JUVENILE cards).
+_TEEN_PROFILES = {'TEEN', 'T-ADULT', 'T-RESTRICT', 'T-NONRES'}
 
 # Door count location name → Branch.name
 DOOR_COUNT_BRANCH_MAP = {
@@ -1747,7 +1751,9 @@ def _upsert_branch_stat(cat_id, branch_id, year, month, metric_id, value):
 def import_new_library_users(ws, year, month, branch_lookup):
     """
     Parse 'Number of New Library Users by Branch and Patron Type' SIRSI report.
-    Updates New Library Card Registrations (Adult / Juvenile) in Branch Stats.
+    Updates New Library Card Registrations (Adult / Juvenile / Total) and the
+    New Cards splits in Branch Stats, crediting each card to the branch where
+    it was made (Station Library).
     """
     rows = list(ws.iter_rows(values_only=True))
 
@@ -1770,12 +1776,20 @@ def import_new_library_users(ws, year, month, branch_lookup):
     counts = defaultdict(lambda: [0, 0])  # [adult, juvenile]
     # Card types only exist from CARD_TYPES_START on; the adult/youth split is
     # written for every month so new cards compare across the change.
-    split_names = CARD_AGE_METRICS + (CARD_TYPE_METRICS if (year, month) >= CARD_TYPES_START else [])
+    split_names = CARD_AGE_METRICS + (CARD_TYPE_METRICS + [CARD_TEEN_METRIC]
+                                      if (year, month) >= CARD_TYPES_START else [])
     card_types = defaultdict(lambda: dict.fromkeys(split_names, 0))
     unrecognised = set()
     unknown_profiles = set()
 
+    # Each card is credited to the branch where it was made — the report's
+    # 'Trans Stat Station Library' page — not the patron's home branch
+    # (the 'User Library' column).
+    station = None
     for r in rows:
+        if r[0] and 'Trans Stat Station Library:' in str(r[0]):
+            station = str(r[0]).split(':', 1)[1].strip()
+            continue
         user_lib = r[1]
         profile  = r[2]
         count    = r[3]
@@ -1785,31 +1799,32 @@ def import_new_library_users(ws, year, month, branch_lookup):
             continue
         if user_lib in (None, 'Total', 'Trans Stat User Library'):
             continue
-
-        ils = str(user_lib).strip()
-        if not ils.startswith('YCL-'):
-            continue
-        branch = ils_to_branch.get(ils)
-        if branch is None:
-            unrecognised.add(ils)
+        if not str(user_lib).strip().startswith('YCL-'):
             continue
 
         p = str(profile).strip()
+        if p in INTERNAL_PROFILES:
+            continue
+        branch = ils_to_branch.get(station)
+        if branch is None:
+            unrecognised.add(f'{station} ({p} x{int(count)})')
+            continue
+
         if p in _ADULT_PROFILES:
             counts[branch.id][0] += int(count)
         elif p in _JUVENILE_PROFILES:
             counts[branch.id][1] += int(count)
         else:
-            if p not in INTERNAL_PROFILES:
-                unknown_profiles.add(p)
+            unknown_profiles.add(p)
             continue
         split = card_types[branch.id]
         split['New Cards - All Adult' if p in _ALL_ADULT_PROFILES else 'New Cards - All Youth'] += int(count)
-        bucket = _CARD_TYPE_BUCKETS.get(p, 'New Cards - Other')
-        if bucket in split:
-            split[bucket] += int(count)
+        for name in (_CARD_TYPE_BUCKETS.get(p, 'New Cards - Other'),
+                     CARD_TEEN_METRIC if p in _TEEN_PROFILES else None):
+            if name in split:
+                split[name] += int(count)
 
-    warnings = [f'Unrecognised ILS codes skipped: {sorted(unrecognised)}'] if unrecognised else []
+    warnings = [f'Cards made at an unrecognised station library, skipped: {sorted(unrecognised)}'] if unrecognised else []
     if unknown_profiles:
         warnings.append(f'Unrecognised patron profiles not counted: {sorted(unknown_profiles)}')
     created = updated = 0

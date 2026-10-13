@@ -77,6 +77,9 @@ CARD_TYPES_START = (2026, 9)   # (year, month) SIRSI switched to these card type
 # cards compare year over year across the Sep 2026 card-type change.
 CARD_AGE_METRICS = ['New Cards - All Adult', 'New Cards - All Youth']
 
+# Teen/YA cards (part of All Youth); only separable from CARD_TYPES_START on.
+CARD_TEEN_METRIC = 'New Cards - Teen/YA'
+
 
 class Metric(db.Model):
     __tablename__ = 'metrics'

@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, session, abort
 from flask_login import LoginManager, login_user, logout_user, current_user
 from models import db, Category, Metric, Branch, Entry, EntryValue, User, ImportLog, BranchClosure, EresourceDatabase, UsageMonthly, EntryValueHistory
-from models import CARD_TYPE_METRICS, CARD_TYPES_START, CARD_AGE_METRICS
+from models import CARD_TYPE_METRICS, CARD_TYPES_START, CARD_AGE_METRICS, CARD_TEEN_METRIC
 from sqlalchemy.orm import joinedload
 from sqlalchemy import or_, and_
 from jinja2 import ChoiceLoader, FileSystemLoader
@@ -169,7 +169,7 @@ with app.app_context():
     _bs = Category.query.filter_by(name='Branch Stats').first()
     _total_m = _bs and next((m for m in _bs.metrics if m.name == 'New Library Card Registrations, Total'), None)
     if _total_m:
-        _missing = [n for n in CARD_AGE_METRICS + CARD_TYPE_METRICS if n not in {m.name for m in _bs.metrics}]
+        _missing = [n for n in CARD_AGE_METRICS + [CARD_TEEN_METRIC] + CARD_TYPE_METRICS if n not in {m.name for m in _bs.metrics}]
         if _missing:
             _base = _total_m.sort_order
             for _m in _bs.metrics:
@@ -2589,6 +2589,7 @@ _UPLOAD_SOURCED_METRICS = {
     'New Library Card Registrations, Total',
     'New Cards - All Adult',
     'New Cards - All Youth',
+    'New Cards - Teen/YA',
     'New Cards - Adult',
     'New Cards - J-Restrict',
     'New Cards - T-Restrict',
@@ -3036,12 +3037,19 @@ def _board_report_sections(curr, prev):
         # Total and the adult/youth split include every card type, old and
         # new, so they compare year over year across the Sep 2026 change.
         # Months loaded before the split existed fall back to Adult/Juvenile.
+        # Teen/YA (part of Youth) only exists from CARD_TYPES_START on, so it
+        # has no comparison value for a period before that.
         if any(n in bs_c for n in CARD_AGE_METRICS):
-            return [
+            items = [
                 pair(bs_c.get('New Library Card Registrations, Total'), bs_p.get('New Library Card Registrations, Total'), 'Total'),
                 pair(bs_c.get('New Cards - All Adult'), bs_p.get('New Cards - All Adult'), 'Adult'),
                 pair(bs_c.get('New Cards - All Youth'), bs_p.get('New Cards - All Youth'), 'Youth'),
             ]
+            if curr >= CARD_TYPES_START:
+                items.append(pair(bs_c.get(CARD_TEEN_METRIC),
+                                  bs_p.get(CARD_TEEN_METRIC) if prev >= CARD_TYPES_START else None,
+                                  'Teen/YA (in Youth)'))
+            return items
         return [
             pair(bs_c.get('New Library Card Registrations, Adult'), bs_p.get('New Library Card Registrations, Adult'), 'New Cards, Adult (incl. YA)'),
             pair(bs_c.get('New Library Card Registrations, Juvenile'), bs_p.get('New Library Card Registrations, Juvenile'), 'New Cards, Juvenile'),

@@ -26,6 +26,7 @@ def seed(db):
         ('New Library Card Registrations, Total',           'Registrations',       'integer'),
         ('New Cards - All Adult',                            'Registrations',       'integer'),
         ('New Cards - All Youth',                            'Registrations',       'integer'),
+        ('New Cards - Teen/YA',                              'Registrations',       'integer'),
         ('New Cards - Adult',                                'Registrations',       'integer'),
         ('New Cards - J-Restrict',                           'Registrations',       'integer'),
         ('New Cards - T-Restrict',                           'Registrations',       'integer'),

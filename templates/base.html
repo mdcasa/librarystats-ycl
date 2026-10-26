@@ -104,7 +104,7 @@
 {% set _reports = ['report_monthly_stats','report_monthly','report_fiscal','report_trend',
                    'report_yoy','report_quarterly_ref','report_online','report_overview','report_impact',
                    'report_branch_summary','report_category_landing',
-                   'report_eresources_overview','report_eresources'] %}
+                   'report_eresources_overview','report_eresources','report_faxing'] %}
 {% set _admin   = ['admin_categories','admin_category_edit','admin_branches',
                    'admin_import','admin_export','admin_metric_edit',
                    'admin_users','admin_user_new','admin_user_edit','admin_data_integrity','admin_history',
@@ -230,6 +230,10 @@
             <li><a class="dropdown-item {% if ep == 'report_category_landing' and request.view_args and request.view_args.slug == 'online' %}active{% endif %}"
                    href="{{ url_for('report_category_landing', slug='online') }}">
               <i class="bi bi-globe me-2 text-primary"></i>Online
+            </a></li>
+            <li><a class="dropdown-item {% if ep == 'report_faxing' or (ep == 'report_category_landing' and request.view_args and request.view_args.slug == 'faxing') %}active{% endif %}"
+                   href="{{ url_for('report_category_landing', slug='faxing') }}">
+              <i class="bi bi-printer me-2 text-primary"></i>Faxing
             </a></li>
             <li><a class="dropdown-item {% if ep == 'report_category_landing' and request.view_args and request.view_args.slug == 'eresources' %}active{% endif %}"
                    href="{{ url_for('report_category_landing', slug='eresources') }}">

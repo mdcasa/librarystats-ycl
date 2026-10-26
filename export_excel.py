@@ -16,7 +16,7 @@ load_dotenv()
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 from app import app, db
-from models import Category, Metric, Branch, Entry, EntryValue
+from models import Category, Metric, Branch, Entry, EntryValue, FAX_CATEGORY
 
 MONTHS = ['January','February','March','April','May','June',
           'July','August','September','October','November','December']
@@ -348,6 +348,36 @@ def write_quarterly_ref(wb, cat):
     return count
 
 
+def write_faxing(wb, cat):
+    """One row per branch per month, in the same layout as the fax tracking
+    workbook's data sheet, so the export can be re-uploaded."""
+    from import_excel import FAX_COL_MAP, FAX_LOC_IDS
+    ws = wb.create_sheet('Faxing')
+    fax_cols = list(FAX_COL_MAP)
+    ws.append(['Month', 'Loc ID', 'Branch'] + fax_cols + ['Note'])
+
+    metric_by_name = {m.name: m.id for m in cat.metrics}
+    loc_by_branch = {name: loc for loc, name in FAX_LOC_IDS.items()}
+
+    entries = (Entry.query
+               .filter_by(category_id=cat.id)
+               .order_by(Entry.year, Entry.month, Entry.branch_id)
+               .all())
+    for entry in entries:
+        val_map = {ev.metric_id: ev.value_number for ev in entry.values}
+        branch_name = entry.branch.name if entry.branch else ''
+        ws.append([datetime(entry.year, entry.month, 1) if entry.month else entry.year,
+                   loc_by_branch.get(branch_name), branch_name]
+                  + [val_map.get(metric_by_name.get(FAX_COL_MAP[c])) for c in fax_cols]
+                  + [entry.notes])
+        ws.cell(ws.max_row, 1).number_format = 'mmm yyyy'
+
+    style_header_row(ws, len(fax_cols) + 4)
+    ws.column_dimensions['C'].width = 14
+    ws.column_dimensions['H'].width = 60
+    return len(entries)
+
+
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 def generate_export(output=None):
@@ -377,6 +407,10 @@ def generate_export(output=None):
         cat = Category.query.filter_by(name='Quarterly Reference Stats').first()
         if cat:
             totals['Quarterly Ref Stats'] = write_quarterly_ref(wb, cat)
+
+        cat = Category.query.filter_by(name=FAX_CATEGORY).first()
+        if cat:
+            totals['Faxing'] = write_faxing(wb, cat)
     finally:
         if ctx:
             ctx.pop()

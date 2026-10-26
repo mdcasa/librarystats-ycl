@@ -80,6 +80,19 @@ CARD_AGE_METRICS = ['New Cards - All Adult', 'New Cards - All Youth']
 # Teen/YA cards (part of All Youth); only separable from CARD_TYPES_START on.
 CARD_TEEN_METRIC = 'New Cards - Teen/YA'
 
+# Public fax machines (FaxScan24, vendor group 225): one monthly entry per
+# branch, copied from the vendor's activity report emails. History from
+# Apr 2025 is loaded by load_fax.py. (name, group_name, data_type)
+FAX_CATEGORY = 'Faxing'
+FAX_METRICS = [
+    ('Prepaid Fax Card Transactions',      'Fax Transactions', 'integer'),
+    ('Credit/Debit Card Fax Transactions', 'Fax Transactions', 'integer'),
+    ('Fax Credit Card Sales ($)',          'Fax Revenue',      'decimal'),
+    ('Fax Commission ($)',                 'Fax Revenue',      'decimal'),
+]
+# Branches with a public fax machine (Outreach/Bookmobile and admin have none).
+FAX_BRANCHES = ['Clover', 'Fort Mill', 'Lake Wylie', 'Rock Hill', 'York']
+
 
 class Metric(db.Model):
     __tablename__ = 'metrics'

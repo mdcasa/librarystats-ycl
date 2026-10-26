@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for, flash, jso
 from flask_login import LoginManager, login_user, logout_user, current_user
 from models import db, Category, Metric, Branch, Entry, EntryValue, User, ImportLog, BranchClosure, EresourceDatabase, UsageMonthly, EntryValueHistory
 from models import CARD_TYPE_METRICS, CARD_TYPES_START, CARD_AGE_METRICS, CARD_TEEN_METRIC
+from models import FAX_CATEGORY, FAX_METRICS, FAX_BRANCHES
 from sqlalchemy.orm import joinedload
 from sqlalchemy import or_, and_
 from jinja2 import ChoiceLoader, FileSystemLoader
@@ -253,6 +254,25 @@ with app.app_context():
             sort_order=_max_sort + 1,
         ))
         db.session.commit()
+
+    # Add the Faxing category (monthly, per branch) for public fax machine
+    # activity from the FaxScan24 vendor reports, and any of its metrics
+    # missing. Runs after seed() so new and existing databases both get it.
+    _fax = Category.query.filter_by(name=FAX_CATEGORY).first()
+    if not _fax:
+        _max_sort = db.session.query(db.func.max(Category.sort_order)).scalar() or 0
+        _fax = Category(name=FAX_CATEGORY,
+                        description='Monthly public fax machine activity per branch '
+                                    '(FaxScan24 activity reports)',
+                        frequency='monthly', has_branch=True, sort_order=_max_sort + 1)
+        db.session.add(_fax)
+        db.session.flush()
+    _have = {m.name for m in _fax.metrics}
+    for _i, (_name, _group, _dtype) in enumerate(FAX_METRICS, start=1):
+        if _name not in _have:
+            db.session.add(Metric(category_id=_fax.id, name=_name, group_name=_group,
+                                  data_type=_dtype, sort_order=_i))
+    db.session.commit()
 
     # Create import_logs table if it doesn't exist yet
     try:
@@ -645,10 +665,13 @@ def _branches_for_category(category):
                         ~Branch.name.ilike('%locker%'))
                 .order_by(Branch.name).all())
     # All other categories: exclude desk-level and locker branches
-    return (Branch.query.filter_by(is_active=True, is_desk=False)
-            .filter(~Branch.name.ilike('%locker%'),
-                    Branch.name != 'YCL (System Wide)')
-            .order_by(Branch.name).all())
+    q = (Branch.query.filter_by(is_active=True, is_desk=False)
+         .filter(~Branch.name.ilike('%locker%'),
+                 Branch.name != 'YCL (System Wide)'))
+    if category.name == FAX_CATEGORY:
+        # Only branches with a public fax machine
+        q = q.filter(Branch.name.in_(FAX_BRANCHES))
+    return q.order_by(Branch.name).all()
 
 
 @app.route('/entries/new/<int:category_id>', methods=['GET', 'POST'])
@@ -1178,6 +1201,15 @@ REPORT_CATEGORIES = {
         'groups': [],
         'fiscal_anchor': None,
     },
+    'faxing': {
+        'title': 'Faxing',
+        'icon': 'bi-printer',
+        'color': '#5d6d7e',
+        'description': 'Public fax machine transactions, credit card sales, and commission by branch (FaxScan24).',
+        'category_name': FAX_CATEGORY,
+        'groups': [],
+        'fiscal_anchor': None,
+    },
     'eresources': {
         'title': 'Annual eResources',
         'icon': 'bi-book',
@@ -1519,6 +1551,89 @@ def report_programs_summary():
                            available_years=available_years, sel_year=fy_year,
                            monthly=monthly, year_total=year_total,
                            age_buckets=_PROGRAMS_SUMMARY_BUCKETS)
+
+
+# Faxing report measures: label -> the Faxing metrics summed into it.
+# Fax transactions = prepaid card + credit/debit card, as on the vendor's
+# quarterly summary.
+_FAX_MEASURES = {
+    'transactions': ('Fax Transactions', ['Prepaid Fax Card Transactions',
+                                          'Credit/Debit Card Fax Transactions']),
+    'sales':        ('Credit Card Sales ($)', ['Fax Credit Card Sales ($)']),
+    'commission':   ('Commission ($)', ['Fax Commission ($)']),
+}
+
+
+@app.route('/reports/faxing')
+def report_faxing():
+    """Month-by-branch fax activity for one fiscal year (the 'By Branch' view
+    of the FaxScan24 tracking spreadsheet), with branch and month totals."""
+    fy_year = request.args.get('year', type=int)
+    measure = request.args.get('measure', 'transactions')
+    if measure not in _FAX_MEASURES:
+        measure = 'transactions'
+    measure_label, metric_names = _FAX_MEASURES[measure]
+    is_money = measure != 'transactions'
+
+    cat = Category.query.filter_by(name=FAX_CATEGORY).first()
+    fy_rows = (db.session.query(Entry.year, Entry.month)
+               .filter(Entry.category_id == (cat.id if cat else -1),
+                       Entry.month.isnot(None)).distinct().all())
+    available_years = sorted({(yr + 1 if mo >= 7 else yr) for yr, mo in fy_rows}, reverse=True)
+    if not fy_year and available_years:
+        fy_year = available_years[0]
+
+    branches = monthly = totals = None
+    if cat and fy_year:
+        metric_ids = [m.id for m in cat.metrics if m.name in metric_names]
+        rows = (db.session.query(Entry.year, Entry.month, Entry.branch_id,
+                                 db.func.sum(EntryValue.value_number))
+                .join(EntryValue, EntryValue.entry_id == Entry.id)
+                .filter(Entry.category_id == cat.id,
+                        EntryValue.metric_id.in_(metric_ids),
+                        or_(and_(Entry.year == fy_year - 1, Entry.month >= 7),
+                            and_(Entry.year == fy_year, Entry.month <= 6)))
+                .group_by(Entry.year, Entry.month, Entry.branch_id).all())
+        cells = {(yr, mo, bid): val or 0 for yr, mo, bid, val in rows}
+
+        branches = _branches_for_category(cat)
+        FY_MONTHS = list(range(7, 13)) + list(range(1, 7))
+        monthly = []
+        for mo in FY_MONTHS:
+            cal_year = fy_year - 1 if mo >= 7 else fy_year
+            vals = {b.id: cells.get((cal_year, mo, b.id)) for b in branches}
+            has_data = any(v is not None for v in vals.values())
+            monthly.append({
+                'label': f'{MONTHS[mo - 1][:3]} {cal_year}',
+                'values': vals,
+                'total': sum(v or 0 for v in vals.values()) if has_data else None,
+            })
+        totals = {b.id: sum(r['values'][b.id] or 0 for r in monthly) for b in branches}
+        totals['all'] = sum(totals[b.id] for b in branches)
+
+        if request.args.get('format') == 'xlsx':
+            import openpyxl
+            from openpyxl.styles import Font
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = f'FY{fy_year} {measure_label}'[:31]
+            ws.append(['Month'] + [b.name for b in branches] + ['Total'])
+            for r in monthly:
+                ws.append([r['label']] + [r['values'][b.id] for b in branches] + [r['total']])
+            ws.append(['Total'] + [totals[b.id] for b in branches] + [totals['all']])
+            for cell in ws[1] + ws[ws.max_row]:
+                cell.font = Font(bold=True)
+            if is_money:
+                for row in ws.iter_rows(min_row=2, min_col=2):
+                    for cell in row:
+                        cell.number_format = '$#,##0.00'
+            return _xlsx_response(wb, f'faxing_FY{fy_year}_{measure}.xlsx')
+
+    return render_template('reports/faxing.html',
+                           available_years=available_years, sel_year=fy_year,
+                           measures=_FAX_MEASURES, sel_measure=measure,
+                           measure_label=measure_label, is_money=is_money,
+                           category=cat, branches=branches, monthly=monthly, totals=totals)
 
 
 SLC_AGE_ORDER = ['0-5', '6-11', '12-18', '19+', 'General Interest']

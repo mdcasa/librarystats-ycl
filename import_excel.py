@@ -23,7 +23,8 @@ load_dotenv()
 import openpyxl
 from app import app, db
 from models import (Category, Metric, Branch, Entry, EntryValue, SirsiCheckout, ProgramEvent,
-                    CARD_TYPE_METRICS, CARD_TYPES_START, CARD_AGE_METRICS, CARD_TEEN_METRIC)
+                    CARD_TYPE_METRICS, CARD_TYPES_START, CARD_AGE_METRICS, CARD_TEEN_METRIC,
+                    FAX_CATEGORY)
 
 DEFAULT_EXCEL_PATH = os.path.join('Data files', 'statsonly423.xlsx')
 
@@ -2080,6 +2081,124 @@ def import_meraki_wifi_systemwide(wb, filename, year_override=None):
     return (1 if res == 'created' else 0), (1 if res == 'updated' else 0), {(year, month)}, []
 
 
+# ── Faxing (FaxScan24 tracking workbook) ─────────────────────────────────────
+
+# Column header in the fax tracking workbook's data sheet → Faxing metric.
+FAX_COL_MAP = {
+    'Prepaid Fax Card Txns':      'Prepaid Fax Card Transactions',
+    'Credit/Debit Card Fax Txns': 'Credit/Debit Card Fax Transactions',
+    'Credit Card Sales':          'Fax Credit Card Sales ($)',
+    'Commission':                 'Fax Commission ($)',
+}
+FAX_SIGNATURE_HEADER = 'Credit/Debit Card Fax Txns'
+
+# FaxScan24 location IDs (vendor group 225) → branch. The vendor calls
+# Rock Hill "Main".
+FAX_LOC_IDS = {
+    1080: 'Fort Mill',
+    1081: 'Lake Wylie',
+    1082: 'Rock Hill',
+    1084: 'York',
+    1085: 'Clover',
+}
+FAX_BRANCH_ALIASES = {'main': 'Rock Hill'}
+
+
+def _fax_header_row(rows):
+    """Index of the header row of a fax tracking sheet (title rows sit above it), or None."""
+    for i, r in enumerate(rows[:10]):
+        if any(v is not None and str(v).strip() == FAX_SIGNATURE_HEADER for v in r):
+            return i
+    return None
+
+
+def find_fax_sheet(wb):
+    """Return the worksheet holding one-row-per-branch-per-month fax data, or None."""
+    for ws in wb.worksheets:
+        rows = list(ws.iter_rows(max_row=10, values_only=True))
+        if _fax_header_row(rows) is not None:
+            return ws
+    return None
+
+
+def import_fax_activity(ws, branch_lookup):
+    """
+    Upsert a FaxScan24 tracking sheet (Month, Loc ID, Branch, Prepaid Fax Card
+    Txns, Credit/Debit Card Fax Txns, Credit Card Sales, Commission, Source
+    Type, Source File, Note) into the Faxing category, one entry per branch per
+    month. The source file and any note are kept in the entry's notes if it
+    has none yet. Returns (created, updated, periods, warnings).
+    """
+    cat = Category.query.filter_by(name=FAX_CATEGORY).first()
+    if not cat:
+        return 0, 0, set(), [f'{FAX_CATEGORY} category not found']
+
+    rows = list(ws.iter_rows(values_only=True))
+    h = _fax_header_row(rows)
+    header = [str(v).strip() if v is not None else '' for v in rows[h]]
+    month_col = header.index('Month') if 'Month' in header else 0
+    loc_col = header.index('Loc ID') if 'Loc ID' in header else None
+    branch_col = header.index('Branch') if 'Branch' in header else None
+    src_type_col = header.index('Source Type') if 'Source Type' in header else None
+    src_file_col = header.index('Source File') if 'Source File' in header else None
+    note_col = header.index('Note') if 'Note' in header else None
+    metric_by_name = {m.name: m for m in cat.metrics}
+    col_to_metric = {header.index(col): metric_by_name[name]
+                     for col, name in FAX_COL_MAP.items()
+                     if col in header and name in metric_by_name}
+
+    created = updated = 0
+    periods, unrecognised, warnings = set(), set(), []
+
+    for r in rows[h + 1:]:
+        if r is None or all(v is None for v in r):
+            continue
+        period = r[month_col]
+        if isinstance(period, str):
+            try:
+                period = datetime.strptime(period.strip()[:7], '%Y-%m')
+            except ValueError:
+                period = None
+        if not isinstance(period, date):
+            continue    # totals / footnote rows
+        year, month = period.year, period.month
+
+        branch = None
+        loc = r[loc_col] if loc_col is not None else None
+        if isinstance(loc, (int, float)) and int(loc) in FAX_LOC_IDS:
+            branch = branch_lookup.get(FAX_LOC_IDS[int(loc)])
+        if not branch and branch_col is not None and r[branch_col]:
+            raw = str(r[branch_col]).strip()
+            branch = branch_lookup.get(FAX_BRANCH_ALIASES.get(raw.lower(), raw))
+        if not branch:
+            unrecognised.add(str(r[branch_col] if branch_col is not None else loc))
+            continue
+
+        for col_idx, metric in col_to_metric.items():
+            val = r[col_idx] if col_idx < len(r) else None
+            if not isinstance(val, (int, float)):
+                continue
+            res = _upsert_branch_stat(cat.id, branch.id, year, month, metric.id, val)
+            if res == 'created': created += 1
+            else: updated += 1
+
+        entry = Entry.query.filter_by(category_id=cat.id, branch_id=branch.id,
+                                      year=year, month=month).first()
+        if entry and not entry.notes:
+            parts = [str(r[c]).strip() for c in (src_type_col, src_file_col)
+                     if c is not None and r[c]]
+            note = ('Source: ' + ' — '.join(parts) + '.') if parts else ''
+            if note_col is not None and r[note_col]:
+                note = (note + ' ' + str(r[note_col]).strip()).strip()
+            entry.notes = note or None
+        periods.add((year, month))
+
+    if unrecognised:
+        warnings.append(f'Unrecognised branches skipped: {sorted(unrecognised)}')
+    db.session.commit()
+    return created, updated, periods, warnings
+
+
 def detect_and_import(wb, year_override=None, filename=None):
     """
     Auto-detect the report type from a workbook and route to the correct importer.
@@ -2134,6 +2253,23 @@ def detect_and_import(wb, year_override=None, filename=None):
                         'periods': sorted(periods),
                         'note': (f'Total Unique Clients stored for {m}/{y}' if y and m else ''),
                         'year': y, 'month': m})
+        return results
+
+    # FaxScan24 fax tracking workbook — only its one-row-per-branch-per-month
+    # data sheet is imported; its summary sheets are formulas built from it.
+    fax_ws = find_fax_sheet(wb)
+    if fax_ws is not None:
+        created, updated, periods, w = import_fax_activity(fax_ws, branch_lookup)
+        periods = sorted(periods)
+        results.append({'sheet': f'Faxing (FaxScan24, sheet "{fax_ws.title}")',
+                        'created': created, 'updated': updated, 'skipped': 0, 'warnings': w,
+                        'periods': periods,
+                        'note': (f'{len(periods)} month(s), '
+                                 f'{Entry._MONTHS[periods[0][1] - 1]} {periods[0][0]} – '
+                                 f'{Entry._MONTHS[periods[-1][1] - 1]} {periods[-1][0]}'
+                                 if periods else ''),
+                        'year': periods[0][0] if periods else None,
+                        'month': periods[0][1] if periods else None})
         return results
 
     for sheet_name in wb.sheetnames:

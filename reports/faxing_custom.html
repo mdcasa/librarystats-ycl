@@ -1,0 +1,147 @@
+{% extends 'base.html' %}
+{% block title %}Custom Fax Report – Reports{% endblock %}
+{% macro fmt(v, money) -%}
+  {%- if v is none -%}—{%- elif money -%}${{ '{:,.2f}'.format(v) }}{%- else -%}{{ v|commas }}{%- endif -%}
+{%- endmacro %}
+{% macro cellv(row, k, b) -%}
+  {%- set vals = (row['all'] if b is none else row.by_branch.get(b.id)) or {} -%}
+  {{- fmt(vals.get(k), measures[k][1]) -}}
+{%- endmacro %}
+{% block content %}
+<h1 class="h4 fw-bold mb-1"><i class="bi bi-sliders me-2" style="color:#5d6d7e"></i>Custom Fax Report</h1>
+<p class="text-muted mb-4">Pick a date range, branches, and what to show, then group it by month, quarter, or year. Download the result as Excel.</p>
+
+{% if not category %}
+<div class="alert alert-warning">The Faxing category isn't set up yet.</div>
+{% else %}
+<form method="get" class="card mb-4">
+  <div class="card-body py-3">
+    <div class="row g-3">
+      <div class="col-md-3">
+        <label class="sidebar-label mb-1">From</label>
+        <select name="start" class="form-select form-select-sm">
+          {% for o in month_options %}<option value="{{ o.value }}" {% if o.value == sel_start %}selected{% endif %}>{{ o.label }}</option>{% endfor %}
+        </select>
+        <label class="sidebar-label mb-1 mt-2">To</label>
+        <select name="end" class="form-select form-select-sm">
+          {% for o in month_options %}<option value="{{ o.value }}" {% if o.value == sel_end %}selected{% endif %}>{{ o.label }}</option>{% endfor %}
+        </select>
+        <label class="sidebar-label mb-1 mt-2">Group by</label>
+        <select name="group" class="form-select form-select-sm">
+          {% for k, label in groupings.items() %}<option value="{{ k }}" {% if k == sel_group %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="sidebar-label mb-1">Branches</label>
+        {% for b in all_branches %}
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="branch" value="{{ b.id }}" id="br{{ b.id }}" {% if b.id in sel_branch_ids %}checked{% endif %}>
+          <label class="form-check-label small" for="br{{ b.id }}">{{ b.name }}</label>
+        </div>
+        {% endfor %}
+        <div class="form-check mt-2">
+          <input class="form-check-input" type="checkbox" name="split" value="1" id="split" {% if split %}checked{% endif %}>
+          <label class="form-check-label small" for="split">Show each branch separately</label>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <label class="sidebar-label mb-1">Show</label>
+        {% for k, m in measures.items() %}
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="measure" value="{{ k }}" id="ms{{ k }}" {% if k in sel_measures %}checked{% endif %}>
+          <label class="form-check-label small" for="ms{{ k }}">{{ m[0] }}</label>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="col-md-3 d-flex flex-column justify-content-end gap-2">
+        <button class="btn btn-primary btn-sm">Run Report</button>
+        {% if periods %}
+        <button class="btn btn-outline-secondary btn-sm" name="format" value="xlsx">
+          <i class="bi bi-download me-1"></i>Download Excel
+        </button>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</form>
+
+{% if periods %}
+{% if chart and chart.labels|length > 1 %}
+<div class="card mb-4">
+  <div class="card-header fw-semibold">{{ chart.measure }}{% if sel_measures|length > 1 %} <span class="text-muted fw-normal small">(chart shows the first measure you picked)</span>{% endif %}</div>
+  <div class="card-body"><canvas id="faxChart" height="90"></canvas></div>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered mb-0 align-middle text-end" style="font-size:.85rem">
+      <thead class="table-light">
+        {% if split %}
+        <tr>
+          <th rowspan="2" class="text-start align-middle">{{ groupings[sel_group] }}</th>
+          {% for k in sel_measures %}<th colspan="{{ (sel_branch_ids|length) + 1 }}" class="text-center">{{ measures[k][0] }}</th>{% endfor %}
+        </tr>
+        <tr>
+          {% for k, b in columns %}<th class="fw-normal small {{ 'fw-semibold' if b is none }}">{{ b.name if b else 'Total' }}</th>{% endfor %}
+        </tr>
+        {% else %}
+        <tr>
+          <th class="text-start">{{ groupings[sel_group] }}</th>
+          {% for k, b in columns %}<th>{{ measures[k][0] }}</th>{% endfor %}
+        </tr>
+        {% endif %}
+      </thead>
+      <tbody>
+        {% for row in periods %}
+        <tr>
+          <td class="text-start text-nowrap">{{ row.label }}</td>
+          {% for k, b in columns %}<td class="{{ 'fw-semibold' if b is none and split }}">{{ cellv(row, k, b) }}</td>{% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+      {% if total_row %}
+      <tfoot class="table-secondary">
+        <tr>
+          <td class="fw-bold text-start">Total</td>
+          {% for k, b in columns %}<td class="fw-bold">{{ cellv(total_row, k, b) }}</td>{% endfor %}
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+</div>
+<p class="small text-muted mt-2">Fax Transactions = prepaid card + credit/debit card. Average Sale = credit card sales ÷ credit/debit card transactions.</p>
+{% elif ran %}
+<div class="alert alert-info">No fax data matches those choices.</div>
+{% endif %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if chart and chart.labels|length > 1 %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+  const chart = {{ chart|tojson }};
+  const palette = ['#1a4f9e', '#f39c12', '#117a65', '#c0392b', '#8e44ad', '#5d6d7e'];
+  const money = v => '$' + Number(v).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  new Chart(document.getElementById('faxChart'), {
+    type: chart.labels.length > 18 ? 'line' : 'bar',
+    data: {
+      labels: chart.labels,
+      datasets: chart.series.map((s, i) => ({
+        label: s.label, data: s.data,
+        backgroundColor: palette[i % palette.length], borderColor: palette[i % palette.length],
+      })),
+    },
+    options: {
+      responsive: true,
+      plugins: {tooltip: {callbacks: {label: c => c.dataset.label + ': ' + (chart.money ? money(c.raw ?? 0) : (c.raw ?? 0))}}},
+      scales: {y: {beginAtZero: true, ticks: {callback: v => chart.money ? money(v) : v}}},
+    },
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

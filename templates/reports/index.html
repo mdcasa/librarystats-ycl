@@ -85,6 +85,16 @@
       'Month-by-month program counts and attendance by age group (0-11, 12-18, 18+, General Interest), for a fiscal year.',
       'you want to see the monthly shape of programming activity across a fiscal year, broken out by age group.') }}
 
+  {{ report_card('report_faxing_monthly', 'bi-printer', '#5d6d7e',
+      'Monthly Fax Report',
+      "Every branch's fax transactions, sales and commission for one month, compared with last month and last year.",
+      'preparing monthly fax figures.') }}
+
+  {{ report_card('report_faxing_custom', 'bi-sliders', '#5d6d7e',
+      'Custom Fax Report',
+      'Build your own fax report: any date range, branches and measures, grouped by month, quarter or year, with Excel download.',
+      'you need fax figures sliced a particular way.') }}
+
   {{ report_card('report_faxing', 'bi-printer', '#5d6d7e',
       'Faxing',
       'Public fax transactions, credit card sales, and commission by branch and month for a fiscal year (FaxScan24).',

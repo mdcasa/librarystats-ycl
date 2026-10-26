@@ -1,0 +1,107 @@
+{% extends 'base.html' %}
+{% block title %}Monthly Fax Report – Reports{% endblock %}
+{% macro fmt(v, money) -%}
+  {%- if v is none -%}—{%- elif money -%}${{ '{:,.2f}'.format(v) }}{%- else -%}{{ v|commas }}{%- endif -%}
+{%- endmacro %}
+{% block content %}
+<h1 class="h4 fw-bold mb-1"><i class="bi bi-calendar3 me-2" style="color:#5d6d7e"></i>Monthly Fax Report</h1>
+<p class="text-muted mb-4">Every branch's fax activity for one month, compared with the previous month and the same month last year.</p>
+
+{% if not category %}
+<div class="alert alert-warning">The Faxing category isn't set up yet.</div>
+{% else %}
+<div class="card mb-4">
+  <div class="card-body py-3">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-sm-5">
+        <label class="sidebar-label mb-1">Month</label>
+        <select name="month" class="form-select form-select-sm">
+          {% for o in month_options %}
+          <option value="{{ o.value }}" {% if o.value == sel_value %}selected{% endif %}>{{ o.label }}</option>
+          {% else %}
+          <option value="">No fax data yet</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-7">
+        <button class="btn btn-primary btn-sm">Run Report</button>
+        {% if rows %}
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('report_faxing_monthly', month=sel_value, format='xlsx') }}">
+          <i class="bi bi-download me-1"></i>Excel
+        </a>
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('report_faxing_custom') }}">
+          <i class="bi bi-sliders me-1"></i>Build a custom report
+        </a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if rows %}
+{% if total %}
+<div class="row g-3 mb-4">
+  {% for k in ['transactions', 'sales', 'commission'] %}
+  {% set label, money = measures[k] %}
+  <div class="col-md-4">
+    <div class="card h-100"><div class="card-body">
+      <div class="text-muted small">{{ label }} — {{ sel_label }}</div>
+      <div class="fs-4 fw-bold">{{ fmt(total[k], money) }}</div>
+      {% for c in compare %}
+      <div class="small text-muted">
+        {{ c.label }}:
+        {% if c['values'] %}
+          {{ fmt(c['values'][k].value, money) }}
+          {% set d = c['values'][k] %}
+          {% if d.delta is not none %}
+          <span class="{{ 'text-success' if d.delta > 0 else ('text-danger' if d.delta < 0 else '') }}">
+            ({{ '+' if d.delta > 0 }}{{ fmt(d.delta, money) if d.delta >= 0 else '−' ~ fmt(-d.delta, money) }}{% if d.pct is not none %}, {{ '+' if d.pct > 0 }}{{ d.pct }}%{% endif %})
+          </span>
+          {% endif %}
+        {% else %}no data
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div></div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-header fw-semibold">{{ sel_label }} by branch</div>
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered mb-0 align-middle text-end" style="font-size:.85rem">
+      <thead class="table-light">
+        <tr>
+          <th class="text-start">Branch</th>
+          {% for k, m in measures.items() %}<th>{{ m[0] }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="text-start">{{ r.branch.name }}</td>
+          {% for k, m in measures.items() %}<td>{{ fmt((r['values'] or {}).get(k), m[1]) }}</td>{% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="table-secondary">
+        <tr>
+          <td class="fw-bold text-start">Total</td>
+          {% for k, m in measures.items() %}<td class="fw-bold">{{ fmt((total or {}).get(k), m[1]) }}</td>{% endfor %}
+        </tr>
+        {% for c in compare %}
+        <tr class="text-muted">
+          <td class="text-start">{{ c.label }} ({{ c.period }})</td>
+          {% for k, m in measures.items() %}<td>{{ fmt(c['values'][k].value, m[1]) if c['values'] else '—' }}</td>{% endfor %}
+        </tr>
+        {% endfor %}
+      </tfoot>
+    </table>
+  </div>
+</div>
+<p class="small text-muted mt-2">Fax Transactions = prepaid card + credit/debit card. Average Sale = credit card sales ÷ credit/debit card transactions.</p>
+{% endif %}
+{% endif %}
+{% endblock %}

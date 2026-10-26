@@ -1636,6 +1636,289 @@ def report_faxing():
                            category=cat, branches=branches, monthly=monthly, totals=totals)
 
 
+# ── Faxing: monthly report and custom report builder ──────────────────────────
+
+# Every measure the fax reports can show: key -> (label, is_money).
+# 'avg_sale' is derived (sales / credit-card transactions) after summing.
+FAX_REPORT_MEASURES = {
+    'transactions': ('Fax Transactions', False),
+    'prepaid':      ('Prepaid Card Transactions', False),
+    'credit':       ('Credit/Debit Card Transactions', False),
+    'sales':        ('Credit Card Sales', True),
+    'commission':   ('Commission', True),
+    'avg_sale':     ('Average Sale per Card Fax', True),
+}
+_FAX_MEASURE_METRIC = {
+    'prepaid':    'Prepaid Fax Card Transactions',
+    'credit':     'Credit/Debit Card Fax Transactions',
+    'sales':      'Fax Credit Card Sales ($)',
+    'commission': 'Fax Commission ($)',
+}
+FAX_GROUPINGS = {
+    'month':    'Month',
+    'quarter':  'Quarter',
+    'fy':       'Fiscal Year (Jul–Jun)',
+    'calendar': 'Calendar Year',
+    'total':    'Whole Range',
+}
+
+
+def _fax_raw(cat, start, end, branch_ids):
+    """{(year, month, branch_id): {measure_key: value}} for the stored fax
+    metrics between two (year, month) pairs inclusive."""
+    metric_key = {m.id: k for m in cat.metrics
+                  for k, name in _FAX_MEASURE_METRIC.items() if m.name == name}
+    q = (db.session.query(Entry.year, Entry.month, Entry.branch_id,
+                          EntryValue.metric_id, EntryValue.value_number)
+         .join(EntryValue, EntryValue.entry_id == Entry.id)
+         .filter(Entry.category_id == cat.id, Entry.month.isnot(None),
+                 EntryValue.metric_id.in_(list(metric_key)),
+                 (Entry.year * 12 + Entry.month).between(start[0] * 12 + start[1],
+                                                         end[0] * 12 + end[1])))
+    if branch_ids:
+        q = q.filter(Entry.branch_id.in_(branch_ids))
+    out = {}
+    for yr, mo, bid, mid, val in q.all():
+        out.setdefault((yr, mo, bid), {})[metric_key[mid]] = val or 0
+    return out
+
+
+def _fax_finish(sums):
+    """Add the derived measures to a dict of summed stored measures."""
+    sums = dict(sums)
+    sums['transactions'] = sums.get('prepaid', 0) + sums.get('credit', 0)
+    credit = sums.get('credit', 0)
+    sums['avg_sale'] = (sums.get('sales', 0) / credit) if credit else None
+    return sums
+
+
+def _fax_add(into, vals):
+    for k, v in vals.items():
+        into[k] = into.get(k, 0) + (v or 0)
+
+
+def _fax_period_key(year, month, grouping):
+    """(sort_key, label) for the period a month falls in under a grouping."""
+    if grouping == 'quarter':
+        q = (month - 1) // 3 + 1
+        return (year, q), f'Q{q} {year}'
+    if grouping == 'fy':
+        fy = year + 1 if month >= 7 else year
+        return (fy,), f'FY{fy}'
+    if grouping == 'calendar':
+        return (year,), str(year)
+    if grouping == 'total':
+        return (0,), 'Total'
+    return (year, month), f'{MONTHS[month - 1][:3]} {year}'
+
+
+def _fax_months_available(cat):
+    """Sorted (year, month) pairs that have any fax entry."""
+    if not cat:
+        return []
+    return sorted(db.session.query(Entry.year, Entry.month)
+                  .filter(Entry.category_id == cat.id, Entry.month.isnot(None))
+                  .distinct().all())
+
+
+def _fax_month_options(months):
+    return [{'value': f'{y}-{m:02d}', 'label': f'{MONTHS[m - 1]} {y}'} for y, m in months]
+
+
+def _parse_ym(val):
+    try:
+        y, m = (int(x) for x in (val or '').split('-'))
+        return (y, m) if 1 <= m <= 12 else None
+    except ValueError:
+        return None
+
+
+@app.route('/reports/faxing/monthly')
+def report_faxing_monthly():
+    """One month of fax activity for every branch, with all measures, compared
+    to the previous month and the same month a year earlier."""
+    cat = Category.query.filter_by(name=FAX_CATEGORY).first()
+    months = _fax_months_available(cat)
+    sel = _parse_ym(request.args.get('month')) or (months[-1] if months else None)
+
+    branches = rows = total = compare = None
+    if cat and sel:
+        y, m = sel
+        prev = (y, m - 1) if m > 1 else (y - 1, 12)
+        last_year = (y - 1, m)
+        branches = _branches_for_category(cat)
+
+        def by_branch(ym):
+            raw = _fax_raw(cat, ym, ym, None)
+            return {bid: vals for (_, _, bid), vals in raw.items()}
+
+        cur, prv, ly = by_branch(sel), by_branch(prev), by_branch(last_year)
+        rows = []
+        cur_sum, prv_sum, ly_sum = {}, {}, {}
+        for b in branches:
+            vals = cur.get(b.id)
+            rows.append({'branch': b, 'values': _fax_finish(vals) if vals else None})
+            if vals: _fax_add(cur_sum, vals)
+            if prv.get(b.id): _fax_add(prv_sum, prv[b.id])
+            if ly.get(b.id): _fax_add(ly_sum, ly[b.id])
+        total = _fax_finish(cur_sum) if cur_sum else None
+
+        def cmp(other, label, ym):
+            if not other:
+                return {'label': label, 'period': f'{MONTHS[ym[1] - 1]} {ym[0]}', 'values': None}
+            o = _fax_finish(other)
+            out = {}
+            for k in FAX_REPORT_MEASURES:
+                cv, ov = (total or {}).get(k), o.get(k)
+                delta = (cv - ov) if cv is not None and ov is not None else None
+                out[k] = {'value': ov, 'delta': delta,
+                          'pct': round(delta / ov * 100, 1) if delta is not None and ov else None}
+            return {'label': label, 'period': f'{MONTHS[ym[1] - 1]} {ym[0]}', 'values': out}
+
+        compare = [cmp(prv_sum, 'Previous month', prev), cmp(ly_sum, 'Same month last year', last_year)]
+
+        if request.args.get('format') == 'xlsx' and rows:
+            import openpyxl
+            from openpyxl.styles import Font
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = f'Faxing {MONTHS[m - 1][:3]} {y}'
+            keys = list(FAX_REPORT_MEASURES)
+            ws.append(['Branch'] + [FAX_REPORT_MEASURES[k][0] for k in keys])
+            for r in rows:
+                ws.append([r['branch'].name] + [(r['values'] or {}).get(k) for k in keys])
+            ws.append(['Total'] + [(total or {}).get(k) for k in keys])
+            for c in compare:
+                ws.append([f"{c['label']} ({c['period']})"]
+                          + [(c['values'] or {}).get(k, {}).get('value') if c['values'] else None
+                             for k in keys])
+            for cell in ws[1]:
+                cell.font = Font(bold=True)
+            for i, k in enumerate(keys, start=2):
+                if FAX_REPORT_MEASURES[k][1]:
+                    for row in ws.iter_rows(min_row=2, min_col=i, max_col=i):
+                        row[0].number_format = '$#,##0.00'
+            ws.column_dimensions['A'].width = 32
+            return _xlsx_response(wb, f'faxing_{y}-{m:02d}.xlsx')
+
+    return render_template('reports/faxing_monthly.html', category=cat,
+                           month_options=_fax_month_options(reversed(months)),
+                           sel_value=f'{sel[0]}-{sel[1]:02d}' if sel else None,
+                           sel_label=f'{MONTHS[sel[1] - 1]} {sel[0]}' if sel else None,
+                           measures=FAX_REPORT_MEASURES, rows=rows, total=total,
+                           compare=compare)
+
+
+@app.route('/reports/faxing/custom')
+def report_faxing_custom():
+    """Custom fax report builder: any month range, any branches, any measures,
+    grouped by month / quarter / fiscal year / calendar year / whole range,
+    optionally split by branch, with a chart and Excel download."""
+    cat = Category.query.filter_by(name=FAX_CATEGORY).first()
+    months = _fax_months_available(cat)
+    all_branches = _branches_for_category(cat) if cat else []
+
+    start = _parse_ym(request.args.get('start')) or (months[0] if months else None)
+    end = _parse_ym(request.args.get('end')) or (months[-1] if months else None)
+    if start and end and start > end:
+        start, end = end, start
+    grouping = request.args.get('group', 'month')
+    if grouping not in FAX_GROUPINGS:
+        grouping = 'month'
+    sel_measures = [k for k in request.args.getlist('measure') if k in FAX_REPORT_MEASURES] \
+        or ['transactions', 'sales']
+    sel_branch_ids = request.args.getlist('branch', type=int)
+    branches = [b for b in all_branches if b.id in sel_branch_ids] or all_branches
+    ran = bool(request.args)
+    split = request.args.get('split') == '1' if ran else True   # split by branch by default
+
+    periods = columns = None
+    if cat and start and end and branches:
+        raw = _fax_raw(cat, start, end, [b.id for b in branches])
+        # period sort key -> {'label', 'by_branch': {bid: sums}, 'all': sums}
+        buckets = {}
+        for (yr, mo, bid), vals in raw.items():
+            key, label = _fax_period_key(yr, mo, grouping)
+            bk = buckets.setdefault(key, {'label': label, 'by_branch': {}, 'all': {}})
+            _fax_add(bk['by_branch'].setdefault(bid, {}), vals)
+            _fax_add(bk['all'], vals)
+        # Month grouping lists every month in range, even ones with no data.
+        if grouping == 'month':
+            y, m = start
+            while (y, m) <= end:
+                key, label = _fax_period_key(y, m, grouping)
+                buckets.setdefault(key, {'label': label, 'by_branch': {}, 'all': {}})
+                y, m = (y, m + 1) if m < 12 else (y + 1, 1)
+
+        grand = {'label': 'Total', 'by_branch': {}, 'all': {}}
+        for bk in buckets.values():
+            for bid, vals in bk['by_branch'].items():
+                _fax_add(grand['by_branch'].setdefault(bid, {}), vals)
+            _fax_add(grand['all'], bk['all'])
+
+        def finish(bk):
+            return {'label': bk['label'],
+                    'by_branch': {bid: _fax_finish(v) for bid, v in bk['by_branch'].items()},
+                    'all': _fax_finish(bk['all']) if bk['all'] else None}
+
+        periods = [finish(buckets[k]) for k in sorted(buckets)]
+        total_row = finish(grand) if grouping != 'total' else None
+
+        # Column list: (measure_key, branch or None for the all-branches total)
+        columns = []
+        for k in sel_measures:
+            if split:
+                columns.extend((k, b) for b in branches)
+            columns.append((k, None))
+
+        def cell(row, k, b):
+            vals = row['all'] if b is None else row['by_branch'].get(b.id)
+            return (vals or {}).get(k)
+
+        if request.args.get('format') == 'xlsx':
+            import openpyxl
+            from openpyxl.styles import Font
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = 'Custom Fax Report'
+            ws.append([FAX_GROUPINGS[grouping]]
+                      + [f"{FAX_REPORT_MEASURES[k][0]} — {b.name if b else 'All branches'}"
+                         for k, b in columns])
+            for row in periods + ([total_row] if total_row else []):
+                ws.append([row['label']] + [cell(row, k, b) for k, b in columns])
+            for c in ws[1] + (ws[ws.max_row] if total_row else ()):
+                c.font = Font(bold=True)
+            for i, (k, _) in enumerate(columns, start=2):
+                if FAX_REPORT_MEASURES[k][1]:
+                    for row in ws.iter_rows(min_row=2, min_col=i, max_col=i):
+                        row[0].number_format = '$#,##0.00'
+            ws.column_dimensions['A'].width = 16
+            return _xlsx_response(wb, f'faxing_custom_{start[0]}-{start[1]:02d}_to_{end[0]}-{end[1]:02d}.xlsx')
+
+        # Chart: first selected measure, one series per branch when split,
+        # else the all-branches total.
+        chart_k = sel_measures[0]
+        chart_series = ([{'label': b.name, 'data': [cell(r, chart_k, b) for r in periods]}
+                         for b in branches] if split else
+                        [{'label': 'All selected branches',
+                          'data': [cell(r, chart_k, None) for r in periods]}])
+        chart = {'labels': [r['label'] for r in periods], 'series': chart_series,
+                 'measure': FAX_REPORT_MEASURES[chart_k][0],
+                 'money': FAX_REPORT_MEASURES[chart_k][1]}
+    else:
+        total_row = chart = None
+
+    return render_template('reports/faxing_custom.html', category=cat,
+                           month_options=_fax_month_options(months),
+                           sel_start=f'{start[0]}-{start[1]:02d}' if start else None,
+                           sel_end=f'{end[0]}-{end[1]:02d}' if end else None,
+                           groupings=FAX_GROUPINGS, sel_group=grouping,
+                           measures=FAX_REPORT_MEASURES, sel_measures=sel_measures,
+                           all_branches=all_branches, sel_branch_ids={b.id for b in branches},
+                           split=split, ran=ran, periods=periods, total_row=total_row,
+                           columns=columns, chart=chart)
+
+
 SLC_AGE_ORDER = ['0-5', '6-11', '12-18', '19+', 'General Interest']
 SLC_AGE_BREAKDOWN_METRICS = ['Take and Makes', 'Passive Programs']
 SLC_BRANCH_ONLY_METRICS = ['Number of Volunteers', 'Volunteer Hours']

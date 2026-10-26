@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+{% macro fmt(v, money) -%}
+  {%- if v is none -%}—{%- elif money -%}${{ '{:,.2f}'.format(v) }}{%- else -%}{{ '{:,}'.format(v|int) }}{%- endif -%}
+{%- endmacro %}
+<style>
+@page {
+  size: letter landscape;
+  margin: 0.45in;
+  @bottom-right { content: "Page " counter(page) " of " counter(pages); font-family: "Liberation Sans", Arial, sans-serif; font-size: 7.5pt; color: #666; }
+  @bottom-left  { content: "YCL Statistics — Faxing FY{{ fy_year }}"; font-family: "Liberation Sans", Arial, sans-serif; font-size: 7.5pt; color: #666; }
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: "Helvetica Neue", Helvetica, Arial, "Liberation Sans", sans-serif; font-size: 9pt; color: #111; line-height: 1.35; }
+.page-header { border-bottom: 2pt solid #1a4f9e; padding-bottom: 5pt; margin-bottom: 9pt; display: flex; justify-content: space-between; align-items: flex-end; }
+.title { font-size: 15pt; font-weight: 700; color: #1a4f9e; }
+.subtitle { font-size: 9pt; color: #444; }
+.meta { font-size: 7.5pt; color: #666; text-align: right; }
+h2 { font-size: 10pt; color: #1a4f9e; margin: 7pt 0 3pt; }
+table { width: 100%; border-collapse: collapse; font-size: 8pt; }
+th, td { border: 0.5pt solid #bbb; padding: 1.6pt 5pt; text-align: right; }
+th { background: #e8eef7; font-weight: 700; }
+td:first-child, th:first-child { text-align: left; }
+tfoot td { font-weight: 700; background: #f2f2f2; }
+td.total, th.total { font-weight: 700; }
+.legend { margin: 3pt 0 0; font-size: 8pt; }
+.legend span { display: inline-block; margin-right: 12pt; }
+.legend i { display: inline-block; width: 8pt; height: 8pt; margin-right: 3pt; vertical-align: -1pt; }
+.note { font-size: 7.5pt; color: #555; margin-top: 6pt; }
+.keep { break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div>
+    <div class="title">Faxing by Branch &amp; Month — FY{{ fy_year }}</div>
+    <div class="subtitle">{{ measure_label }} · July {{ fy_year - 1 }} – June {{ fy_year }} · York County Library</div>
+  </div>
+  <div class="meta">Source: FaxScan24 activity reports<br>Generated {{ generated.strftime('%b %-d, %Y') }}</div>
+</div>
+
+<div class="keep">
+  <h2>{{ measure_label }} by month</h2>
+  <svg width="100%" viewBox="0 0 {{ chart.w }} {{ chart.h }}" xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif">
+    {% for t in chart.ticks %}
+    <line x1="{{ chart.left }}" x2="{{ chart.w }}" y1="{{ t.y }}" y2="{{ t.y }}" stroke="#ddd" stroke-width="1"/>
+    <text x="{{ chart.left - 6 }}" y="{{ t.y + 4 }}" font-size="11" text-anchor="end" fill="#555">{{ ('$' ~ '{:,.0f}'.format(t.v)) if is_money else '{:,}'.format(t.v|int) }}</text>
+    {% endfor %}
+    {% for b in chart.bars %}
+      {% for s in b.segs %}<rect x="{{ b.x }}" y="{{ s.y }}" width="{{ b.w }}" height="{{ s.h }}" fill="{{ s.color }}"/>{% endfor %}
+      {% if b.total %}<text x="{{ b.cx }}" y="{{ b.top - 4 }}" font-size="11" text-anchor="middle" fill="#111">{{ fmt(b.total, is_money) }}</text>{% endif %}
+      <text x="{{ b.cx }}" y="{{ chart.bottom + 16 }}" font-size="11" text-anchor="middle" fill="#333">{{ b.label }}</text>
+    {% endfor %}
+    <line x1="{{ chart.left }}" x2="{{ chart.w }}" y1="{{ chart.bottom }}" y2="{{ chart.bottom }}" stroke="#888" stroke-width="1"/>
+  </svg>
+  <div class="legend">
+    {% for b in branches %}<span><i style="background: {{ colors[b.id] }}"></i>{{ b.name }}</span>{% endfor %}
+  </div>
+</div>
+
+<div class="keep">
+  <h2>{{ measure_label }} by branch and month</h2>
+  <table>
+    <thead>
+      <tr><th>Month</th>{% for b in branches %}<th>{{ b.name }}</th>{% endfor %}<th class="total">Total</th></tr>
+    </thead>
+    <tbody>
+      {% for r in monthly %}
+      <tr><td>{{ r.label }}</td>{% for b in branches %}<td>{{ fmt(r['values'][b.id], is_money) }}</td>{% endfor %}<td class="total">{{ fmt(r.total, is_money) }}</td></tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr><td>FY{{ fy_year }} total</td>{% for b in branches %}<td>{{ fmt(totals[b.id], is_money) }}</td>{% endfor %}<td>{{ fmt(totals['all'], is_money) }}</td></tr>
+    </tfoot>
+  </table>
+</div>
+
+<div class="keep">
+  <h2>FY{{ fy_year }} totals, all measures</h2>
+  <table>
+    <thead>
+      <tr><th>Measure</th>{% for b in branches %}<th>{{ b.name }}</th>{% endfor %}<th class="total">Total</th></tr>
+    </thead>
+    <tbody>
+      {% for s in summary %}
+      <tr><td>{{ s.label }}</td>{% for v in s['values'] %}<td>{{ fmt(v, s.money) }}</td>{% endfor %}<td class="total">{{ fmt(s.total, s.money) }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="note">Fax Transactions = prepaid card + credit/debit card transactions. Blank (—) months have no report entered yet.</p>
+</div>
+
+</body>
+</html>

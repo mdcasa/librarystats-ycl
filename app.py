@@ -10,6 +10,7 @@ from datetime import datetime
 from functools import wraps
 import hmac
 import io
+import math
 import os
 import sys
 
@@ -1629,11 +1630,82 @@ def report_faxing():
                         cell.number_format = '$#,##0.00'
             return _xlsx_response(wb, f'faxing_FY{fy_year}_{measure}.xlsx')
 
+        if request.args.get('format') == 'pdf':
+            return _faxing_fy_pdf(cat, fy_year, measure, measure_label, is_money,
+                                  branches, monthly, totals)
+
     return render_template('reports/faxing.html',
                            available_years=available_years, sel_year=fy_year,
                            measures=_FAX_MEASURES, sel_measure=measure,
                            measure_label=measure_label, is_money=is_money,
                            category=cat, branches=branches, monthly=monthly, totals=totals)
+
+
+def _faxing_fy_pdf(cat, fy_year, measure, measure_label, is_money, branches, monthly, totals):
+    """PDF of the Faxing by Branch & Month report (WeasyPrint, like the Impact
+    report). WeasyPrint doesn't run JavaScript, so the chart is drawn here as
+    SVG: one stacked bar per month, one segment per branch."""
+    palette = ['#1a4f9e', '#f39c12', '#117a65', '#c0392b', '#8e44ad', '#5d6d7e']
+    colors = {b.id: palette[i % len(palette)] for i, b in enumerate(branches)}
+
+    W, H, left, bottom, top = 960, 210, 60, 26, 16
+    plot_h = H - bottom - top
+    peak = max((r['total'] or 0 for r in monthly), default=0) or 1
+    # Round axis: 4 gridlines at a 1/2/5 x 10^n step
+    raw_step = peak / 4
+    mag = 10 ** math.floor(math.log10(raw_step)) if raw_step > 0 else 1
+    tick = next(m * mag for m in (1, 2, 2.5, 5, 10) if m * mag >= raw_step)
+    axis_max = tick * math.ceil(peak / tick)
+    slot = (W - left) / len(monthly)
+    bar_w = slot * 0.6
+    bars = []
+    for i, r in enumerate(monthly):
+        x = left + i * slot + (slot - bar_w) / 2
+        y = H - bottom
+        segs = []
+        for b in branches:
+            v = r['values'][b.id] or 0
+            h = v / axis_max * plot_h
+            if h > 0:
+                y -= h
+                segs.append({'y': y, 'h': h, 'color': colors[b.id]})
+        bars.append({'x': x, 'w': bar_w, 'label': r['label'], 'segs': segs,
+                     'total': r['total'], 'top': y, 'cx': x + bar_w / 2})
+    n_ticks = round(axis_max / tick)
+    ticks = [{'v': tick * k, 'y': H - bottom - plot_h * k / n_ticks} for k in range(n_ticks + 1)]
+    chart = {'w': W, 'h': H, 'left': left, 'bottom': H - bottom, 'bars': bars, 'ticks': ticks}
+
+    # FY totals per branch for every measure, for the summary table.
+    summary = []
+    for key, (label, names) in _FAX_MEASURES.items():
+        ids = [m.id for m in cat.metrics if m.name in names]
+        rows = (db.session.query(Entry.branch_id, db.func.sum(EntryValue.value_number))
+                .join(EntryValue, EntryValue.entry_id == Entry.id)
+                .filter(Entry.category_id == cat.id, EntryValue.metric_id.in_(ids),
+                        or_(and_(Entry.year == fy_year - 1, Entry.month >= 7),
+                            and_(Entry.year == fy_year, Entry.month <= 6)))
+                .group_by(Entry.branch_id).all())
+        by_b = {bid: v or 0 for bid, v in rows}
+        summary.append({'label': label, 'money': key != 'transactions',
+                        'values': [by_b.get(b.id, 0) for b in branches],
+                        'total': sum(by_b.get(b.id, 0) for b in branches)})
+
+    import traceback
+    try:
+        from weasyprint import HTML as WeasyprintHTML
+        html_str = render_template('reports/faxing_pdf.html',
+                                   fy_year=fy_year, measure_label=measure_label,
+                                   is_money=is_money, branches=branches, colors=colors,
+                                   monthly=monthly, totals=totals, chart=chart,
+                                   summary=summary, generated=datetime.now())
+        pdf_bytes = WeasyprintHTML(string=html_str, base_url=request.url_root).write_pdf()
+    except Exception:
+        tb = traceback.format_exc()
+        app.logger.error('PDF generation failed:\n%s', tb)
+        return f'<pre style="white-space:pre-wrap">PDF generation error — please send this to your admin:\n\n{tb}</pre>', 500
+
+    return send_file(io.BytesIO(pdf_bytes), mimetype='application/pdf', as_attachment=True,
+                     download_name=f'YCL_Faxing_FY{fy_year}_{measure}.pdf')
 
 
 # ── Faxing: monthly report and custom report builder ──────────────────────────

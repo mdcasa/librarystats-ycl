@@ -45,6 +45,21 @@
 </div>
 
 {% if monthly %}
+<div class="row g-3 mb-4">
+  <div class="col-lg-8">
+    <div class="card h-100">
+      <div class="card-header fw-semibold">{{ measure_label }} by month — FY{{ sel_year }}</div>
+      <div class="card-body"><canvas id="faxMonthChart" height="140"></canvas></div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card h-100">
+      <div class="card-header fw-semibold">Share by branch</div>
+      <div class="card-body"><canvas id="faxBranchChart" height="220"></canvas></div>
+    </div>
+  </div>
+</div>
+
 <div class="card">
   <div class="card-header fw-semibold">{{ measure_label }} — FY{{ sel_year }}</div>
   <div class="table-responsive">
@@ -80,5 +95,38 @@
   with the figures from that month's FaxScan24 activity report.
 </p>
 {% endif %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if monthly %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+  const money = {{ is_money|tojson }};
+  const labels = {{ monthly|map(attribute='label')|list|tojson }};
+  const branches = {{ branches|map(attribute='name')|list|tojson }};
+  // series[i][j] = branch i, month j
+  const series = [{% for b in branches %}[{% for r in monthly %}{{ r['values'][b.id]|tojson }}{{ ',' if not loop.last }}{% endfor %}]{{ ',' if not loop.last }}{% endfor %}];
+  const totals = [{% for b in branches %}{{ totals[b.id]|tojson }}{{ ',' if not loop.last }}{% endfor %}];
+  const palette = ['#1a4f9e', '#f39c12', '#117a65', '#c0392b', '#8e44ad', '#5d6d7e'];
+  const fmt = v => money ? '$' + Number(v).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})
+                         : Number(v).toLocaleString();
+  new Chart(document.getElementById('faxMonthChart'), {
+    type: 'bar',
+    data: {labels, datasets: series.map((d, i) => ({
+      label: branches[i], data: d, backgroundColor: palette[i % palette.length]}))},
+    options: {responsive: true,
+      plugins: {tooltip: {callbacks: {label: c => c.dataset.label + ': ' + fmt(c.raw ?? 0)}}},
+      scales: {x: {stacked: true}, y: {stacked: true, beginAtZero: true, ticks: {callback: fmt}}}},
+  });
+  new Chart(document.getElementById('faxBranchChart'), {
+    type: 'doughnut',
+    data: {labels: branches, datasets: [{data: totals, backgroundColor: palette}]},
+    options: {responsive: true, plugins: {legend: {position: 'bottom'},
+      tooltip: {callbacks: {label: c => c.label + ': ' + fmt(c.raw)}}}},
+  });
+})();
+</script>
 {% endif %}
 {% endblock %}

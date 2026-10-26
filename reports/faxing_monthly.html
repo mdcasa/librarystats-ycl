@@ -68,6 +68,23 @@
 </div>
 {% endif %}
 
+{% if total %}
+<div class="row g-3 mb-4">
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header fw-semibold">Fax Transactions by branch — {{ sel_label }}</div>
+      <div class="card-body"><canvas id="faxTxnChart" height="170"></canvas></div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header fw-semibold">Credit Card Sales by branch — {{ sel_label }}</div>
+      <div class="card-body"><canvas id="faxSalesChart" height="170"></canvas></div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <div class="card">
   <div class="card-header fw-semibold">{{ sel_label }} by branch</div>
   <div class="table-responsive">
@@ -103,5 +120,29 @@
 </div>
 <p class="small text-muted mt-2">Fax Transactions = prepaid card + credit/debit card. Average Sale = credit card sales ÷ credit/debit card transactions.</p>
 {% endif %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if rows and total %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+  const rows = {{ rows|map(attribute='values')|list|tojson }};
+  const labels = {{ rows|map(attribute='branch')|map(attribute='name')|list|tojson }};
+  const money = v => '$' + Number(v).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  function bar(id, key, color, isMoney) {
+    new Chart(document.getElementById(id), {
+      type: 'bar',
+      data: {labels, datasets: [{label: key, data: rows.map(r => r ? r[key] : null), backgroundColor: color}]},
+      options: {responsive: true, plugins: {legend: {display: false},
+        tooltip: {callbacks: {label: c => isMoney ? money(c.raw ?? 0) : (c.raw ?? 0)}}},
+        scales: {y: {beginAtZero: true, ticks: {callback: v => isMoney ? money(v) : v}}}},
+    });
+  }
+  bar('faxTxnChart', 'transactions', '#1a4f9e', false);
+  bar('faxSalesChart', 'sales', '#117a65', true);
+})();
+</script>
 {% endif %}
 {% endblock %}

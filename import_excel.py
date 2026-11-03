@@ -1392,8 +1392,11 @@ PROGRAMMING_BRANCH_MAP = {
     'Bookmobile':                'Bookmobile/Outreach',
     'Outreach Sprinter Van':     'Bookmobile/Outreach',
     'Online':                    'YCL (System Wide)',
+    # System-level events held elsewhere (e.g. the Genealogy Expo) — credited to
+    # Rock Hill (user decision, Nov 2026).
+    'Off Site':                  'Rock Hill',
 }
-_OFFSITE_LIBRARY_BRANCH_VALUES = {'Bookmobile', 'Outreach Sprinter Van'}
+_OFFSITE_LIBRARY_BRANCH_VALUES = {'Bookmobile', 'Outreach Sprinter Van', 'Off Site'}
 _CANCELLED_TITLE_RE = re.compile(r'\bcancell?ed\b', re.IGNORECASE)
 
 _AGE_BUCKET_PATTERNS = [

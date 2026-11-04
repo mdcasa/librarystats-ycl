@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+@page {
+  size: letter landscape;
+  margin: 0.45in;
+  @bottom-right { content: "Page " counter(page) " of " counter(pages); font-family: "Liberation Sans", Arial, sans-serif; font-size: 7.5pt; color: #666; }
+  @bottom-left  { content: "YCL Statistics — {{ category.name }} FY{{ fy_year }}"; font-family: "Liberation Sans", Arial, sans-serif; font-size: 7.5pt; color: #666; }
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: "Helvetica Neue", Helvetica, Arial, "Liberation Sans", sans-serif; font-size: 9pt; color: #111; line-height: 1.35; }
+.page-header { border-bottom: 2pt solid #1a4f9e; padding-bottom: 5pt; margin-bottom: 9pt; display: flex; justify-content: space-between; align-items: flex-end; }
+.title { font-size: 15pt; font-weight: 700; color: #1a4f9e; }
+.subtitle { font-size: 9pt; color: #444; }
+.meta { font-size: 7.5pt; color: #666; text-align: right; }
+table { width: 100%; border-collapse: collapse; font-size: 8pt; }
+thead { display: table-header-group; }
+tr { break-inside: avoid; }
+th, td { border: 0.5pt solid #bbb; padding: 1.6pt 5pt; text-align: right; }
+th { background: #e8eef7; font-weight: 700; text-align: center; }
+td:first-child, th:first-child { text-align: left; }
+td.muted { color: #999; }
+td.total, th.total { font-weight: 700; background: #f2f2f2; }
+tr.group td { background: #d9e1f2; font-weight: 700; color: #1a4f9e; text-align: left; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div>
+    <div class="title">{{ category.name }} — FY{{ fy_year }}</div>
+    <div class="subtitle">Fiscal year totals · July {{ fy_year - 1 }} – June {{ fy_year }} · York County Library</div>
+  </div>
+  <div class="meta">Values summed Jul–Jun<br>Generated {{ generated.strftime('%b %d, %Y') }}</div>
+</div>
+
+{% set multi = branches|length > 1 %}
+<table>
+  <thead>
+    <tr>
+      <th>Metric</th>
+      {% if branches %}
+        {% for b in branches %}<th>{{ b.name }}</th>{% endfor %}
+        {% if multi %}<th class="total">Total</th>{% endif %}
+      {% else %}
+        <th>Total</th>
+      {% endif %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for group in table %}
+      {% if group.name and group.rows %}
+      <tr class="group"><td colspan="{{ (branches|length if branches else 1) + (2 if multi else 1) }}">{{ group.name }}</td></tr>
+      {% endif %}
+      {% for row in group.rows %}
+      <tr>
+        <td>{{ row.metric.name }}</td>
+        {% for val in row.cells %}<td class="{{ 'muted' if val == '—' }}">{{ val }}</td>{% endfor %}
+        {% if multi %}<td class="total {{ 'muted' if row.row_total == '—' }}">{{ row.row_total }}</td>{% endif %}
+      </tr>
+      {% endfor %}
+    {% endfor %}
+  </tbody>
+</table>
+
+</body>
+</html>

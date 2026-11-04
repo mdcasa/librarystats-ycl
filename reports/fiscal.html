@@ -59,6 +59,10 @@
          class="btn btn-outline-success btn-sm btn-xs">
         <i class="bi bi-file-earmark-excel me-1"></i>Excel
       </a>
+      <a href="{{ url_for('report_fiscal', category=sel_cat, fy_year=sel_fy, format='pdf') }}"
+         class="btn btn-outline-danger btn-sm btn-xs">
+        <i class="bi bi-file-earmark-pdf me-1"></i>PDF
+      </a>
     </div>
   </div>
   <div class="card">

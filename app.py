@@ -2585,6 +2585,20 @@ def report_fiscal():
 
         return _xlsx_response(wb, f'fiscal_{category.name.replace(" ", "_")}_{fy_year}.xlsx')
 
+    if table and table != '__alias__' and request.args.get('format') == 'pdf':
+        html_str = render_template('reports/fiscal_pdf.html', category=category, fy_year=fy_year,
+                                   table=table, branches=branches, generated=datetime.now())
+        import traceback
+        try:
+            from weasyprint import HTML as WeasyprintHTML
+            pdf_bytes = WeasyprintHTML(string=html_str, base_url=request.url_root).write_pdf()
+        except Exception:
+            tb = traceback.format_exc()
+            app.logger.error('PDF generation failed:\n%s', tb)
+            return f'<pre style="white-space:pre-wrap">PDF generation error — please send this to your admin:\n\n{tb}</pre>', 500
+        return send_file(io.BytesIO(pdf_bytes), mimetype='application/pdf', as_attachment=True,
+                         download_name=f'YCL_{category.name.replace(" ", "_")}_FY{fy_year}.pdf')
+
     return render_template('reports/fiscal.html',
                            categories=categories, available_fy=available_fy,
                            sel_cat=cat_id, sel_fy=fy_year,

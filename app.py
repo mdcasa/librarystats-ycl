@@ -6,7 +6,7 @@ from models import FAX_CATEGORY, FAX_METRICS, FAX_BRANCHES
 from sqlalchemy.orm import joinedload
 from sqlalchemy import or_, and_
 from jinja2 import ChoiceLoader, FileSystemLoader
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 import hmac
 import io
@@ -611,8 +611,34 @@ def entries_list():
     if year:
         q = q.filter_by(year=year)
 
-    entries = q.order_by(Entry.year.desc(), Entry.month.desc(),
-                         Entry.submitted_at.desc()).all()
+    # "Last entered" = the latest recorded change to any of the entry's values,
+    # or when the entry was created if it has no history. Importers add values
+    # to an existing entry without touching submitted_at, so submitted_at alone
+    # would bury a re-upload or edit under the date the entry first appeared.
+    last_change = (db.session.query(EntryValueHistory.entry_id,
+                                    db.func.max(EntryValueHistory.changed_at).label('changed_at'))
+                   .group_by(EntryValueHistory.entry_id).subquery())
+    last_entered = db.func.coalesce(last_change.c.changed_at, Entry.submitted_at)
+    q = q.outerjoin(last_change, last_change.c.entry_id == Entry.id)
+
+    def _parse_day(s):
+        try:
+            return datetime.strptime(s, '%Y-%m-%d') if s else None
+        except ValueError:
+            return None
+    entered_from = _parse_day(request.args.get('entered_from', ''))
+    entered_to   = _parse_day(request.args.get('entered_to', ''))
+    if entered_from:
+        q = q.filter(last_entered >= entered_from)
+    if entered_to:
+        q = q.filter(last_entered < entered_to + timedelta(days=1))
+
+    rows = q.with_entities(Entry, last_entered).order_by(
+        last_entered.desc().nullslast(), Entry.id.desc()).all()
+    entries = []
+    for entry, entered_at in rows:
+        entry.last_entered_at = entered_at
+        entries.append(entry)
     years = [r[0] for r in db.session.query(Entry.year).distinct().order_by(Entry.year.desc()).all()]
 
     return render_template('entries/list.html',
@@ -621,7 +647,9 @@ def entries_list():
                            all_branches=Branch.query.filter_by(is_active=True).order_by(Branch.name).all(),
                            available_years=years,
                            ILL_ICL_PSEUDO=ILL_ICL_PSEUDO,
-                           sel_cat=cat_id, sel_branch=branch_id, sel_year=year)
+                           sel_cat=cat_id, sel_branch=branch_id, sel_year=year,
+                           sel_entered_from=request.args.get('entered_from', '') if entered_from else '',
+                           sel_entered_to=request.args.get('entered_to', '') if entered_to else '')
 
 
 # ── Create entry ─────────────────────────────────────────────────────────────

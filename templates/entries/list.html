@@ -10,7 +10,7 @@
 <div class="card mb-4">
   <div class="card-body py-3">
     <form method="get" class="row g-2 align-items-end">
-      <div class="col-sm-4">
+      <div class="col-sm-3">
         <label class="sidebar-label mb-1">Category</label>
         <select name="category" class="form-select form-select-sm">
           <option value="">All categories</option>
@@ -20,7 +20,7 @@
           <option value="{{ ILL_ICL_PSEUDO }}" {% if sel_cat == ILL_ICL_PSEUDO %}selected{% endif %}>ILL / ICL (Main only)</option>
         </select>
       </div>
-      <div class="col-sm-3">
+      <div class="col-sm-2">
         <label class="sidebar-label mb-1">Branch</label>
         <select name="branch" class="form-select form-select-sm">
           <option value="">All branches</option>
@@ -29,7 +29,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-sm-2">
+      <div class="col-sm-1">
         <label class="sidebar-label mb-1">Year</label>
         <select name="year" class="form-select form-select-sm">
           <option value="">All years</option>
@@ -38,7 +38,15 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-sm-3 d-flex gap-2">
+      <div class="col-sm-2">
+        <label class="sidebar-label mb-1">Entered from</label>
+        <input type="date" name="entered_from" value="{{ sel_entered_from }}" class="form-control form-control-sm">
+      </div>
+      <div class="col-sm-2">
+        <label class="sidebar-label mb-1">Entered to</label>
+        <input type="date" name="entered_to" value="{{ sel_entered_to }}" class="form-control form-control-sm">
+      </div>
+      <div class="col-sm-2 d-flex gap-2">
         <button class="btn btn-primary btn-sm">Filter</button>
         <a href="{{ url_for('entries_list') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
       </div>
@@ -57,7 +65,7 @@
           <th>Category</th>
           <th>Branch / Location</th>
           <th>Period</th>
-          <th>Submitted</th>
+          <th>Last entered</th>
           <th class="text-end">Actions</th>
         </tr>
       </thead>
@@ -68,7 +76,7 @@
           <td>{{ entry.category.name }}</td>
           <td class="text-muted">{{ entry.branch_label }}</td>
           <td><span class="badge bg-light text-dark border">{{ entry.period_label }}</span></td>
-          <td class="text-muted small">{{ entry.submitted_at.strftime('%d %b %Y') if entry.submitted_at else '—' }}{% if entry.submitted_by %} · {{ entry.submitted_by }}{% endif %}</td>
+          <td class="text-muted small text-nowrap">{{ entry.last_entered_at.strftime('%d %b %Y %H:%M') if entry.last_entered_at else '—' }}{% if entry.submitted_by %} · {{ entry.submitted_by }}{% endif %}</td>
           <td class="text-end">
             <a href="{{ url_for('entry_view', entry_id=entry.id) }}"
                class="btn btn-sm btn-outline-primary btn-xs me-1">View</a>

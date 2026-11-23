@@ -26,6 +26,7 @@ from models import (db, RoiPrice, RoiFiscalYear, Category, Metric, Branch, Entry
 MAINE = 'https://www.maine.gov/msl/services/calexplantion.htm'
 LRS = 'https://docs.google.com/spreadsheets/d/1ggkF524e8771ssQMJ1zbKQhSDyRRLOfLmQ2GE2LSPu8/edit?gid=0'
 SYRACUSE = 'https://truevalue.ischool.syr.edu/data-and-decisions/'
+HUMANIT = 'https://www.human-i-t.org/best-affordable-5g-hotspots-in-2026-complete-buyers-guide/'
 PEERSPACE = 'https://www.peerspace.com/venues/rock-hill--sc/meetup-venue'
 FEDEX = 'https://www.office.fedex.com/default/computer-access'
 CINEMARK = 'https://www.cinemark.com/movie-news/articles/movie-ticket-prices-guide'
@@ -40,7 +41,8 @@ DEFAULT_PRICES = [
     ('book_teen',     'materials', 'Teen books, paperbacks & graphic novels', 16.34, 'per checkout', 'AspenCat average YA price (Library Research Service, Jan 2026)', LRS),
     ('audiobook',     'materials', 'Audiobooks (CD, Playaway)', 22.59, 'per checkout', 'Top 20 Amazon best sellers (Library Research Service, Jan 2026)', LRS),
     ('movie',         'materials', 'Movies & TV (DVD, Blu-ray)', 5.00, 'per checkout', 'Estimate: standard digital rental (LRS uses the $24.48 purchase price instead)', MACRUMORS),
-    ('other_item',    'materials', 'Other (kits, video games, music, hotspots, ILL)', 12.00, 'per checkout', 'Estimate, below LRS prices for CDs ($14.15) and interlibrary loan ($17.50)', LRS),
+    ('hotspot',       'materials', 'WiFi hotspots', 25.00, 'per checkout', 'Monthly 5G hotspot rental with unlimited data, $24.99 (Human-I-T, Nov 2026); weekly travel rentals run $56-$109', HUMANIT),
+    ('other_item',    'materials', 'Other (kits, video games, music, ILL)', 12.00, 'per checkout', 'Estimate, below LRS prices for CDs ($14.15) and interlibrary loan ($17.50)', LRS),
     ('renewal',       'materials', 'Renewals', 0.00, 'per renewal', "Not counted: a renewal doesn't save a second purchase", ''),
     ('ebook',         'digital', 'eBooks', 7.86, 'per use', 'Top 20 Amazon Kindle best sellers (Library Research Service, Jan 2026)', LRS),
     ('eaudio',        'digital', 'eAudiobooks', 23.99, 'per use', 'Top 20 Amazon audiobook best sellers (Library Research Service, Jan 2026)', LRS),
@@ -98,7 +100,9 @@ def classify_shelving(loc):
         return 'movie'
     if re.search(r'AUD|PLAYAW|SND-REC|CD-BK', s):
         return 'audiobook'
-    if re.search(r'VID-GAM|GAMING|KIT|HOTSPOT|MUSIC|^ILL$|MAGAZINE', s):
+    if 'HOTSPOT' in s:
+        return 'hotspot'
+    if re.search(r'VID-GAM|GAMING|KIT|MUSIC|^ILL$|MAGAZINE', s):
         return 'other_item'
     if s.startswith('J-'):
         return 'book_children'
@@ -212,12 +216,12 @@ def compute_roi(fy):
             .filter(_fy_filter(SirsiCheckout, fy))
             .group_by(SirsiCheckout.shelving_location).all())
     has_sirsi = bool(rows)
-    by_key = {k: 0 for k in ('book_adult', 'book_children', 'book_teen', 'audiobook', 'movie', 'other_item')}
+    by_key = {k: 0 for k in ('book_adult', 'book_children', 'book_teen', 'audiobook', 'movie', 'hotspot', 'other_item')}
     renewals = 0
     for loc, co, rn in rows:
         by_key[classify_shelving(loc)] += int(co or 0)
         renewals += int(rn or 0)
-    for key in ('book_adult', 'book_children', 'book_teen', 'audiobook', 'movie', 'other_item'):
+    for key in ('book_adult', 'book_children', 'book_teen', 'audiobook', 'movie', 'hotspot', 'other_item'):
         p = prices.get(key)
         add('materials', key, p.label if p else key, by_key[key], price(key), 'checkouts')
     add('materials', 'renewal', prices['renewal'].label if 'renewal' in prices else 'Renewals',

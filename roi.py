@@ -10,6 +10,7 @@ Usage sources (one fiscal year, Jul-Jun):
   computers           Branch Stats 'PC Reservations'
   programs            Branch Stats {ONSITE,OFFSITE,VIRTUAL} Attendance {age}
   meeting rooms       Branch Stats 'External Party Library Room Use'
+  reference help      state annual survey 'Number of Reference Transactions'
   optional extras     WiFi sessions, Take & Make participants (default $0)
 
 Prices are RoiPrice rows (admin-editable). DEFAULT_PRICES seeds missing keys.
@@ -23,29 +24,34 @@ from models import (db, RoiPrice, RoiFiscalYear, Category, Metric, Branch, Entry
                     EntryValue, SirsiCheckout, AnnualSurveyMetric, AnnualSurveyValue)
 
 MAINE = 'https://www.maine.gov/msl/services/calexplantion.htm'
+LRS = 'https://docs.google.com/spreadsheets/d/1ggkF524e8771ssQMJ1zbKQhSDyRRLOfLmQ2GE2LSPu8/edit?gid=0'
+SYRACUSE = 'https://truevalue.ischool.syr.edu/data-and-decisions/'
 FEDEX = 'https://www.office.fedex.com/default/computer-access'
 CINEMARK = 'https://www.cinemark.com/movie-news/articles/movie-ticket-prices-guide'
 MACRUMORS = 'https://www.macrumors.com/2025/08/22/F1-NOW-AVAILABLE-TO-BUY-OR-RENT/'
 
 # key, group, label, price, unit, basis, source_url
+# Rows still marked updated_by='default' are refreshed from this list at startup;
+# rows an admin has edited are left alone.
 DEFAULT_PRICES = [
-    ('book_adult',    'materials', 'Adult books', 22.00, 'per checkout', 'Amazon average (Maine State Library, Nov 2019)', MAINE),
-    ('book_children', 'materials', "Children's books", 8.00, 'per checkout', 'Amazon average (Maine State Library, Nov 2019)', MAINE),
-    ('book_teen',     'materials', 'Teen books, paperbacks & graphic novels', 12.00, 'per checkout', 'Amazon paperback average (Maine State Library, Nov 2019)', MAINE),
-    ('audiobook',     'materials', 'Audiobooks (CD, Playaway)', 27.00, 'per checkout', 'Amazon average (Maine State Library, Nov 2019)', MAINE),
-    ('movie',         'materials', 'Movies & TV (DVD, Blu-ray)', 5.00, 'per checkout', 'Estimate: standard digital rental (new releases rent for $20)', MACRUMORS),
-    ('other_item',    'materials', 'Other (kits, video games, music, hotspots, ILL)', 12.00, 'per checkout', 'Estimate: set at the paperback price as a floor', ''),
+    ('book_adult',    'materials', 'Adult books', 22.12, 'per checkout', 'AspenCat average price (Library Research Service, Jan 2026)', LRS),
+    ('book_children', 'materials', "Children's books", 21.84, 'per checkout', 'AspenCat average price (Library Research Service, Jan 2026)', LRS),
+    ('book_teen',     'materials', 'Teen books, paperbacks & graphic novels', 16.34, 'per checkout', 'AspenCat average YA price (Library Research Service, Jan 2026)', LRS),
+    ('audiobook',     'materials', 'Audiobooks (CD, Playaway)', 22.59, 'per checkout', 'Top 20 Amazon best sellers (Library Research Service, Jan 2026)', LRS),
+    ('movie',         'materials', 'Movies & TV (DVD, Blu-ray)', 5.00, 'per checkout', 'Estimate: standard digital rental (LRS uses the $24.48 purchase price instead)', MACRUMORS),
+    ('other_item',    'materials', 'Other (kits, video games, music, hotspots, ILL)', 12.00, 'per checkout', 'Estimate, below LRS prices for CDs ($14.15) and interlibrary loan ($17.50)', LRS),
     ('renewal',       'materials', 'Renewals', 0.00, 'per renewal', "Not counted: a renewal doesn't save a second purchase", ''),
-    ('ebook',         'digital', 'eBooks', 10.00, 'per use', 'Amazon average for downloads (Maine State Library, Nov 2019)', MAINE),
-    ('eaudio',        'digital', 'eAudiobooks', 10.00, 'per use', 'Amazon average for downloads (Maine State Library, Nov 2019)', MAINE),
+    ('ebook',         'digital', 'eBooks', 7.86, 'per use', 'Top 20 Amazon Kindle best sellers (Library Research Service, Jan 2026)', LRS),
+    ('eaudio',        'digital', 'eAudiobooks', 23.99, 'per use', 'Top 20 Amazon audiobook best sellers (Library Research Service, Jan 2026)', LRS),
     ('evideo',        'digital', 'eVideo', 5.00, 'per use', 'Same rental estimate as DVDs', MACRUMORS),
-    ('eserial',       'digital', 'eSerials (magazines, newspapers)', 5.00, 'per use', 'Average magazine price (Maine State Library, Nov 2019)', MAINE),
-    ('computer_hour', 'computers', 'Public computer use', 27.00, 'per hour', 'FedEx Office (formerly Kinko\'s) Everyday Essentials, $0.45/minute', FEDEX),
+    ('eserial',       'digital', 'eSerials (magazines, newspapers)', 6.70, 'per use', 'Average issue price of 10 popular magazines (Library Research Service, Jan 2026)', LRS),
+    ('computer_hour', 'computers', 'Public computer use', 27.00, 'per hour', "FedEx Office (formerly Kinko's), $0.45/minute (same figure in LRS, Jan 2026)", FEDEX),
     ('wifi_session',  'computers', 'WiFi sessions', 0.00, 'per session', 'Not counted: no clear market price', ''),
     ('program_adult', 'programs', 'Program attendee: teen / adult / all ages', 16.08, 'per attendee', '2025 average U.S. movie ticket (Cinemark)', CINEMARK),
     ('program_child', 'programs', 'Program attendee: children 0-11', 12.00, 'per attendee', "Children's movie-ticket value (Maine State Library, Nov 2019)", MAINE),
     ('take_make',     'programs', 'Take & Make / passive program participants', 0.00, 'per participant', 'Not counted by default', ''),
-    ('room_hour',     'rooms', 'Meeting room rental', 25.00, 'per hour', 'Maine State Library estimate (Nov 2019)', MAINE),
+    ('room_hour',     'rooms', 'Meeting room rental', 25.00, 'per hour', 'Syracuse University True Value estimate (LRS: $16 for two WeWork seats)', SYRACUSE),
+    ('reference_question', 'reference', 'Reference questions answered', 2.24, 'per question', 'About 5 minutes of library staff time at $26.90/hour (Library Research Service, Jan 2026)', LRS),
     ('pc_hours',      'assumptions', 'Hours per PC reservation', 1.0, 'hours', 'Assumption: PC reservation system does not report session length', ''),
     ('room_hours',    'assumptions', 'Hours per meeting room booking', 2.0, 'hours', 'Assumption: booking length is not recorded', ''),
 ]
@@ -56,18 +62,26 @@ GROUP_TITLES = OrderedDict([
     ('computers', 'Computer & internet use'),
     ('programs', 'Programs'),
     ('rooms', 'Meeting rooms'),
+    ('reference', 'Reference help'),
     ('assumptions', 'Assumptions'),
 ])
 
 
 def seed_roi_prices():
-    """Insert any default price rows that don't exist yet (never overwrites)."""
-    have = {k for (k,) in db.session.query(RoiPrice.key).all()}
+    """Insert missing default price rows, and refresh rows nobody has edited
+    (updated_by == 'default') when DEFAULT_PRICES changes. Admin edits are kept."""
+    have = {p.key: p for p in RoiPrice.query.all()}
     for i, (key, grp, label, price, unit, basis, url) in enumerate(DEFAULT_PRICES):
-        if key not in have:
+        row = have.get(key)
+        if row is None:
             db.session.add(RoiPrice(key=key, group_name=grp, label=label, price=price,
                                     unit=unit, basis=basis, source_url=url, sort_order=i,
                                     updated_by='default'))
+        elif row.updated_by == 'default':
+            row.group_name, row.label, row.price, row.unit = grp, label, price, unit
+            row.basis, row.source_url, row.sort_order = basis, url, i
+        else:
+            row.sort_order = i
     db.session.commit()
 
 
@@ -125,6 +139,18 @@ def _branch_stats_totals(fy, names):
     return {n: (v or 0) for n, v in q.group_by(Metric.name).all()}
 
 
+def _survey_value(name, fy):
+    """(value, report_year) from the newest state annual survey at or before fy."""
+    m = AnnualSurveyMetric.query.filter_by(name=name).first()
+    if not m:
+        return None, None
+    v = (AnnualSurveyValue.query
+         .filter(AnnualSurveyValue.metric_id == m.id, AnnualSurveyValue.value.isnot(None),
+                 AnnualSurveyValue.report_year <= fy)
+         .order_by(AnnualSurveyValue.report_year.desc()).first())
+    return (v.value, v.report_year) if v else (None, None)
+
+
 def _spending(fy):
     """(operating spending, population, note) for a fiscal year."""
     row = RoiFiscalYear.query.filter_by(fiscal_year=fy).first()
@@ -132,24 +158,14 @@ def _spending(fy):
     pop = row.population if row else None
     note = (row.note or f'Entered for FY{fy}') if row and spend else None
 
-    def survey(name):
-        m = AnnualSurveyMetric.query.filter_by(name=name).first()
-        if not m:
-            return None, None
-        v = (AnnualSurveyValue.query
-             .filter(AnnualSurveyValue.metric_id == m.id, AnnualSurveyValue.value.isnot(None),
-                     AnnualSurveyValue.report_year <= fy)
-             .order_by(AnnualSurveyValue.report_year.desc()).first())
-        return (v.value, v.report_year) if v else (None, None)
-
     spend_is_fallback = False
     if not spend:
-        spend, yr = survey('Expenditures: Total operating')
+        spend, yr = _survey_value('Expenditures: Total operating', fy)
         if spend:
             spend_is_fallback = yr != fy
             note = f'State annual survey, report year {yr}'
     if not pop:
-        p, _ = survey('Population of the service area')
+        p, _ = _survey_value('Population of the service area', fy)
         pop = int(p) if p else None
     return spend, pop, note, spend_is_fallback
 
@@ -234,6 +250,12 @@ def compute_roi(fy):
         price('room_hour') * room_hours, 'bookings',
         f'{room_hours:g} hour(s) per booking at ${price("room_hour"):,.2f}/hour')
 
+    # ── Reference help (annual state survey count) ────────────────────────
+    ref_n, ref_yr = _survey_value('Number of Reference Transactions', fy)
+    add('reference', 'reference_question', 'Reference questions answered', int(ref_n or 0),
+        price('reference_question'), 'questions',
+        f'State annual survey, report year {ref_yr}' if ref_yr else 'No state survey count')
+
     # ── Totals ────────────────────────────────────────────────────────────
     summary = []
     for grp, items in sections.items():
@@ -254,6 +276,9 @@ def compute_roi(fy):
                         'use_label': 'prints'})
 
     warnings = []
+    if ref_yr and ref_yr != fy:
+        warnings.append(f'Reference questions use the report year {ref_yr} state survey count '
+                        f'(no FY{fy} figure yet).')
     months = fy_months_loaded(fy)
     if months < 12:
         warnings.append(f'Only {months} of 12 months of Branch Stats are loaded for FY{fy}; totals are partial.')

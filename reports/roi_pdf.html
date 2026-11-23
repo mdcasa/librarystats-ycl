@@ -104,7 +104,7 @@ a { color: #1a4f9e; text-decoration: none; }
   {% endfor %}
   </tbody>
 </table>
-<p class="note">Each use is multiplied by its market price; return per $1 = total value ÷ operating spending. Physical checkouts come from SIRSI (first checkouts only), digital use from the Annual eResources entry, and computer sessions, program attendance and room bookings from Branch Stats. Items without a clear market price are left at $0.{% if d.not_counted %} Not counted: {% for x in d.not_counted %}{{ n(x.uses) }} {{ x.label|lower }}{% if not loop.last %}; {% endif %}{% endfor %}.{% endif %}</p>
+<p class="note">Each use is multiplied by its market price; return per $1 = total value ÷ operating spending. Physical checkouts come from SIRSI (first checkouts only), digital use from the Annual eResources entry, computer sessions, program attendance and room bookings from Branch Stats, and reference questions from the state annual survey (valued at staff time). Most prices come from the Library Research Service's January 2026 value estimates. Items without a clear market price are left at $0.{% if d.not_counted %} Not counted: {% for x in d.not_counted %}{{ n(x.uses) }} {{ x.label|lower }}{% if not loop.last %}; {% endif %}{% endfor %}.{% endif %}</p>
 </div>
 
 </body>

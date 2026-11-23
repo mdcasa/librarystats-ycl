@@ -128,7 +128,7 @@
 <div class="card mb-3">
   <div class="card-header fw-semibold">How this is calculated</div>
   <div class="card-body small">
-    <p class="mb-2">Each use is multiplied by what a resident would pay to get the same thing elsewhere. Return per $1 = total value ÷ operating spending. Usage comes from this database: physical checkouts from SIRSI (first checkouts, grouped by shelving location; renewals are not a new purchase), digital use from the Annual eResources entry, and computer sessions, program attendance and room bookings from Branch Stats.</p>
+    <p class="mb-2">Each use is multiplied by what a resident would pay to get the same thing elsewhere. Return per $1 = total value ÷ operating spending. Usage comes from this database: physical checkouts from SIRSI (first checkouts, grouped by shelving location; renewals are not a new purchase), digital use from the Annual eResources entry, computer sessions, program attendance and room bookings from Branch Stats, and reference questions from the state annual survey (valued at the staff time it takes to answer one). Most prices come from the Library Research Service's January 2026 value estimates.</p>
     <p class="mb-0">The figure is deliberately conservative: anything without a clear market price is left at $0.
     {% if d.not_counted %}Not counted this year:
       {% for n in d.not_counted %}{{ n.uses|commas }} {{ n.label|lower }}{% if not loop.last %}; {% endif %}{% endfor %}.

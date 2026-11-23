@@ -29,7 +29,6 @@ SYRACUSE = 'https://truevalue.ischool.syr.edu/data-and-decisions/'
 HUMANIT = 'https://www.human-i-t.org/best-affordable-5g-hotspots-in-2026-complete-buyers-guide/'
 VERIZON = 'https://www.verizon.com/plans/devices/hotspots'
 OLC = 'https://www.olc.org/roi-calculator/'
-SCPARKS = 'https://southcarolinaparks.com/park-passports'
 PEERSPACE = 'https://www.peerspace.com/venues/rock-hill--sc/meetup-venue'
 FEDEX = 'https://www.office.fedex.com/default/computer-access'
 CINEMARK = 'https://www.cinemark.com/movie-news/articles/movie-ticket-prices-guide'
@@ -45,10 +44,8 @@ DEFAULT_PRICES = [
     ('audiobook',     'materials', 'Audiobooks (CD, Playaway)', 22.59, 'per checkout', 'Top 20 Amazon best sellers (Library Research Service, Jan 2026)', LRS),
     ('movie',         'materials', 'Movies & TV (DVD, Blu-ray)', 5.00, 'per checkout', 'Estimate: standard digital rental (LRS uses the $24.48 purchase price instead)', MACRUMORS),
     ('hotspot',       'materials', 'WiFi hotspots', 45.00, 'per checkout', "Half of Verizon's $90/month standalone hotspot plan (Pro, 100 GB, Nov 2026), since YCL lends hotspots for 2 weeks", VERIZON),
-    ('learning_kit',  'materials', 'Learning kits (STEM, phonics, math)', 37.50, 'per checkout', 'Ohio Library Council: early learning backpacks, 50% of a $75 purchase price', OLC),
-    ('tech_item',     'materials', 'Tech items (Tonies and similar)', 50.00, 'per checkout', 'Ohio Library Council: tech equipment such as Rokus, cameras and robotics kits, 50% of a $100 purchase price', OLC),
-    ('park_pass',     'materials', 'Park passes', 65.00, 'per checkout', 'SC State Parks seven-day ALL Park Passport, $65 (YCL lends passes for one week)', SCPARKS),
-    ('other_item',    'materials', 'Other (kits, video games, music, ILL)', 12.00, 'per checkout', 'Estimate, below LRS prices for CDs ($14.15) and interlibrary loan ($17.50)', LRS),
+    ('learning_kit',  'materials', 'Kits (STEM, phonics, math, hobby)', 37.50, 'per checkout', 'Ohio Library Council: early learning backpacks and similar, 50% of a $75 purchase price', OLC),
+    ('other_item',    'materials', 'Other (adult kits, video games, music, ILL)', 12.00, 'per checkout', 'Estimate, below LRS prices for CDs ($14.15) and interlibrary loan ($17.50)', LRS),
     ('renewal',       'materials', 'Renewals', 0.00, 'per renewal', "Not counted: a renewal doesn't save a second purchase", ''),
     ('ebook',         'digital', 'eBooks', 7.86, 'per use', 'Top 20 Amazon Kindle best sellers (Library Research Service, Jan 2026)', LRS),
     ('eaudio',        'digital', 'eAudiobooks', 23.99, 'per use', 'Top 20 Amazon audiobook best sellers (Library Research Service, Jan 2026)', LRS),
@@ -57,7 +54,6 @@ DEFAULT_PRICES = [
     ('computer_hour', 'computers', 'Public computer use', 27.00, 'per hour', "FedEx Office (formerly Kinko's), $0.45/minute (same figure in LRS, Jan 2026)", FEDEX),
     ('wifi_session',  'computers', 'WiFi sessions', 6.50, 'per session', 'Ohio Library Council: a typical purchase to use cafe WiFi (Starbucks, Panera), counting each session as one visit', OLC),
     ('laptop_use',    'computers', 'Laptop uses (Rock Hill Teen)', 100.00, 'per use', 'Ohio Library Council: higher-end computer equipment, 50% of a $200 purchase price', OLC),
-    ('print_3d',      'computers', '3D prints', 100.00, 'per print', 'Ohio Library Council: higher-end computer equipment, 50% of a $200 purchase price', OLC),
     ('program_adult', 'programs', 'Program attendee: teen / adult / all ages', 16.08, 'per attendee', '2025 average U.S. movie ticket (Cinemark)', CINEMARK),
     ('program_child', 'programs', 'Program attendee: children 0-11', 12.00, 'per attendee', "Children's movie-ticket value (Maine State Library, Nov 2019)", MAINE),
     ('take_make',     'programs', 'Take & Make / passive program participants', 0.00, 'per participant', 'Not counted by default', ''),
@@ -98,6 +94,10 @@ def seed_roi_prices():
             row.basis, row.source_url, row.sort_order = basis, url, i
         else:
             row.sort_order = i
+    keys = {d[0] for d in DEFAULT_PRICES}
+    for key, row in have.items():
+        if key not in keys and row.updated_by == 'default':
+            db.session.delete(row)
     db.session.commit()
 
 
@@ -110,11 +110,7 @@ def classify_shelving(loc):
         return 'audiobook'
     if 'HOTSPOT' in s:
         return 'hotspot'
-    if 'TONIE' in s:
-        return 'tech_item'
-    if re.search(r'PARK-?PASS|PARK PASS|PASSPORT', s):
-        return 'park_pass'
-    if s == 'J-KIT':
+    if s in ('J-KIT', 'A-KIT-HOBB'):
         return 'learning_kit'
     if re.search(r'VID-GAM|GAMING|KIT|MUSIC|^ILL$|MAGAZINE', s):
         return 'other_item'
@@ -230,12 +226,12 @@ def compute_roi(fy):
             .filter(_fy_filter(SirsiCheckout, fy))
             .group_by(SirsiCheckout.shelving_location).all())
     has_sirsi = bool(rows)
-    by_key = {k: 0 for k in ('book_adult', 'book_children', 'book_teen', 'audiobook', 'movie', 'hotspot', 'learning_kit', 'tech_item', 'park_pass', 'other_item')}
+    by_key = {k: 0 for k in ('book_adult', 'book_children', 'book_teen', 'audiobook', 'movie', 'hotspot', 'learning_kit', 'other_item')}
     renewals = 0
     for loc, co, rn in rows:
         by_key[classify_shelving(loc)] += int(co or 0)
         renewals += int(rn or 0)
-    for key in ('book_adult', 'book_children', 'book_teen', 'audiobook', 'movie', 'hotspot', 'learning_kit', 'tech_item', 'park_pass', 'other_item'):
+    for key in ('book_adult', 'book_children', 'book_teen', 'audiobook', 'movie', 'hotspot', 'learning_kit', 'other_item'):
         p = prices.get(key)
         add('materials', key, p.label if p else key, by_key[key], price(key), 'checkouts')
     add('materials', 'renewal', prices['renewal'].label if 'renewal' in prices else 'Renewals',
@@ -272,11 +268,9 @@ def compute_roi(fy):
         'sessions', f'{pc_hours:g} hour(s) per session at ${price("computer_hour"):,.2f}/hour')
     add('computers', 'wifi_session', 'WiFi sessions', int(bs.get('WiFi - Unique Sessions', 0)),
         price('wifi_session'), 'sessions')
-    tech = _branch_stats_totals(fy, ['Teen Laptop Uses', '3D Prints Submitted'], 'Technology Use')
+    tech = _branch_stats_totals(fy, ['Teen Laptop Uses'], 'Technology Use')
     add('computers', 'laptop_use', 'Laptop uses (Rock Hill Teen)', int(tech.get('Teen Laptop Uses', 0)),
         price('laptop_use'), 'uses')
-    add('computers', 'print_3d', '3D prints (Rock Hill Teen)', int(tech.get('3D Prints Submitted', 0)),
-        price('print_3d'), 'prints')
 
     age_labels = {'0-5': 'Children 0-5', '6-11': 'Children 6-11', '12-18': 'Teens 12-18',
                   '19+': 'Adults 19+', 'General Interest': 'General interest (all ages)'}

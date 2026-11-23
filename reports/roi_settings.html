@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% block title %}ROI Settings – Reports{% endblock %}
+{% block content %}
+<h1 class="h4 fw-bold mb-1"><i class="bi bi-sliders me-2" style="color:#117a65"></i>ROI Prices &amp; Spending</h1>
+<p class="text-muted mb-4">The market prices and spending figures the <a href="{{ url_for('report_roi') }}">Return on Investment report</a> uses. Set a price to 0 to leave that item out of the total. Changes apply to every fiscal year the report is run for.</p>
+
+<form method="post">
+  {% for grp, title in group_titles.items() %}
+  {% set rows = prices | selectattr('group_name', 'equalto', grp) | list %}
+  {% if rows %}
+  <div class="card mb-3">
+    <div class="card-header fw-semibold">{{ title }}</div>
+    <div class="table-responsive">
+      <table class="table table-sm mb-0 align-middle">
+        <thead class="table-light"><tr><th style="width:24%">Item</th><th style="width:14%">{{ 'Value' if grp == 'assumptions' else 'Price' }}</th><th>Basis</th><th style="width:26%">Source link</th></tr></thead>
+        <tbody>
+        {% for p in rows %}
+          <tr>
+            <td>{{ p.label }}<div class="small text-muted">{{ p.unit }}{% if p.updated_by and p.updated_by != 'default' %} · edited by {{ p.updated_by }}{% endif %}</div></td>
+            <td><div class="input-group input-group-sm">
+              {% if grp != 'assumptions' %}<span class="input-group-text">$</span>{% endif %}
+              <input type="number" step="0.01" min="0" class="form-control" name="price_{{ p.id }}" value="{{ '%g'|format(p.price) }}">
+            </div></td>
+            <td><input type="text" class="form-control form-control-sm" name="basis_{{ p.id }}" value="{{ p.basis or '' }}"></td>
+            <td><input type="url" class="form-control form-control-sm" name="source_{{ p.id }}" value="{{ p.source_url or '' }}"></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+
+  <div class="card mb-3">
+    <div class="card-header fw-semibold">Operating spending &amp; population by fiscal year</div>
+    <div class="card-body small text-muted pb-0">When a fiscal year isn't listed here, the report uses the most recent state annual survey (Expenditures: Total operating, and Population of the service area). Tick Remove to delete a row.</div>
+    <div class="table-responsive">
+      <table class="table table-sm mb-0 align-middle">
+        <thead class="table-light"><tr><th style="width:12%">Fiscal year</th><th style="width:20%">Operating spending</th><th style="width:16%">Population</th><th>Note / source</th><th style="width:8%">Remove</th></tr></thead>
+        <tbody>
+        {% for r in fy_rows %}
+          <tr>
+            <td>FY{{ r.fiscal_year }}<input type="hidden" name="fy" value="{{ r.fiscal_year }}"></td>
+            <td><div class="input-group input-group-sm"><span class="input-group-text">$</span>
+              <input type="text" class="form-control" name="spend_{{ r.fiscal_year }}" value="{{ '{:,.0f}'.format(r.operating_spending) if r.operating_spending else '' }}"></div></td>
+            <td><input type="text" class="form-control form-control-sm" name="pop_{{ r.fiscal_year }}" value="{{ '{:,}'.format(r.population) if r.population else '' }}"></td>
+            <td><input type="text" class="form-control form-control-sm" name="note_{{ r.fiscal_year }}" value="{{ r.note or '' }}"></td>
+            <td class="text-center"><input type="checkbox" class="form-check-input" name="delete_{{ r.fiscal_year }}" value="1"></td>
+          </tr>
+        {% endfor %}
+          <tr>
+            <td><div class="input-group input-group-sm"><span class="input-group-text">FY</span>
+              <input type="number" class="form-control" name="new_fy" placeholder="2026" min="2000" max="2100"></div></td>
+            <td><div class="input-group input-group-sm"><span class="input-group-text">$</span>
+              <input type="text" class="form-control" name="spend_new" placeholder="e.g. 9,500,000"></div></td>
+            <td><input type="text" class="form-control form-control-sm" name="pop_new" placeholder="optional"></td>
+            <td><input type="text" class="form-control form-control-sm" name="note_new" placeholder="e.g. County budget FY2026 actuals"></td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <button class="btn btn-primary">Save</button>
+  <a class="btn btn-outline-secondary" href="{{ url_for('report_roi') }}">Back to report</a>
+</form>
+{% endblock %}

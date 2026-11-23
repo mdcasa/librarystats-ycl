@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+{% macro money(v, cents=False) -%}
+  {%- if v is none -%}—{%- elif cents -%}${{ '{:,.2f}'.format(v) }}{%- else -%}${{ '{:,.0f}'.format(v) }}{%- endif -%}
+{%- endmacro %}
+{% macro n(v) -%}{{ '{:,}'.format((v or 0)|int) }}{%- endmacro %}
+<style>
+@page {
+  size: letter portrait;
+  margin: 0.55in;
+  @bottom-right { content: "Page " counter(page) " of " counter(pages); font-family: "Liberation Sans", Arial, sans-serif; font-size: 7.5pt; color: #666; }
+  @bottom-left  { content: "YCL Statistics — Return on Investment FY{{ d.fy }}"; font-family: "Liberation Sans", Arial, sans-serif; font-size: 7.5pt; color: #666; }
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: "Helvetica Neue", Helvetica, Arial, "Liberation Sans", sans-serif; font-size: 9pt; color: #111; line-height: 1.35; }
+.page-header { border-bottom: 2pt solid #1a4f9e; padding-bottom: 5pt; margin-bottom: 10pt; display: flex; justify-content: space-between; align-items: flex-end; }
+.title { font-size: 16pt; font-weight: 700; color: #1a4f9e; }
+.subtitle { font-size: 9pt; color: #444; }
+.meta { font-size: 7.5pt; color: #666; text-align: right; }
+.lead { font-size: 10.5pt; margin-bottom: 8pt; }
+.kpis { display: flex; gap: 8pt; margin-bottom: 10pt; }
+.kpi { flex: 1; border: 0.5pt solid #bbb; border-radius: 3pt; padding: 6pt 8pt; }
+.kpi .v { font-size: 15pt; font-weight: 700; color: #1a4f9e; }
+.kpi .l { font-size: 7.5pt; color: #555; }
+h2 { font-size: 10.5pt; color: #1a4f9e; margin: 10pt 0 3pt; }
+table { width: 100%; border-collapse: collapse; font-size: 8.5pt; }
+th, td { border: 0.5pt solid #bbb; padding: 2pt 5pt; text-align: right; vertical-align: top; }
+th { background: #e8eef7; font-weight: 700; }
+td:first-child, th:first-child { text-align: left; }
+td.l, th.l { text-align: left; }
+tfoot td { font-weight: 700; background: #f2f2f2; }
+tr.muted td { color: #888; }
+.note { font-size: 7.5pt; color: #555; margin-top: 3pt; }
+.warn { font-size: 8pt; background: #fff4d6; border: 0.5pt solid #e0b84a; padding: 4pt 6pt; margin-bottom: 6pt; }
+.keep { break-inside: avoid; }
+a { color: #1a4f9e; text-decoration: none; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div>
+    <div class="title">Return on Investment — FY{{ d.fy }}</div>
+    <div class="subtitle">July {{ d.fy - 1 }} – June {{ d.fy }} · York County Library</div>
+  </div>
+  <div class="meta">Source: YCL Statistics database<br>Generated {{ generated.strftime('%b %d, %Y') }}</div>
+</div>
+
+{% for w in d.warnings %}<div class="warn">{{ w }}</div>{% endfor %}
+
+<p class="lead">In FY{{ d.fy }}, York County Library delivered an estimated <b>{{ money(d.total) }}</b> in services — what residents would have paid to buy or rent the same things.{% if d.roi %} Against {{ money(d.spending) }} in operating spending, that is about <b>${{ '%.2f'|format(d.roi) }} back for every $1 spent</b>.{% endif %}</p>
+
+<div class="kpis">
+  <div class="kpi"><div class="v">{{ money(d.total) }}</div><div class="l">Value of services</div></div>
+  <div class="kpi"><div class="v">{{ money(d.spending) }}</div><div class="l">Operating spending{% if d.spending_note %} ({{ d.spending_note }}){% endif %}</div></div>
+  <div class="kpi"><div class="v">{% if d.roi %}${{ '%.2f'|format(d.roi) }}{% else %}—{% endif %}</div><div class="l">Return per $1</div></div>
+  <div class="kpi"><div class="v">{{ money(d.value_per_resident, True) }}</div><div class="l">Value per resident{% if d.cost_per_resident %} (cost {{ money(d.cost_per_resident, True) }}){% endif %}</div></div>
+</div>
+
+{% set peak = (d.summary | map(attribute='value') | max) or 1 %}
+<div class="keep">
+<h2>Value by service</h2>
+<svg width="100%" viewBox="0 0 700 {{ 30 * d.summary|length + 6 }}" xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif">
+  {% for s in d.summary %}
+  {% set y = 4 + loop.index0 * 30 %}
+  <text x="0" y="{{ y + 15 }}" font-size="12" fill="#222">{{ s.title }}</text>
+  <rect x="190" y="{{ y + 2 }}" width="{{ (s.value / peak * 400) | round(1) }}" height="18" fill="#1a4f9e"/>
+  <text x="{{ 196 + (s.value / peak * 400) | round(1) }}" y="{{ y + 15 }}" font-size="12" fill="#111">{{ money(s.value) }}</text>
+  {% endfor %}
+</svg>
+<table>
+  <thead><tr><th>Service</th><th>FY{{ d.fy }} use</th><th>Value</th></tr></thead>
+  <tbody>{% for s in d.summary %}<tr><td>{{ s.title }}</td><td>{{ n(s.uses) }} {{ s.use_label }}</td><td>{{ money(s.value) }}</td></tr>{% endfor %}</tbody>
+  <tfoot><tr><td>Total</td><td></td><td>{{ money(d.total) }}</td></tr></tfoot>
+</table>
+</div>
+
+{% for grp, items in d.sections.items() %}
+<div class="keep">
+<h2>{{ d.group_titles[grp] }}</h2>
+<table>
+  <thead><tr><th>Item</th><th>Uses</th><th>Price each</th><th>Value</th></tr></thead>
+  <tbody>
+  {% for i in items %}
+    <tr class="{% if not i.counted %}muted{% endif %}"><td>{{ i.label }}{% if i.note %}<br><span class="note">{{ i.note }}</span>{% endif %}{% if not i.counted %}<br><span class="note">Not counted</span>{% endif %}</td>
+      <td>{{ n(i.uses) }} {{ i.use_label }}</td><td>{{ money(i.price, True) }}</td><td>{{ money(i.value) }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endfor %}
+
+<div class="keep">
+<h2>Prices used</h2>
+<table>
+  <thead><tr><th>Comparison</th><th>Price</th><th class="l">Basis</th></tr></thead>
+  <tbody>
+  {% for p in d.prices %}
+    <tr><td>{{ p.label }}</td>
+      <td style="white-space:nowrap">{% if p.group_name == 'assumptions' %}{{ '%g'|format(p.price) }} {{ p.unit }}{% else %}{{ money(p.price, True) }} {{ p.unit }}{% endif %}</td>
+      <td class="l">{% if p.source_url %}<a href="{{ p.source_url }}">{{ p.basis }}</a>{% else %}{{ p.basis }}{% endif %}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="note">Each use is multiplied by its market price; return per $1 = total value ÷ operating spending. Physical checkouts come from SIRSI (first checkouts only), digital use from the Annual eResources entry, and computer sessions, program attendance and room bookings from Branch Stats. Items without a clear market price are left at $0.{% if d.not_counted %} Not counted: {% for x in d.not_counted %}{{ n(x.uses) }} {{ x.label|lower }}{% if not loop.last %}; {% endif %}{% endfor %}.{% endif %}</p>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,277 @@
+"""Return on Investment report: what library use would cost residents on the
+open market, compared with what the library costs to run.
+
+value = sum(uses x market price) ; return per $1 = value / operating spending
+
+Usage sources (one fiscal year, Jul-Jun):
+  physical checkouts  sirsi_checkouts (first checkouts only, by shelving location)
+  renewals            sirsi_checkouts.renewals (default price $0 = not counted)
+  digital             Annual eResources entry (system-wide, branch_id=None)
+  computers           Branch Stats 'PC Reservations'
+  programs            Branch Stats {ONSITE,OFFSITE,VIRTUAL} Attendance {age}
+  meeting rooms       Branch Stats 'External Party Library Room Use'
+  optional extras     WiFi sessions, Take & Make participants (default $0)
+
+Prices are RoiPrice rows (admin-editable). DEFAULT_PRICES seeds missing keys.
+"""
+import re
+from collections import OrderedDict
+
+from sqlalchemy import or_, and_, func
+
+from models import (db, RoiPrice, RoiFiscalYear, Category, Metric, Branch, Entry,
+                    EntryValue, SirsiCheckout, AnnualSurveyMetric, AnnualSurveyValue)
+
+MAINE = 'https://www.maine.gov/msl/services/calexplantion.htm'
+FEDEX = 'https://www.office.fedex.com/default/computer-access'
+CINEMARK = 'https://www.cinemark.com/movie-news/articles/movie-ticket-prices-guide'
+MACRUMORS = 'https://www.macrumors.com/2025/08/22/F1-NOW-AVAILABLE-TO-BUY-OR-RENT/'
+
+# key, group, label, price, unit, basis, source_url
+DEFAULT_PRICES = [
+    ('book_adult',    'materials', 'Adult books', 22.00, 'per checkout', 'Amazon average (Maine State Library, Nov 2019)', MAINE),
+    ('book_children', 'materials', "Children's books", 8.00, 'per checkout', 'Amazon average (Maine State Library, Nov 2019)', MAINE),
+    ('book_teen',     'materials', 'Teen books, paperbacks & graphic novels', 12.00, 'per checkout', 'Amazon paperback average (Maine State Library, Nov 2019)', MAINE),
+    ('audiobook',     'materials', 'Audiobooks (CD, Playaway)', 27.00, 'per checkout', 'Amazon average (Maine State Library, Nov 2019)', MAINE),
+    ('movie',         'materials', 'Movies & TV (DVD, Blu-ray)', 5.00, 'per checkout', 'Estimate: standard digital rental (new releases rent for $20)', MACRUMORS),
+    ('other_item',    'materials', 'Other (kits, video games, music, hotspots, ILL)', 12.00, 'per checkout', 'Estimate: set at the paperback price as a floor', ''),
+    ('renewal',       'materials', 'Renewals', 0.00, 'per renewal', "Not counted: a renewal doesn't save a second purchase", ''),
+    ('ebook',         'digital', 'eBooks', 10.00, 'per use', 'Amazon average for downloads (Maine State Library, Nov 2019)', MAINE),
+    ('eaudio',        'digital', 'eAudiobooks', 10.00, 'per use', 'Amazon average for downloads (Maine State Library, Nov 2019)', MAINE),
+    ('evideo',        'digital', 'eVideo', 5.00, 'per use', 'Same rental estimate as DVDs', MACRUMORS),
+    ('eserial',       'digital', 'eSerials (magazines, newspapers)', 5.00, 'per use', 'Average magazine price (Maine State Library, Nov 2019)', MAINE),
+    ('computer_hour', 'computers', 'Public computer use', 27.00, 'per hour', 'FedEx Office (formerly Kinko\'s) Everyday Essentials, $0.45/minute', FEDEX),
+    ('wifi_session',  'computers', 'WiFi sessions', 0.00, 'per session', 'Not counted: no clear market price', ''),
+    ('program_adult', 'programs', 'Program attendee: teen / adult / all ages', 16.08, 'per attendee', '2025 average U.S. movie ticket (Cinemark)', CINEMARK),
+    ('program_child', 'programs', 'Program attendee: children 0-11', 12.00, 'per attendee', "Children's movie-ticket value (Maine State Library, Nov 2019)", MAINE),
+    ('take_make',     'programs', 'Take & Make / passive program participants', 0.00, 'per participant', 'Not counted by default', ''),
+    ('room_hour',     'rooms', 'Meeting room rental', 25.00, 'per hour', 'Maine State Library estimate (Nov 2019)', MAINE),
+    ('pc_hours',      'assumptions', 'Hours per PC reservation', 1.0, 'hours', 'Assumption: PC reservation system does not report session length', ''),
+    ('room_hours',    'assumptions', 'Hours per meeting room booking', 2.0, 'hours', 'Assumption: booking length is not recorded', ''),
+]
+
+GROUP_TITLES = OrderedDict([
+    ('materials', 'Materials checkout'),
+    ('digital', 'Digital materials'),
+    ('computers', 'Computer & internet use'),
+    ('programs', 'Programs'),
+    ('rooms', 'Meeting rooms'),
+    ('assumptions', 'Assumptions'),
+])
+
+
+def seed_roi_prices():
+    """Insert any default price rows that don't exist yet (never overwrites)."""
+    have = {k for (k,) in db.session.query(RoiPrice.key).all()}
+    for i, (key, grp, label, price, unit, basis, url) in enumerate(DEFAULT_PRICES):
+        if key not in have:
+            db.session.add(RoiPrice(key=key, group_name=grp, label=label, price=price,
+                                    unit=unit, basis=basis, source_url=url, sort_order=i,
+                                    updated_by='default'))
+    db.session.commit()
+
+
+def classify_shelving(loc):
+    """Map a SIRSI shelving location code to a materials price key."""
+    s = (loc or '').upper()
+    if re.search(r'DVD|BLU-RAY|VIDEO$|-VID$|VIS-MEDI|-AV$', s) and 'VID-GAM' not in s:
+        return 'movie'
+    if re.search(r'AUD|PLAYAW|SND-REC|CD-BK', s):
+        return 'audiobook'
+    if re.search(r'VID-GAM|GAMING|KIT|HOTSPOT|MUSIC|^ILL$|MAGAZINE', s):
+        return 'other_item'
+    if s.startswith('J-'):
+        return 'book_children'
+    if s.startswith(('YA', 'T-')) or 'PBK' in s or 'GRA' in s or 'MANGA' in s:
+        return 'book_teen'
+    return 'book_adult'
+
+
+def _fy_filter(model, fy):
+    return or_(and_(model.year == fy - 1, model.month >= 7),
+               and_(model.year == fy, model.month <= 6))
+
+
+def available_fiscal_years():
+    """Fiscal years with Branch Stats monthly data, newest first."""
+    bs = Category.query.filter_by(name='Branch Stats').first()
+    if not bs:
+        return []
+    rows = (db.session.query(Entry.year, Entry.month)
+            .filter(Entry.category_id == bs.id, Entry.month.isnot(None)).distinct().all())
+    return sorted({(y + 1 if m >= 7 else y) for y, m in rows}, reverse=True)
+
+
+def fy_months_loaded(fy):
+    bs = Category.query.filter_by(name='Branch Stats').first()
+    if not bs:
+        return 0
+    return (db.session.query(Entry.year, Entry.month)
+            .filter(Entry.category_id == bs.id, _fy_filter(Entry, fy)).distinct().count())
+
+
+def _branch_stats_totals(fy, names):
+    """Sum Branch Stats metrics over a fiscal year, excluding the system-wide placeholder."""
+    bs = Category.query.filter_by(name='Branch Stats').first()
+    if not bs:
+        return {}
+    sw = Branch.query.filter_by(name='YCL (System Wide)').first()
+    q = (db.session.query(Metric.name, func.sum(EntryValue.value_number))
+         .join(EntryValue, EntryValue.metric_id == Metric.id)
+         .join(Entry, Entry.id == EntryValue.entry_id)
+         .filter(Entry.category_id == bs.id, Metric.name.in_(names), _fy_filter(Entry, fy)))
+    if sw:
+        q = q.filter(or_(Entry.branch_id.is_(None), Entry.branch_id != sw.id))
+    return {n: (v or 0) for n, v in q.group_by(Metric.name).all()}
+
+
+def _spending(fy):
+    """(operating spending, population, note) for a fiscal year."""
+    row = RoiFiscalYear.query.filter_by(fiscal_year=fy).first()
+    spend = row.operating_spending if row else None
+    pop = row.population if row else None
+    note = (row.note or f'Entered for FY{fy}') if row and spend else None
+
+    def survey(name):
+        m = AnnualSurveyMetric.query.filter_by(name=name).first()
+        if not m:
+            return None, None
+        v = (AnnualSurveyValue.query
+             .filter(AnnualSurveyValue.metric_id == m.id, AnnualSurveyValue.value.isnot(None),
+                     AnnualSurveyValue.report_year <= fy)
+             .order_by(AnnualSurveyValue.report_year.desc()).first())
+        return (v.value, v.report_year) if v else (None, None)
+
+    spend_is_fallback = False
+    if not spend:
+        spend, yr = survey('Expenditures: Total operating')
+        if spend:
+            spend_is_fallback = yr != fy
+            note = f'State annual survey, report year {yr}'
+    if not pop:
+        p, _ = survey('Population of the service area')
+        pop = int(p) if p else None
+    return spend, pop, note, spend_is_fallback
+
+
+def compute_roi(fy):
+    prices = {p.key: p for p in RoiPrice.query.order_by(RoiPrice.sort_order).all()}
+
+    def price(key):
+        p = prices.get(key)
+        return p.price if p else 0.0
+
+    sections = OrderedDict()
+
+    def add(group, key, label, uses, unit_price, use_label, note=None):
+        sections.setdefault(group, []).append({
+            'key': key, 'label': label, 'uses': uses, 'price': unit_price,
+            'value': round((uses or 0) * unit_price, 2), 'use_label': use_label,
+            'counted': unit_price > 0, 'note': note,
+        })
+
+    # ── Physical materials ────────────────────────────────────────────────
+    rows = (db.session.query(SirsiCheckout.shelving_location,
+                             func.sum(SirsiCheckout.checkouts), func.sum(SirsiCheckout.renewals))
+            .filter(_fy_filter(SirsiCheckout, fy))
+            .group_by(SirsiCheckout.shelving_location).all())
+    has_sirsi = bool(rows)
+    by_key = {k: 0 for k in ('book_adult', 'book_children', 'book_teen', 'audiobook', 'movie', 'other_item')}
+    renewals = 0
+    for loc, co, rn in rows:
+        by_key[classify_shelving(loc)] += int(co or 0)
+        renewals += int(rn or 0)
+    for key in ('book_adult', 'book_children', 'book_teen', 'audiobook', 'movie', 'other_item'):
+        p = prices.get(key)
+        add('materials', key, p.label if p else key, by_key[key], price(key), 'checkouts')
+    add('materials', 'renewal', prices['renewal'].label if 'renewal' in prices else 'Renewals',
+        renewals, price('renewal'), 'renewals')
+
+    # ── Digital ───────────────────────────────────────────────────────────
+    digital_names = OrderedDict([('eaudio', 'E-Audio Circulation'), ('ebook', 'E-Book Circulation'),
+                                 ('eserial', 'E-Serials Circulation'), ('evideo', 'E-Video Circulation')])
+    eres = Category.query.filter_by(name='Annual eResources').first()
+    dvals = {}
+    if eres:
+        e = Entry.query.filter_by(category_id=eres.id, branch_id=None, year=fy, month=None).first()
+        if e:
+            for ev in e.values:
+                if ev.value_number is not None:
+                    dvals[ev.metric.name] = ev.value_number
+    has_digital = bool(dvals)
+    for key, mname in digital_names.items():
+        p = prices.get(key)
+        add('digital', key, p.label if p else key, int(dvals.get(mname, 0)), price(key), 'uses')
+
+    # ── Branch Stats-based measures ───────────────────────────────────────
+    ages_child, ages_adult = ['0-5', '6-11'], ['12-18', '19+', 'General Interest']
+    att_names = [f'{t} Attendance {a}' for t in ('ONSITE', 'OFFSITE', 'VIRTUAL')
+                 for a in ages_child + ages_adult]
+    bs = _branch_stats_totals(fy, att_names + [
+        'PC Reservations', 'WiFi - Unique Sessions', 'External Party Library Room Use',
+        'Take & Makes / Other Passive Program Participants', 'Outreach Attendance',
+        'Total Prints per Month'])
+
+    pc = int(bs.get('PC Reservations', 0))
+    pc_hours = price('pc_hours') or 1.0
+    add('computers', 'computer_hour', 'Public computer sessions', pc, price('computer_hour') * pc_hours,
+        'sessions', f'{pc_hours:g} hour(s) per session at ${price("computer_hour"):,.2f}/hour')
+    add('computers', 'wifi_session', 'WiFi sessions', int(bs.get('WiFi - Unique Sessions', 0)),
+        price('wifi_session'), 'sessions')
+
+    age_labels = {'0-5': 'Children 0-5', '6-11': 'Children 6-11', '12-18': 'Teens 12-18',
+                  '19+': 'Adults 19+', 'General Interest': 'General interest (all ages)'}
+    for a in ages_child + ages_adult:
+        n = int(sum(bs.get(f'{t} Attendance {a}', 0) for t in ('ONSITE', 'OFFSITE', 'VIRTUAL')))
+        key = 'program_child' if a in ages_child else 'program_adult'
+        add('programs', key, age_labels[a], n, price(key), 'attendees')
+    add('programs', 'take_make', prices['take_make'].label if 'take_make' in prices else 'Take & Make',
+        int(bs.get('Take & Makes / Other Passive Program Participants', 0)), price('take_make'), 'participants')
+
+    rooms = int(bs.get('External Party Library Room Use', 0))
+    room_hours = price('room_hours') or 1.0
+    add('rooms', 'room_hour', 'Meeting room bookings (outside groups)', rooms,
+        price('room_hour') * room_hours, 'bookings',
+        f'{room_hours:g} hour(s) per booking at ${price("room_hour"):,.2f}/hour')
+
+    # ── Totals ────────────────────────────────────────────────────────────
+    summary = []
+    for grp, items in sections.items():
+        counted = [i for i in items if i['counted']]
+        summary.append({
+            'group': grp, 'title': GROUP_TITLES[grp],
+            'uses': sum(i['uses'] for i in counted),
+            'use_label': counted[0]['use_label'] if counted else '',
+            'value': round(sum(i['value'] for i in counted), 2),
+        })
+    total = round(sum(s['value'] for s in summary), 2)
+    spend, pop, spend_note, spend_is_fallback = _spending(fy)
+
+    not_counted = [i for items in sections.values() for i in items if not i['counted'] and i['uses']]
+    not_counted.append({'label': 'Outreach attendance (likely overlaps off-site counts)',
+                        'uses': int(bs.get('Outreach Attendance', 0)), 'use_label': 'attendees'})
+    not_counted.append({'label': 'Prints', 'uses': int(bs.get('Total Prints per Month', 0)),
+                        'use_label': 'prints'})
+
+    warnings = []
+    months = fy_months_loaded(fy)
+    if months < 12:
+        warnings.append(f'Only {months} of 12 months of Branch Stats are loaded for FY{fy}; totals are partial.')
+    if not has_sirsi:
+        warnings.append(f'No SIRSI checkout detail for FY{fy} (that table starts July 2025), '
+                        'so physical materials are valued at $0.')
+    if not has_digital:
+        warnings.append(f'No Annual eResources entry for FY{fy}, so digital materials are valued at $0.')
+    if spend_is_fallback:
+        warnings.append(f'No FY{fy} operating spending entered; using {spend_note}. '
+                        'An admin can enter the actual figure in ROI Settings.')
+
+    return {
+        'fy': fy, 'sections': sections, 'summary': summary, 'total': total,
+        'spending': spend, 'population': pop, 'spending_note': spend_note,
+        'roi': (total / spend) if spend else None,
+        'value_per_resident': (total / pop) if pop else None,
+        'cost_per_resident': (spend / pop) if (spend and pop) else None,
+        'prices': list(prices.values()), 'not_counted': not_counted, 'warnings': warnings,
+        'group_titles': GROUP_TITLES,
+    }

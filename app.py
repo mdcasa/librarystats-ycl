@@ -3,6 +3,8 @@ from flask_login import LoginManager, login_user, logout_user, current_user
 from models import db, Category, Metric, Branch, Entry, EntryValue, User, ImportLog, BranchClosure, EresourceDatabase, UsageMonthly, EntryValueHistory
 from models import CARD_TYPE_METRICS, CARD_TYPES_START, CARD_AGE_METRICS, CARD_TEEN_METRIC
 from models import FAX_CATEGORY, FAX_METRICS, FAX_BRANCHES
+from models import RoiPrice, RoiFiscalYear
+import roi as roi_report
 from sqlalchemy.orm import joinedload
 from sqlalchemy import or_, and_
 from jinja2 import ChoiceLoader, FileSystemLoader
@@ -119,6 +121,7 @@ with app.app_context():
         'holiday_closures', 'branch_weekly_hours', 'bookmobile_weekly_hours',
         'outlet_scheduled_hours', 'section_j_outlet_data', 'import_logs',
         'databases', 'usage_monthly', 'entry_values', 'entry_value_history',
+        'roi_prices', 'roi_fiscal_years',
     ):
         try:
             db.session.execute(db.text(f'ALTER TABLE {_table} ENABLE ROW LEVEL SECURITY'))
@@ -149,6 +152,9 @@ with app.app_context():
     if EresourceDatabase.query.count() == 0:
         from seed_data import seed_eresource_databases
         seed_eresource_databases(db)
+
+    # ROI report market prices: insert any missing defaults (never overwrites edits)
+    roi_report.seed_roi_prices()
 
     # Ensure 'New Library Card Registrations, Total' exists in Branch Stats
     # (missing from early seed data; the SIRSI importer writes to it)
@@ -5037,6 +5043,89 @@ def _overview_fy_stats():
         ]
 
     return full_fy_years, fy1, fy2, stats
+
+
+# ── Return on Investment ──────────────────────────────────────────────────────
+# Values library use at market prices (book purchase, movie rental, FedEx Office
+# computer time, movie tickets, room rental) and compares it with operating
+# spending. Calculations live in roi.py; prices are admin-editable RoiPrice rows.
+
+@app.route('/reports/roi')
+def report_roi():
+    years = roi_report.available_fiscal_years()
+    fy = request.args.get('year', type=int)
+    if not fy and years:
+        # Default to the newest fiscal year with all 12 months loaded
+        fy = next((y for y in years if roi_report.fy_months_loaded(y) >= 12), years[0])
+    data = roi_report.compute_roi(fy) if fy else None
+
+    if data and request.args.get('format') == 'pdf':
+        import traceback
+        try:
+            from weasyprint import HTML as WeasyprintHTML
+            html_str = render_template('reports/roi_pdf.html', d=data, generated=datetime.now())
+            pdf_bytes = WeasyprintHTML(string=html_str, base_url=request.url_root).write_pdf()
+        except Exception:
+            tb = traceback.format_exc()
+            app.logger.error('PDF generation failed:\n%s', tb)
+            return f'<pre style="white-space:pre-wrap">PDF generation error — please send this to your admin:\n\n{tb}</pre>', 500
+        return send_file(io.BytesIO(pdf_bytes), mimetype='application/pdf', as_attachment=True,
+                         download_name=f'YCL_ROI_FY{fy}.pdf')
+
+    return render_template('reports/roi.html', years=years, sel_year=fy, d=data)
+
+
+@app.route('/reports/roi/settings', methods=['GET', 'POST'])
+@admin_required
+def report_roi_settings():
+    def num(v):
+        v = (v or '').replace('$', '').replace(',', '').strip()
+        try:
+            return float(v) if v else None
+        except ValueError:
+            return None
+
+    if request.method == 'POST':
+        who = current_user.username
+        for p in RoiPrice.query.all():
+            new_price = num(request.form.get(f'price_{p.id}'))
+            new_basis = (request.form.get(f'basis_{p.id}') or '').strip()
+            new_url = (request.form.get(f'source_{p.id}') or '').strip()
+            if new_price is not None and (new_price != p.price or new_basis != (p.basis or '')
+                                          or new_url != (p.source_url or '')):
+                p.price, p.basis, p.source_url, p.updated_by = new_price, new_basis, new_url, who
+        # Existing fiscal-year rows are keyed by their year; the blank "add a
+        # year" row is keyed 'new' with its year in new_fy.
+        targets = [(int(f), f) for f in request.form.getlist('fy') if f.isdigit()]
+        new_fy = request.form.get('new_fy', type=int)
+        if new_fy:
+            targets.append((new_fy, 'new'))
+        for fy, key in targets:
+            spend = num(request.form.get(f'spend_{key}'))
+            pop = num(request.form.get(f'pop_{key}'))
+            note = (request.form.get(f'note_{key}') or '').strip()
+            row = RoiFiscalYear.query.filter_by(fiscal_year=fy).first()
+            if request.form.get(f'delete_{key}'):
+                if row:
+                    db.session.delete(row)
+                continue
+            if spend is None and pop is None:
+                continue
+            if not row:
+                row = RoiFiscalYear(fiscal_year=fy)
+                db.session.add(row)
+            row.operating_spending = spend
+            row.population = int(pop) if pop else None
+            row.note = note or None
+            row.updated_by = who
+        db.session.commit()
+        flash('ROI settings saved.', 'success')
+        return redirect(url_for('report_roi_settings'))
+
+    prices = RoiPrice.query.order_by(RoiPrice.sort_order).all()
+    fy_rows = RoiFiscalYear.query.order_by(RoiFiscalYear.fiscal_year.desc()).all()
+    return render_template('reports/roi_settings.html', prices=prices, fy_rows=fy_rows,
+                           group_titles=roi_report.GROUP_TITLES)
 
 
 @app.route('/reports/overview')

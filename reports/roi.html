@@ -1,0 +1,173 @@
+{% extends 'base.html' %}
+{% block title %}Return on Investment – Reports{% endblock %}
+{% macro money(v, cents=False) -%}
+  {%- if v is none -%}—{%- elif cents -%}${{ '{:,.2f}'.format(v) }}{%- else -%}${{ '{:,.0f}'.format(v) }}{%- endif -%}
+{%- endmacro %}
+{% block content %}
+<style>
+  .roi-kpi .val { font-size: 1.6rem; font-weight: 700; color: var(--ycl-blue-dark, #1a4f9e); line-height: 1.1; }
+  .roi-kpi .lbl { font-size: .8rem; color: #6c757d; }
+  .roi-muted td { color: #8a8f98; }
+  @media print {
+    .roi-controls, .roi-noprint { display: none !important; }
+    .card { break-inside: avoid; }
+    canvas { max-width: 100% !important; }
+  }
+</style>
+
+<h1 class="h4 fw-bold mb-1"><i class="bi bi-cash-coin me-2" style="color:#117a65"></i>Return on Investment</h1>
+<p class="text-muted mb-4">What library use in a fiscal year would have cost residents on the open market (buying books, renting movies, paying for computer time, movie tickets, room rental), compared with what the library cost to run.</p>
+
+<div class="card mb-4 roi-controls">
+  <div class="card-body py-3">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-sm-5">
+        <label class="sidebar-label mb-1">Fiscal Year</label>
+        <select name="year" class="form-select form-select-sm">
+          {% for y in years %}
+          <option value="{{ y }}" {% if sel_year == y %}selected{% endif %}>FY{{ y }} (Jul {{ y - 1 }}–Jun {{ y }})</option>
+          {% else %}
+          <option value="">No data yet</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-7">
+        <button class="btn btn-primary btn-sm">Run Report</button>
+        {% if d %}
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('report_roi', year=sel_year, format='pdf') }}">
+          <i class="bi bi-file-earmark-pdf me-1"></i>PDF
+        </a>
+        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="window.print()">
+          <i class="bi bi-printer me-1"></i>Print
+        </button>
+        {% endif %}
+        {% if current_user.is_admin %}
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('report_roi_settings') }}">
+          <i class="bi bi-sliders me-1"></i>Prices &amp; Spending
+        </a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if d %}
+{% for w in d.warnings %}
+<div class="alert alert-warning py-2 small"><i class="bi bi-exclamation-triangle me-1"></i>{{ w }}</div>
+{% endfor %}
+
+<h2 class="h5 fw-bold mb-3">FY{{ d.fy }} (July {{ d.fy - 1 }} – June {{ d.fy }})</h2>
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-lg-3"><div class="card h-100 roi-kpi"><div class="card-body">
+    <div class="val">{{ money(d.total) }}</div><div class="lbl">Value of services delivered</div>
+  </div></div></div>
+  <div class="col-6 col-lg-3"><div class="card h-100 roi-kpi"><div class="card-body">
+    <div class="val">{{ money(d.spending) }}</div><div class="lbl">Operating spending{% if d.spending_note %}<br><span class="small">{{ d.spending_note }}</span>{% endif %}</div>
+  </div></div></div>
+  <div class="col-6 col-lg-3"><div class="card h-100 roi-kpi"><div class="card-body">
+    <div class="val">{% if d.roi %}${{ '%.2f'|format(d.roi) }}{% else %}—{% endif %}</div><div class="lbl">Returned for every $1 spent</div>
+  </div></div></div>
+  <div class="col-6 col-lg-3"><div class="card h-100 roi-kpi"><div class="card-body">
+    <div class="val">{{ money(d.value_per_resident, True) }}</div>
+    <div class="lbl">Value per resident{% if d.cost_per_resident %} (cost {{ money(d.cost_per_resident, True) }}){% endif %}{% if d.population %}<br><span class="small">{{ d.population|commas }} residents</span>{% endif %}</div>
+  </div></div></div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header fw-semibold">Value by service</div>
+      <div class="table-responsive">
+        <table class="table table-sm mb-0 align-middle">
+          <thead class="table-light"><tr><th>Service</th><th class="text-end">FY{{ d.fy }} use</th><th class="text-end">Value</th></tr></thead>
+          <tbody>
+          {% for s in d.summary %}
+            <tr><td><a href="#roi-{{ s.group }}">{{ s.title }}</a></td>
+                <td class="text-end">{{ s.uses|commas }} {{ s.use_label }}</td>
+                <td class="text-end">{{ money(s.value) }}</td></tr>
+          {% endfor %}
+          </tbody>
+          <tfoot class="table-secondary"><tr><td class="fw-bold">Total</td><td></td><td class="text-end fw-bold">{{ money(d.total) }}</td></tr></tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header fw-semibold">Where the value comes from</div>
+      <div class="card-body"><canvas id="roiChart" height="190"></canvas></div>
+    </div>
+  </div>
+</div>
+
+{% for grp, items in d.sections.items() %}
+{% set sub = (d.summary | selectattr('group', 'equalto', grp) | first) %}
+<div class="card mb-3" id="roi-{{ grp }}">
+  <div class="card-header fw-semibold d-flex justify-content-between">
+    <span>{{ d.group_titles[grp] }}</span><span>{{ money(sub.value) }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm mb-0 align-middle">
+      <thead class="table-light"><tr><th>Item</th><th class="text-end">Uses</th><th class="text-end">Price each</th><th class="text-end">Value</th></tr></thead>
+      <tbody>
+      {% for i in items %}
+        <tr class="{% if not i.counted %}roi-muted{% endif %}">
+          <td>{{ i.label }}{% if i.note %}<div class="small text-muted">{{ i.note }}</div>{% endif %}{% if not i.counted %}<div class="small">Not counted (price set to $0)</div>{% endif %}</td>
+          <td class="text-end">{{ i.uses|commas }} {{ i.use_label }}</td>
+          <td class="text-end">{{ money(i.price, True) }}</td>
+          <td class="text-end">{{ money(i.value) }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endfor %}
+
+<div class="card mb-3">
+  <div class="card-header fw-semibold">How this is calculated</div>
+  <div class="card-body small">
+    <p class="mb-2">Each use is multiplied by what a resident would pay to get the same thing elsewhere. Return per $1 = total value ÷ operating spending. Usage comes from this database: physical checkouts from SIRSI (first checkouts, grouped by shelving location; renewals are not a new purchase), digital use from the Annual eResources entry, and computer sessions, program attendance and room bookings from Branch Stats.</p>
+    <p class="mb-0">The figure is deliberately conservative: anything without a clear market price is left at $0.
+    {% if d.not_counted %}Not counted this year:
+      {% for n in d.not_counted %}{{ n.uses|commas }} {{ n.label|lower }}{% if not loop.last %}; {% endif %}{% endfor %}.
+    {% endif %}</p>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm mb-0 small align-middle">
+      <thead class="table-light"><tr><th>Comparison</th><th class="text-end">Price</th><th>Basis</th></tr></thead>
+      <tbody>
+      {% for p in d.prices %}
+        <tr><td>{{ p.label }}</td>
+            <td class="text-end text-nowrap">{% if p.group_name == 'assumptions' %}{{ '%g'|format(p.price) }} {{ p.unit }}{% else %}{{ money(p.price, True) }} {{ p.unit }}{% endif %}</td>
+            <td>{% if p.source_url %}<a href="{{ p.source_url }}" target="_blank" rel="noopener">{{ p.basis }}</a>{% else %}{{ p.basis }}{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if d %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+  (function () {
+    const rows = {{ d.summary | map(attribute='title') | list | tojson }};
+    const vals = {{ d.summary | map(attribute='value') | list | tojson }};
+    new Chart(document.getElementById('roiChart'), {
+      type: 'bar',
+      data: { labels: rows, datasets: [{ data: vals, backgroundColor: '#1a4f9e' }] },
+      options: {
+        indexAxis: 'y',
+        plugins: { legend: { display: false },
+                   tooltip: { callbacks: { label: c => '$' + Math.round(c.raw).toLocaleString() } } },
+        scales: { x: { ticks: { callback: v => '$' + (v / 1e6).toFixed(1) + 'M' } } }
+      }
+    });
+  })();
+</script>
+{% endif %}
+{% endblock %}

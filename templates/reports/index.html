@@ -25,6 +25,11 @@
 {% endmacro %}
 
 <div class="row g-3 mb-3">
+  {{ report_card('report_roi', 'bi-cash-coin', '#117a65',
+      'Return on Investment',
+      'What a fiscal year of checkouts, eBooks, computer sessions, programs and room use would cost at market prices, compared with operating spending.',
+      'you need a dollar-value or "return per tax dollar" figure for the board, county or a grant.') }}
+
   {{ report_card('report_overview', 'bi-bar-chart-fill', '#1a4f9e',
       'Annual Overview',
       'A high-level snapshot comparing the two most recently completed fiscal years side by side.',

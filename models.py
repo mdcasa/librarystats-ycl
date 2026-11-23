@@ -578,3 +578,37 @@ def _ev_before_update(mapper, connection, target):
 def _ev_before_delete(mapper, connection, target):
     _record_history(connection, target, 'delete',
                     old_number=target.value_number, old_text=target.value_text)
+
+
+# ── Return on Investment report ──────────────────────────────────────────────
+# Market prices the ROI report (/reports/roi) multiplies usage by, editable by
+# admins at /reports/roi/settings. Defaults live in roi.py and are inserted at
+# startup only for keys that don't exist yet, so edits are never overwritten.
+
+class RoiPrice(db.Model):
+    __tablename__ = 'roi_prices'
+    id         = db.Column(db.Integer, primary_key=True)
+    key        = db.Column(db.String(50), unique=True, nullable=False)
+    group_name = db.Column(db.String(50), nullable=False)   # materials / digital / computers / programs / rooms / assumptions / other
+    label      = db.Column(db.String(200), nullable=False)
+    price      = db.Column(db.Float, nullable=False, default=0)
+    unit       = db.Column(db.String(50))                   # 'per checkout', 'per hour', 'hours' ...
+    basis      = db.Column(db.String(300))
+    source_url = db.Column(db.String(500))
+    sort_order = db.Column(db.Integer, default=0)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_by = db.Column(db.String(200))
+
+
+class RoiFiscalYear(db.Model):
+    """Operating spending / population for a fiscal year, entered by an admin.
+    When a year has no row, the ROI report falls back to the latest state
+    annual survey (Expenditures: Total operating / Population of the service area)."""
+    __tablename__ = 'roi_fiscal_years'
+    id                 = db.Column(db.Integer, primary_key=True)
+    fiscal_year        = db.Column(db.Integer, unique=True, nullable=False)
+    operating_spending = db.Column(db.Float)
+    population         = db.Column(db.Integer)
+    note               = db.Column(db.String(300))
+    updated_at         = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_by         = db.Column(db.String(200))

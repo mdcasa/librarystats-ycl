@@ -26,6 +26,7 @@ from models import (db, RoiPrice, RoiFiscalYear, Category, Metric, Branch, Entry
 MAINE = 'https://www.maine.gov/msl/services/calexplantion.htm'
 LRS = 'https://docs.google.com/spreadsheets/d/1ggkF524e8771ssQMJ1zbKQhSDyRRLOfLmQ2GE2LSPu8/edit?gid=0'
 SYRACUSE = 'https://truevalue.ischool.syr.edu/data-and-decisions/'
+PEERSPACE = 'https://www.peerspace.com/venues/rock-hill--sc/meetup-venue'
 FEDEX = 'https://www.office.fedex.com/default/computer-access'
 CINEMARK = 'https://www.cinemark.com/movie-news/articles/movie-ticket-prices-guide'
 MACRUMORS = 'https://www.macrumors.com/2025/08/22/F1-NOW-AVAILABLE-TO-BUY-OR-RENT/'
@@ -50,11 +51,16 @@ DEFAULT_PRICES = [
     ('program_adult', 'programs', 'Program attendee: teen / adult / all ages', 16.08, 'per attendee', '2025 average U.S. movie ticket (Cinemark)', CINEMARK),
     ('program_child', 'programs', 'Program attendee: children 0-11', 12.00, 'per attendee', "Children's movie-ticket value (Maine State Library, Nov 2019)", MAINE),
     ('take_make',     'programs', 'Take & Make / passive program participants', 0.00, 'per participant', 'Not counted by default', ''),
-    ('room_hour',     'rooms', 'Meeting room rental', 25.00, 'per hour', 'Syracuse University True Value estimate (LRS: $16 for two WeWork seats)', SYRACUSE),
+    ('room_hour',     'rooms', 'Meeting room rental (rooms seat 50-75)', 150.00, 'per hour', 'Rock Hill training/event space for 50 (Peerspace, Nov 2026); also the median of 11 local listings for 47-80 guests', PEERSPACE),
+    ('room_hour_small', 'rooms', 'Small meeting room rental (Clover, seats about 20)', 70.00, 'per hour', 'Median of local Peerspace meeting rooms for 15-20 guests ($65-$120, Nov 2026)', PEERSPACE),
     ('reference_question', 'reference', 'Reference questions answered', 2.24, 'per question', 'About 5 minutes of library staff time at $26.90/hour (Library Research Service, Jan 2026)', LRS),
     ('pc_hours',      'assumptions', 'Hours per PC reservation', 1.0, 'hours', 'Assumption: PC reservation system does not report session length', ''),
     ('room_hours',    'assumptions', 'Hours per meeting room booking', 2.0, 'hours', 'Assumption: booking length is not recorded', ''),
 ]
+
+# Branches whose meeting room seats about 20 (valued at room_hour_small);
+# every other branch's room seats 50-75 (room_hour).
+SMALL_ROOM_BRANCHES = ('Clover',)
 
 GROUP_TITLES = OrderedDict([
     ('materials', 'Materials checkout'),
@@ -151,6 +157,20 @@ def _survey_value(name, fy):
     return (v.value, v.report_year) if v else (None, None)
 
 
+def _branch_stats_by_branch(fy, name):
+    """One Branch Stats metric over a fiscal year, summed per branch name."""
+    bs = Category.query.filter_by(name='Branch Stats').first()
+    if not bs:
+        return {}
+    q = (db.session.query(Branch.name, func.sum(EntryValue.value_number))
+         .join(Entry, Entry.branch_id == Branch.id)
+         .join(EntryValue, EntryValue.entry_id == Entry.id)
+         .join(Metric, Metric.id == EntryValue.metric_id)
+         .filter(Entry.category_id == bs.id, Metric.name == name, _fy_filter(Entry, fy),
+                 Branch.name != 'YCL (System Wide)'))
+    return {b: (v or 0) for b, v in q.group_by(Branch.name).all()}
+
+
 def _spending(fy):
     """(operating spending, population, note) for a fiscal year."""
     row = RoiFiscalYear.query.filter_by(fiscal_year=fy).first()
@@ -244,11 +264,16 @@ def compute_roi(fy):
     add('programs', 'take_make', prices['take_make'].label if 'take_make' in prices else 'Take & Make',
         int(bs.get('Take & Makes / Other Passive Program Participants', 0)), price('take_make'), 'participants')
 
-    rooms = int(bs.get('External Party Library Room Use', 0))
     room_hours = price('room_hours') or 1.0
-    add('rooms', 'room_hour', 'Meeting room bookings (outside groups)', rooms,
+    by_branch = _branch_stats_by_branch(fy, 'External Party Library Room Use')
+    small = int(sum(v for b, v in by_branch.items() if b in SMALL_ROOM_BRANCHES))
+    large = int(sum(v for b, v in by_branch.items() if b not in SMALL_ROOM_BRANCHES))
+    add('rooms', 'room_hour', 'Meeting room bookings, rooms for 50-75', large,
         price('room_hour') * room_hours, 'bookings',
         f'{room_hours:g} hour(s) per booking at ${price("room_hour"):,.2f}/hour')
+    add('rooms', 'room_hour_small', f'Meeting room bookings, {", ".join(SMALL_ROOM_BRANCHES)} (room for about 20)',
+        small, price('room_hour_small') * room_hours, 'bookings',
+        f'{room_hours:g} hour(s) per booking at ${price("room_hour_small"):,.2f}/hour')
 
     # ── Reference help (annual state survey count) ────────────────────────
     ref_n, ref_yr = _survey_value('Number of Reference Transactions', fy)
